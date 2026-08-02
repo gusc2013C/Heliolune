@@ -21,6 +21,19 @@ test("job result files reject path-shaped identifiers", async () => {
   await assert.rejects(readJobRecord("../escape"), /Invalid Heliolune job id/);
 });
 
+test("an active job is not failed by a legacy expiry timestamp", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-renewable-job-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeJobRecord(jobId, {
+    status: "running",
+    ownerPid: process.pid,
+    expiresAt: new Date(Date.now() - 60_000).toISOString(),
+  }, root);
+  const waiting = waitForJobRecord(jobId, { root, timeoutMs: 1_000, pollMs: 10 });
+  setTimeout(() => void writeJobRecord(jobId, { status: "completed", result: { status: "completed" } }, root), 40);
+  assert.deepEqual(await waiting, { status: "completed" });
+});
+
 test("await fails an orphaned running job instead of hanging", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-orphan-job-"));
   t.after(() => rm(root, { recursive: true, force: true }));

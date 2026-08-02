@@ -26,15 +26,15 @@ controller review and final acceptance
 - **Lane:** a function-affine reusable worker context that improves cache locality.
 - **Verifier:** an independent, read-only worker used only when risk or the requested claim justifies it.
 - **Profile:** a routing policy: four-way parallel speed-first by default, with persistent token-first reserved for explicit safety fallback.
-- **Adapter:** host/model-specific code that starts sessions, sends turns, interrupts timeouts, and records usage.
+- **Adapter:** host/model-specific code that starts sessions, sends turns, evaluates renewable liveness, and records usage.
 
 ## Current Codex adapter
 
 The first adapter uses GPT-5.6 Sol as controller and communicates with the official Codex CLI through `app-server`. Token-first exposes four persistent GPT-5.6 Luna/max lanes. Speed-first exposes four stable-default or eight experimental Luna/max burst slots for Sol-defined independent workstreams. Read-only burst sessions may be reused; mutating workstreams use fresh ephemeral sessions in isolated Git worktrees so checkout context cannot leak between workers. All sessions stay out of the ordinary Desktop task list.
 
-A fifth shared Luna operations-leader session runs at `high` by default. It sees compact liveness metadata and structured owner/verifier bundles rather than repository contents. It may recommend continue/interrupt for stale turns and compress dense handoffs, but it cannot plan, assign, judge correctness beyond a verifier verdict, or accept results. Recent activity bypasses the model, while the original deterministic hard timeout remains absolute. `xhigh` is available for ambiguous liveness diagnostics without paying `max` on routine supervision.
+A fifth shared Luna operations-leader session runs at `high` by default. It sees compact liveness metadata and structured owner/verifier bundles rather than repository contents. It may recommend continue/interrupt for stale turns and compress dense handoffs, but it cannot plan, assign, judge correctness beyond a verifier verdict, or accept results. Recent activity bypasses the model and renews execution indefinitely; only a high-confidence stall decision after sustained silence can interrupt. `xhigh` remains available for unusually ambiguous liveness diagnostics without paying `max` on routine supervision.
 
-For speed-first workstreams, 90 seconds is a sizing target and shared management checkpoint, not a hard cap. Bounded per-worker deadlines may extend to 600 seconds. One shared Leader session coalesces simultaneous checkpoint requests into a single turn containing current active-slot snapshots and returns per-slot continue/interrupt recommendations. A later queued wave may use another bounded turn on that same warm session; there is no model polling. The Leader does not redistribute work. Completed siblings are isolated from a failed or slow slot, and the same Leader thread later aggregates every terminal outcome for Sol.
+For speed-first workstreams, 90 seconds is a sizing target and first shared management checkpoint, never a deadline. Each active worker holds a renewable lease. One shared Leader session coalesces sustained-silence checks into a turn containing current active-slot snapshots and returns per-slot continue/interrupt recommendations. Ambiguous or unavailable decisions keep the lease active for another check. Workstreams are consumed from a shared queue, so the first idle slot immediately claims the next item while slower siblings continue. The Leader does not plan or redistribute work; the deterministic scheduler executes Sol's existing queue. Completed siblings remain isolated from a failed or slow slot, and the same Leader thread later aggregates every terminal outcome for Sol.
 
 Leader reporting is adaptive. Small low-risk results return directly and append a bounded lifecycle digest to a persistent backlog. A large or risky task, verifier result, reserved boundary, or Sol escalation wakes the Leader and includes those deferred digests. This preserves cross-lane operational continuity without paying a fifth model turn for every small task.
 
@@ -56,7 +56,9 @@ Only then are all patches applied and immediately unstaged for Sol review. If an
 
 Codex Desktop uses two stdio MCP servers. The normal path is one compact `luna-pool.start_task` call; the pool server deterministically expands it into four workstreams and returns immediately after creating the background job and native status surface. `luna-await.await_task` then blocks on an atomically written result file. Splitting the servers is necessary because a blocking request serializes calls to one server; the native window can continue reading local snapshots without another Sol turn or model session.
 
-Running records carry the pool-server PID, process start, heartbeat, and bounded expiry. `luna-await` verifies that owner while blocked; if the owner process exits before a terminal write, it atomically converts the stale record to failure. The native window performs the same owner check for local visibility. This prevents an abandoned `running` snapshot from looking like a permanently hung Luna pool.
+Running records carry the pool-server PID, process start, and heartbeat, but no wall-clock expiry. `luna-await` verifies the owner while blocked; if the owner process exits before a terminal write, it atomically converts the stale record to failure. The native window performs the same owner check for local visibility. This prevents an abandoned `running` snapshot from looking like a permanently hung Luna pool without killing live work.
+
+Codex MCP configuration requires a finite transport guard even though Heliolune's internal await has no deadline. The packaged `luna-await` guard is 24 hours. If the host request itself reaches that guard, the separately owned background job continues; the guard is not forwarded to a worker and does not interrupt its app-server turn.
 
 Windows uses one WPF panel launched through the inbox WSH/Windows PowerShell runtime. Heliolune no longer provides a second inline task panel. The native window can be disabled with `HELIOLUNE_STATUS_WINDOW=off`. It publishes a short-lived ready marker only after rendering; task snapshots and results are written atomically under the user's local Codex data directory.
 
@@ -64,9 +66,7 @@ The panel builds cards from the active job, so it can show fixed token-first lan
 
 Hosts that attach an MCP progress token may also receive monotonically increasing, rate-limited standard `notifications/progress` from the start call's watchdog snapshots. The model-visible contract remains start once and await once.
 
-Hard timeouts are classified from the final activity snapshot as `hard_timeout_active` or `hard_timeout_stalled`. The registry retains only the compact diagnostic and counters, not the worker transcript.
-
-Before that hard deadline, the adapter reserves a 40–60 second finalization window. A live work turn that consumes its exploration budget receives an in-turn `turn/steer` instruction and 10–20 seconds to stop tools and emit the result schema from evidence already gathered. This preserves active reasoning and context locality while permitting an honest partial result. A completed turn with invalid JSON may use one same-thread, no-tools fallback turn. Stalled turns do not enter fallback finalization, and the total deadline is never extended.
+The adapter records compact liveness diagnostics and counters, not the worker transcript. It never steers active work merely because wall time elapsed. A completed turn with invalid JSON may use one same-thread, no-tools schema-repair turn; sustained-silence interruption remains a separate liveness decision.
 
 ## Reserved decisions
 

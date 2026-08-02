@@ -1,4 +1,4 @@
-export function compactLeaderPrompt({ taskId, lane, objective, acceptance, owner, verifier, finalization, timing, backlog = [] }) {
+export function compactLeaderPrompt({ taskId, lane, objective, acceptance, owner, verifier, schemaRecovery, timing, backlog = [] }) {
   return [
     `REPORT_DELTA ${JSON.stringify({
       taskId,
@@ -7,7 +7,7 @@ export function compactLeaderPrompt({ taskId, lane, objective, acceptance, owner
       acceptance,
       owner,
       verifier,
-      finalization,
+      schemaRecovery,
       timing,
       deferredTaskDigests: backlog,
     })}`,
@@ -77,7 +77,7 @@ export function buildControllerResult({
   includeRawResults,
   routing,
   supervision,
-  finalization,
+  schemaRecovery,
   usage,
   cost,
   timing,
@@ -90,7 +90,7 @@ export function buildControllerResult({
       verifier,
       routing: { ...routing, leaderUsed: false, leaderError },
       supervision,
-      finalization,
+      schemaRecovery,
       usage,
       cost,
       timing,
@@ -103,7 +103,7 @@ export function buildControllerResult({
     ...(includeRawResults ? { audit: { owner, verifier } } : {}),
     routing: compactRouting(routing),
     ...(supervision && supervision.source !== "activity" ? { supervision } : {}),
-    ...(finalization?.attempted ? { finalization } : {}),
+    ...(schemaRecovery?.attempted ? { schemaRecovery } : {}),
     usage: compactUsage(usage),
     cost: compactCost(cost),
     timing,

@@ -35,7 +35,7 @@ test("progress reporter stays silent without a client progress token", () => {
 test("worker progress includes lane, elapsed time, events, cache, and last activity", () => {
   const update = workerProgress({
     lane: "core",
-    hardMs: 120_000,
+    targetMs: 120_000,
     snapshot: {
       elapsedMs: 30_000,
       eventCount: 17,

@@ -4,6 +4,33 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.4] - 2026-08-03
+
+### Renewable worker liveness
+
+- Remove fixed worker execution deadlines, active-turn finalization steering, job expiry timestamps, and the await server's 65-minute cutoff. An active worker may now run until its natural terminal result.
+- Replace the public `timeoutSeconds` field with `checkpointSeconds`. This is only the first renewable liveness check and is capped at the 90-second decomposition target; it never limits execution duration.
+- Recheck liveness every 30 seconds after the first checkpoint. Recent app-server activity renews locally without a Leader model turn. Sustained silence wakes the shared Luna/high Leader, and only a high-confidence stall decision can interrupt; ambiguous, unavailable, or low/medium-confidence decisions continue.
+- Keep orphan protection: a job becomes failed when its owning orchestrator process exits, without treating elapsed wall time as failure.
+- Preserve a single same-thread Luna/high recovery only for a completed turn that returned invalid JSON.
+
+### Parallel scheduling and diagnostics
+
+- Make the existing shared-queue behavior explicit and tested: an idle burst slot immediately claims the next queued workstream while slower siblings continue. The Leader still does not plan or redistribute scope.
+- Capture authoritative `item/completed` final-answer items when `turn/completed` is delayed or missing, and retain compact failure diagnostics for app-server activity and structured-output recovery.
+- Remove an obsolete benchmark-harness deadline that could terminate a still-running source test independently of Heliolune.
+- Remove all timing fields from the normal `start_task` schema and shorten tool descriptions. The installed pool surface falls from approximately 1,447 to 1,151 schema tokens (-20.46%); the normal `runtime_info` + `start_task` path falls from 643 to 480 (-25.35%), and advanced `start_batch` from 579 to 447 (-22.79%).
+- Keep only a 24-hour Codex MCP transport guard around the single await call. It is not a worker deadline and cannot cancel the independently running background job.
+
+### Validation
+
+- Pass 72 dependency-free automated tests, including renewable completion beyond a fixed completion window, repeated silent-stall judgment, legacy-expiry immunity, idle-slot queue claiming, and conservative Leader treatment of unsupported worker risks.
+- Complete a real five-workstream/four-slot Luna/max run with a 30-second first checkpoint in 64.515 seconds. Two workers naturally completed after the checkpoint (37.972s and 48.871s), the queued fifth stream was claimed by `burst-2`, and recent activity avoided all management turns.
+- Complete a real eight-workstream/eight-slot Luna/max run with the same 30-second checkpoint in 114.065 seconds. All 8/8 streams completed, including a 92.968-second tail worker, without a management turn or time-based interruption; eight-way remains opt-in because of tail variance.
+- Complete real four-way read-only and two-worker isolated-write smokes. The write run safely applied both disjoint paths, left the index clean, and removed temporary worktrees.
+- Complete a final default `start_task` run in 241.912 seconds with all 4/4 Luna/max workers successful. Two workers naturally ran for 162.639 and 218.899 seconds, management checks remained zero because activity renewed locally, and no elapsed-time boundary interrupted them.
+- Record and harden against a Luna review hallucination found in that run: Leader aggregation now labels unsupported worker risks as candidate findings, never upgrades their severity, and does not present Leader confidence as a correctness verdict.
+
 ## [0.6.3] - 2026-08-02
 
 ### Runtime identity and visibility

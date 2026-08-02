@@ -4,6 +4,33 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.6.4] - 2026-08-03
+
+### 可续租 worker 存活机制
+
+- 删除固定 worker 执行截止、活动 turn 的 finalization steer、job 过期时间，以及 await server 的 65 分钟截止。活动 worker 现在可以一直运行到自然终态。
+- 公共字段从 `timeoutSeconds` 改为 `checkpointSeconds`。它只是首次可续租存活检查，最大为 90 秒拆分目标，绝不限制执行时长。
+- 首次检查后每 30 秒重查存活。近期 app-server 活动在本地直接续租，不调用 Leader；持续静默才唤醒共享 Luna/high Leader，且只有高置信度 stall 判断才能 interrupt。模糊、不可用或低/中置信度判断都会继续运行。
+- 保留 orphan 保护：只有编排进程退出才把运行中 job 转为失败，不再把墙钟时间当作失败。
+- 只在 completed turn 返回非法 JSON 时保留一次同 thread Luna/high schema repair。
+
+### 并行调度与诊断
+
+- 明确并测试共享队列：任一空闲 burst slot 会立即领取下一项，不等待较慢 sibling。Leader 仍不规划或重新分配 scope。
+- 当 `turn/completed` 延迟或缺失时，接收权威 `item/completed` final-answer item；失败结果保留紧凑 app-server 活动与 schema repair 诊断。
+- 删除会在 Heliolune 之外终止活动源码测试的旧 benchmark harness 截止。
+- 从常规 `start_task` schema 删除全部时间字段并缩短工具说明。安装后的 pool 工具面约从 1,447 降到 1,151 schema token（-20.46%）；常规 `runtime_info` + `start_task` 从 643 降到 480（-25.35%），高级 `start_batch` 从 579 降到 447（-22.79%）。
+- 只保留 Codex 对单次 await 请求要求的 24 小时 MCP transport 保护；它不是 worker 截止，也不能取消独立运行的后台 job。
+
+### 验证
+
+- 72 项无依赖自动化测试全部通过，覆盖超过固定 completion window 后的续租完成、多轮静默卡死判断、忽略旧 expiry、空闲 slot 队列领取，以及 Leader 对未证实 worker 风险的保守处理。
+- 真实 5 workstream / 4 slot Luna/max 在 30 秒首次检查点下用时 64.515 秒。两个 worker 在检查点后自然完成（37.972 秒、48.871 秒），第五项由 `burst-2` 接力；因持续有近期活动，管理 Leader 调用为 0。
+- 同一 30 秒检查点下，真实 8 workstream / 8 slot Luna/max 用时 114.065 秒，8/8 全部完成；最慢 worker 为 92.968 秒，没有管理 turn 或时间型中止。因长尾方差，8 路仍保持 opt-in。
+- 真实四路只读与双 worker 隔离写 smoke 均完成；写入场景安全应用两个非重叠路径、index 保持干净，并清除临时 worktree。
+- 最终默认 `start_task` 真实运行用时 241.912 秒，4/4 Luna/max 全部成功；两个 worker 自然运行 162.639 与 218.899 秒，因活动在本地续租，管理检查仍为 0，也没有时间型中止。
+- 记录并收紧该运行中发现的一条 Luna review 幻觉：Leader 汇总现在必须把未证实风险标为候选发现，不得提高严重级别，也不得把 Leader confidence 表述为正确性结论。
+
 ## [0.6.3] - 2026-08-02
 
 ### 运行时身份与界面

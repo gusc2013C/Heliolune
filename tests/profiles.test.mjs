@@ -7,6 +7,7 @@ import {
   adaptiveBudgets,
   batchSupervisionSchedule,
   burstLanes,
+  compactBatchLeaderPrompt,
   compactBatchSupervisorPrompt,
   compactBurstTask,
   defaultParallelWorkstreams,
@@ -75,16 +76,19 @@ test("speed-first accepts unique Sol-defined workstreams and isolates narrow wri
 });
 
 test("shared batch Leader checkpoint encourages 90-second workstreams without imposing a hard cap", () => {
-  assert.equal(batchSupervisionSchedule(90).enabled, false);
   assert.deepEqual(batchSupervisionSchedule(120), {
     enabled: true,
-    hardMs: 120_000,
+    renewable: true,
     checkpointMs: 90_000,
-    leaderTimeoutMs: 25_000,
+    repeatMs: 30_000,
+    staleMs: 45_000,
+    leaderTimeoutMs: 30_000,
+    sizingTargetMs: 90_000,
   });
+  assert.equal(batchSupervisionSchedule(60).checkpointMs, 60_000);
   const long = batchSupervisionSchedule(600);
   assert.equal(long.checkpointMs, 90_000);
-  assert.equal(long.hardMs, 600_000);
+  assert.equal(long.hardMs, undefined);
   assert.equal(long.leaderTimeoutMs, 30_000);
 });
 
@@ -123,6 +127,19 @@ test("mutating burst prompts reserve verification after the last edit", () => {
   assert.match(prompt, /hidden tests belong in risks/);
 });
 
+test("batch Leader keeps unsupported Luna risks as candidate findings", () => {
+  const prompt = compactBatchLeaderPrompt({
+    batchId: "batch-1",
+    workstreams: [{ id: "review", lane: "verifier", objective: "Review the contract" }],
+    outcomes: [{ id: "review", status: "completed", risks: [{ severity: "high", issue: "Unverified claim" }] }],
+    integration: { applied: true, reason: "not-required" },
+    timing: { workerWallMs: 100 },
+  });
+  assert.match(prompt, /candidate findings/);
+  assert.match(prompt, /unsupported claims/);
+  assert.match(prompt, /confidence is a correctness verdict/);
+});
+
 test("shared batch Leader manages every active slot without taking over planning", () => {
   const prompt = compactBatchSupervisorPrompt({
     batchId: "batch-1",
@@ -135,6 +152,7 @@ test("shared batch Leader manages every active slot without taking over planning
   assert.match(prompt, /burst-1/);
   assert.match(prompt, /burst-2/);
   assert.match(prompt, /recommend continue/);
+  assert.match(prompt, /renewable leases/);
   assert.match(prompt, /Do not inspect the repository/);
   assert.match(prompt, /plan or reassign work/);
 });
@@ -154,4 +172,19 @@ test("bounded concurrency assigns no more than the selected burst slots", async 
   assert.deepEqual(results, [2, 4, 6, 8, 10, 12]);
   assert.equal(maximumActive, 4);
   assert.equal(slots.size, 4);
+});
+
+test("an idle burst slot immediately claims queued work while a sibling remains active", async () => {
+  const starts = [];
+  let longFinished = false;
+  await mapWithConcurrency(["long", "short-a", "short-b", "short-c", "queued"], 4, async (item, _index, slotIndex) => {
+    starts.push({ item, slotIndex, longFinished });
+    await new Promise((resolve) => setTimeout(resolve, item === "long" ? 80 : 10));
+    if (item === "long") longFinished = true;
+    return item;
+  });
+  const queued = starts.find((entry) => entry.item === "queued");
+  assert.ok(queued);
+  assert.equal(queued.longFinished, false);
+  assert.notEqual(queued.slotIndex, 0);
 });

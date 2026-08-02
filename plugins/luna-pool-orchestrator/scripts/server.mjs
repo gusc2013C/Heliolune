@@ -22,7 +22,7 @@ import {
   sumUsage,
 } from "./pricing.mjs";
 import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
-import { activityAwareGraceMs, compactSteerPrompt, compactSynthesisPrompt, finalizationSchedule, shouldAttemptSynthesis } from "./finalization.mjs";
+import { compactSchemaRecoveryPrompt } from "./schema-recovery.mjs";
 import { buildControllerResult, compactCost, compactLeaderPrompt, compactUsage, shouldUseLeader } from "./leader.mjs";
 import { createProgressReporter, weightedWorkstreamProgress, workerProgress } from "./progress.mjs";
 import { JobStore } from "./jobs.mjs";
@@ -53,8 +53,8 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-const VERSION = "0.6.3";
-const PROMPT_VERSION = "mcp-v12-final-verification";
+const VERSION = "0.6.4";
+const PROMPT_VERSION = "mcp-v13-renewable-liveness";
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
 const STATUS_LANGUAGE = detectSystemLanguage() === "zh-CN"
@@ -267,18 +267,17 @@ const RUN_INPUT_SCHEMA = {
   required: ["cwd", "lane", "mode", "objective", "acceptance", "scope"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
-    lane: { type: "string", enum: ["core", "tests", "integration"], description: "Stable function-affine owner lane." },
-    mode: { type: "string", enum: ["analyze", "implement", "repair"], description: "Whether Luna may modify repository files." },
-    objective: { type: "string", maxLength: 2000, description: "Compact task objective; omit repository text and stable background." },
+    lane: { type: "string", enum: ["core", "tests", "integration"] },
+    mode: { type: "string", enum: ["analyze", "implement", "repair"] },
+    objective: { type: "string", maxLength: 2000, description: "Compact outcome; omit file contents and stable background." },
     acceptance: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", maxLength: 500 } },
     repoState: { type: "string", maxLength: 1000, description: "Only volatile state such as commit, failing command, or dirty paths." },
     scope: { type: "array", minItems: 1, maxItems: 12, items: { type: "string", maxLength: 300 } },
     risk: { type: "string", enum: ["low", "moderate", "high"], default: "moderate" },
     reservedBoundary: { type: "boolean", default: false, description: "True for architecture, security boundary, public API, or irreversible migration." },
-    profile: { type: "string", enum: ["speed-first", "token-first"], default: "speed-first", description: "Default auto-generates four parallel Luna workstreams. Use token-first only when isolated writes are unsafe." },
-    timeoutSeconds: { type: "integer", minimum: 30, maximum: 600, default: 120 },
-    maxFiles: { type: "integer", minimum: 3, maximum: 30, description: "Optional override; defaults adapt to task mode and risk." },
-    maxCommands: { type: "integer", minimum: 3, maximum: 50, description: "Optional override; defaults adapt to task mode and risk." },
+    profile: { type: "string", enum: ["speed-first", "token-first"], default: "speed-first", description: "Use token-first only when isolated writes are unsafe." },
+    maxFiles: { type: "integer", minimum: 3, maximum: 30 },
+    maxCommands: { type: "integer", minimum: 3, maximum: 50 },
   },
 };
 
@@ -288,9 +287,9 @@ const BATCH_INPUT_SCHEMA = {
   required: ["cwd", "workstreams"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
-    parallelism: { type: "integer", enum: [4, 8], default: 4, description: "Four is the stable default; eight is an experimental low-latency burst with higher tail variance." },
+    parallelism: { type: "integer", enum: [4, 8], default: 4, description: "Eight is experimental and has higher tail variance." },
     workstreams: {
-      type: "array", minItems: 2, maxItems: 8, description: "Independent Sol-defined workstreams. Writes require clean Git state and disjoint narrow scopes. Prefer work sized near 90 seconds.",
+      type: "array", minItems: 2, maxItems: 8, description: "Independent Sol-defined streams; writes need clean Git and disjoint scopes.",
       items: {
         type: "object", additionalProperties: false,
         required: ["id", "lane", "objective", "acceptance", "scope"],
@@ -307,9 +306,9 @@ const BATCH_INPUT_SCHEMA = {
         },
       },
     },
-    timeoutSeconds: { type: "integer", minimum: 30, maximum: 600, default: 120, description: "Independent hard deadline per workstream. This may exceed the recommended 90-second target; one shared Leader manages active sessions at the checkpoint." },
-    maxFiles: { type: "integer", minimum: 3, maximum: 30, description: "Optional override; defaults adapt to the mutating workstream and highest risk." },
-    maxCommands: { type: "integer", minimum: 3, maximum: 50, description: "Optional override; defaults adapt to the mutating workstream and highest risk." },
+    checkpointSeconds: { type: "integer", minimum: 30, maximum: 90, default: 90, description: "First renewable liveness check; never an execution deadline." },
+    maxFiles: { type: "integer", minimum: 3, maximum: 30 },
+    maxCommands: { type: "integer", minimum: 3, maximum: 50 },
   },
 };
 
@@ -332,7 +331,7 @@ const INIT_INPUT_SCHEMA = {
     priority: { type: "string", enum: ["token-first", "speed-first"], default: "speed-first", description: "Four-way speed-first is the default; token-first is an explicit safety fallback." },
     parallelism: { type: "integer", enum: [4, 8], default: 4, description: "Only used when priority=speed-first." },
     healthTurn: { type: "boolean", default: false, description: "Run a minimal paid Luna turn on every selected lane. False checks availability and creates/resumes sessions without a model turn." },
-    timeoutSeconds: { type: "integer", minimum: 30, maximum: 900, default: 300 },
+    checkpointSeconds: { type: "integer", minimum: 30, maximum: 90, default: 90, description: "First renewable liveness checkpoint for optional paid health turns." },
   },
 };
 
@@ -343,7 +342,7 @@ const TOOLS = [
   {
     name: "runtime_info",
     title: "Read Heliolune runtime identity",
-    description: "Return loaded version, routing defaults, worker visibility, and status surface without invoking a model.",
+    description: "Return loaded version and routing identity without invoking a model.",
     inputSchema: { type: "object", additionalProperties: false, properties: {} },
     annotations: READ_ONLY_ANNOTATIONS,
   },
@@ -357,14 +356,14 @@ const TOOLS = [
   {
     name: "start_batch",
     title: "Start default parallel Heliolune batch",
-    description: "Default route: run 2-8 meaningful Sol-defined workstreams on four Luna/max workers (or explicit eight). One writer may be paired with independent read-only contract, edge-case, test, or verification streams. Writes use clean detached Git worktrees and apply only disjoint in-scope patches. Await once.",
+    description: "Advanced: run 2-8 Sol-defined streams on four or eight Luna/max slots. Writes use isolated Git worktrees. Await once.",
     inputSchema: BATCH_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
   {
     name: "start_task",
     title: "Start Heliolune task",
-    description: "Default fast path: send one compact task and auto-run an exact-scope Luna/max owner plus contract, edge/test, and correctness reviewers in parallel. Set profile=token-first only when isolated writes are unsafe. Await once.",
+    description: "Default: expand one compact task into four Luna/max streams; use token-first only when write isolation is unsafe. Await once.",
     inputSchema: RUN_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
@@ -551,7 +550,7 @@ async function initializePool(args, context = {}) {
   const registry = await readRegistry();
   const key = projectKey(cwd);
   const project = registry.projects[key] ??= { cwd, lanes: {}, createdAt: new Date().toISOString() };
-  const timeoutMs = (args.timeoutSeconds ?? 300) * 1000;
+  const checkpointMs = (args.checkpointSeconds ?? 90) * 1000;
   const priority = args.priority ?? DEFAULT_PROFILE.id;
   const parallelism = priority === SPEED_FIRST.id ? speedParallelism(args.parallelism) : TOKEN_FIRST.defaultParallelism;
   const poolLanes = priority === SPEED_FIRST.id ? [...burstLanes(parallelism), "supervisor"] : LANES;
@@ -566,7 +565,28 @@ async function initializePool(args, context = {}) {
       const healthText = lane === "supervisor"
         ? "HEALTH_DELTA Do not inspect repository contents. Return ok=true and your lane name."
         : "HEALTH_DELTA Inspect the repository root read-only, then return ok=true and your lane name.";
-      run = await instance.runTurn({ threadId: state.threadId, text: healthText, cwd, sandboxPolicy: sandbox.policy, outputSchema: schema, timeoutMs, effort: lane === "supervisor" ? "high" : "max" });
+      let previousEvents = -1;
+      let silentChecks = 0;
+      run = await instance.runTurn({
+        threadId: state.threadId, text: healthText, cwd, sandboxPolicy: sandbox.policy,
+        outputSchema: schema, timeoutMs: checkpointMs, effort: lane === "supervisor" ? "high" : "max",
+        watchdog: {
+          renewable: true,
+          afterMs: checkpointMs,
+          repeatMs: 30_000,
+          onCheck: async (snapshot) => {
+            if (snapshot?.eventCount > previousEvents || snapshot?.silentMs < 45_000) {
+              previousEvents = snapshot?.eventCount ?? previousEvents;
+              silentChecks = 0;
+              return { action: "continue", confidence: "high", reason: "Health turn activity renewed its lease.", source: "activity" };
+            }
+            silentChecks += 1;
+            return silentChecks >= 2
+              ? { action: "interrupt", confidence: "high", reason: "Health turn remained silent across consecutive liveness checks.", source: "deterministic-health" }
+              : { action: "continue", confidence: "low", reason: "One silent health sample is ambiguous.", source: "deterministic-health" };
+          },
+        },
+      });
       state.turns += 1;
       state.lastUsage = usageBreakdown(run);
       state.uncachedInputTokens += Math.max(0, state.lastUsage.inputTokens - state.lastUsage.cachedInputTokens);
@@ -601,44 +621,96 @@ async function runTask(args, context = {}) {
     const project = registry.projects[key] ??= { cwd, lanes: {}, createdAt: new Date().toISOString() };
     const sandbox = sandboxFor(args.mode, cwd);
     const ownerLane = await ensureLane(instance, registry, project, args.lane, cwd, sandbox.legacy);
-    const timeoutSeconds = args.timeoutSeconds ?? 120;
-    const timeoutMs = timeoutSeconds * 1000;
-    const deadlineAt = startedAt + timeoutMs;
-    const finalizationPlan = finalizationSchedule({
-      timeoutSeconds,
-      synthesisReserveSeconds: args.synthesisReserveSeconds,
-      finalization: args.finalization,
-    });
+    const checkpointSeconds = args.checkpointSeconds ?? 90;
+    const checkpointMs = checkpointSeconds * 1000;
     context.progress?.report(2, `Heliolune Leader · routed to ${args.lane} Luna/max · ${args.scope?.length ?? 0} scope entries · execution starting`, {
       force: true, workerLane: args.lane, workerStatus: "working", workerProgress: 2,
     });
     const schedule = supervisionSchedule({
-      timeoutSeconds,
-      softTimeoutSeconds: args.softTimeoutSeconds,
+      checkpointSeconds,
       staleAfterSeconds: args.staleAfterSeconds,
       supervision: args.supervision,
     });
     let supervisorRun = null;
+    const supervisorRuns = [];
     let supervisorAttempted = false;
     let supervisorError = null;
-    let supervisorFailureUsage = null;
+    const supervisorFailureUsages = [];
     let softTimeoutReached = false;
-    let ownerWorkUsage = null;
     let fallbackTurnAttempted = false;
-    let finalization = {
-      enabled: finalizationPlan.enabled,
+    let schemaRecovery = {
       attempted: false,
       recovered: false,
-      reserveMs: finalizationPlan.reserveMs,
       trigger: null,
     };
+    const livenessWatchdog = (workerLane, workerMode, objective) => ({
+      renewable: true,
+      afterMs: schedule.checkpointMs,
+      repeatMs: schedule.repeatMs,
+      onCheck: async (rawSnapshot) => {
+        softTimeoutReached = true;
+        const snapshot = rawSnapshot ?? {
+          elapsedMs: schedule.checkpointMs, silentMs: schedule.checkpointMs, eventCount: 0,
+          lastMethod: "unknown", usage: null,
+        };
+        if (!shouldConsultSupervisor(snapshot, schedule, args.supervision ?? "auto")) {
+          return { action: "continue", confidence: "high", reason: "Recent app-server activity renewed the worker lease.", source: "activity" };
+        }
+        supervisorAttempted = true;
+        try {
+          context.progress?.report(64, `Heliolune Leader · supervisor checking ${workerLane} after sustained silence`, {
+            force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
+          });
+          const supervisorResult = await withLaneLock(`${key}:supervisor`, async () => {
+            const supervisorLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
+            supervisorRun = await instance.runTurn({
+              threadId: supervisorLane.threadId,
+              text: compactSupervisorPrompt({ lane: workerLane, mode: workerMode, objective, snapshot, schedule }),
+              cwd,
+              sandboxPolicy: { type: "readOnly", networkAccess: false },
+              outputSchema: SUPERVISOR_SCHEMA,
+              timeoutMs: schedule.supervisorTimeoutMs,
+              effort: args.supervisorEffort ?? "high",
+              onActivity: (activity) => {
+                const update = workerProgress({ lane: "supervisor", snapshot: activity, targetMs: schedule.supervisorTimeoutMs });
+                context.progress?.report(64.5, update.message, {
+                  workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
+                  explanation: update.explanation,
+                });
+              },
+            });
+            supervisorLane.turns += 1;
+            supervisorLane.lastUsedAt = new Date().toISOString();
+            supervisorLane.lastUsage = usageBreakdown(supervisorRun);
+            supervisorLane.uncachedInputTokens += supervisorLane.lastUsage.uncachedInputTokens;
+            supervisorRuns.push(supervisorRun);
+            const decision = { ...supervisorRun.output, source: "luna-supervisor", snapshot };
+            if (decision.action === "interrupt" && decision.confidence !== "high") {
+              return { ...decision, action: "continue", originalAction: "interrupt", reason: "Only a high-confidence liveness judgment may stop a silent worker." };
+            }
+            return decision;
+          });
+          context.progress?.report(65, "Heliolune Leader · supervisor liveness report received", {
+            force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
+            explanation: supervisorResult.reason,
+          });
+          return supervisorResult;
+        } catch (error) {
+          supervisorError = error.message;
+          const failureUsage = error.activity?.usage ?? null;
+          if (failureUsage) supervisorFailureUsages.push(failureUsage);
+          return { action: "continue", confidence: "low", reason: "Supervisor check was unavailable; the worker lease remains active and will be checked again.", source: "supervisor-error" };
+        }
+      },
+    });
+    const ownerWatchdog = livenessWatchdog(args.lane, args.mode, args.objective);
     let ownerRun;
     try {
       ownerRun = await instance.runTurn({
         threadId: ownerLane.threadId, text: compactTask(args), cwd,
-        sandboxPolicy: sandbox.policy, outputSchema: RESULT_SCHEMA, timeoutMs,
+        sandboxPolicy: sandbox.policy, outputSchema: RESULT_SCHEMA, timeoutMs: checkpointMs,
         onActivity: (snapshot) => {
-          const update = workerProgress({ lane: args.lane, snapshot, hardMs: timeoutMs });
+          const update = workerProgress({ lane: args.lane, snapshot, targetMs: schedule.sizingTargetMs });
           context.progress?.report(update.progress, update.message, {
             workerLane: args.lane,
             workerStatus: "working",
@@ -646,135 +718,50 @@ async function runTask(args, context = {}) {
             explanation: update.explanation,
           });
         },
-        steer: finalizationPlan.enabled ? {
-          afterMs: finalizationPlan.workMs,
-          forceAfterMs: finalizationPlan.steerGraceMs,
-          text: compactSteerPrompt({ objective: args.objective, acceptance: args.acceptance }),
-          shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < (schedule.staleMs ?? 45_000),
-          onStatus: ({ phase }) => {
-            const messages = {
-              attempted: `Heliolune Leader · ${args.lane} work budget reached · requesting in-turn structured finalization`,
-              accepted: `Heliolune Leader · ${args.lane} accepted finalization steering · waiting for its compact result`,
-              skipped: `Heliolune Leader · ${args.lane} is stale · finalization steering skipped`,
-              failed: `Heliolune Leader · ${args.lane} finalization steering was not accepted · hard deadline remains active`,
-              forced: `Heliolune Leader · ${args.lane} finalization exceeded its reserve · switching to bounded Luna/high synthesis`,
-            };
-            context.progress?.report(66, messages[phase] ?? `Heliolune Leader · ${args.lane} finalization status: ${phase}`, { force: true });
-          },
-        } : null,
-        watchdog: schedule.enabled ? {
-          afterMs: schedule.softMs,
-          onCheck: async (rawSnapshot) => {
-            softTimeoutReached = true;
-            const snapshot = rawSnapshot ?? {
-              elapsedMs: schedule.softMs, silentMs: schedule.softMs, eventCount: 0,
-              lastMethod: "unknown", usage: null,
-            };
-            if (!shouldConsultSupervisor(snapshot, schedule, args.supervision ?? "auto")) {
-              return { action: "continue", confidence: "high", reason: "Recent app-server activity indicates the worker is still live.", source: "activity" };
-            }
-            supervisorAttempted = true;
-            try {
-              context.progress?.report(64, `Heliolune Leader · supervisor checking ${args.lane} liveness`, {
-                force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
-              });
-              const supervisorResult = await withLaneLock(`${key}:supervisor`, async () => {
-                const supervisorLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
-                supervisorRun = await instance.runTurn({
-                  threadId: supervisorLane.threadId,
-                  text: compactSupervisorPrompt({ lane: args.lane, mode: args.mode, objective: args.objective, snapshot, schedule }),
-                  cwd,
-                  sandboxPolicy: { type: "readOnly", networkAccess: false },
-                  outputSchema: SUPERVISOR_SCHEMA,
-                  timeoutMs: schedule.supervisorTimeoutMs,
-                  effort: args.supervisorEffort ?? "high",
-                  onActivity: (activity) => {
-                    const update = workerProgress({ lane: "supervisor", snapshot: activity, hardMs: schedule.supervisorTimeoutMs });
-                    context.progress?.report(64.5, update.message, {
-                      workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
-                      explanation: update.explanation,
-                    });
-                  },
-                });
-                supervisorLane.turns += 1;
-                supervisorLane.lastUsedAt = new Date().toISOString();
-                supervisorLane.lastUsage = usageBreakdown(supervisorRun);
-                supervisorLane.uncachedInputTokens += supervisorLane.lastUsage.uncachedInputTokens;
-                return { ...supervisorRun.output, source: "luna-supervisor", snapshot };
-              });
-              context.progress?.report(65, "Heliolune Leader · supervisor liveness report received", {
-                force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
-                explanation: supervisorResult.reason,
-              });
-              return supervisorResult;
-            } catch (error) {
-              supervisorError = error.message;
-              supervisorFailureUsage = error.activity?.usage ?? null;
-              return { action: "continue", confidence: "low", reason: "Supervisor did not return before its bounded deadline; deterministic hard timeout remains active.", source: "supervisor-error" };
-            }
-          },
-        } : null,
+        watchdog: ownerWatchdog,
       });
     } catch (initialError) {
       let error = initialError;
-      if (error.steering?.attempted) {
-        finalization = {
-          ...finalization,
-          attempted: true,
-          trigger: "in_turn_steer",
-          steerAccepted: error.steering.accepted,
-          steerError: error.steering.error,
-        };
-      }
-      const staleMs = schedule.staleMs ?? 45_000;
-      if (shouldAttemptSynthesis(error, finalizationPlan, staleMs)) {
+      if (error.code === "INVALID_STRUCTURED_OUTPUT") {
         fallbackTurnAttempted = true;
-        ownerWorkUsage = error.usage ?? error.activity?.usage ?? null;
-        finalization = {
-          ...finalization,
+        const ownerWorkUsage = error.usage ?? error.activity?.usage ?? null;
+        schemaRecovery = {
+          ...schemaRecovery,
           attempted: true,
-          trigger: error.code === "INVALID_STRUCTURED_OUTPUT" ? "invalid_structured_output" : "finalization_reserve_exhausted",
+          trigger: "invalid_structured_output",
         };
-        const remainingMs = deadlineAt - Date.now();
-        const graceMs = error.code === "TURN_HARD_TIMEOUT" && error.missingCompletion
-          ? activityAwareGraceMs({ timeoutSeconds, snapshot: error.activity })
-          : 0;
-        const synthesisBudgetMs = Math.max(remainingMs, graceMs);
-        if (synthesisBudgetMs >= 10_000) {
-          try {
-            const synthesisRun = await instance.runTurn({
-              threadId: ownerLane.threadId,
-              text: compactSynthesisPrompt({
-                mode: args.mode,
-                objective: args.objective,
-                acceptance: args.acceptance,
-                scope: args.scope,
-                activity: error.activity,
-              }),
-              cwd,
-              sandboxPolicy: { type: "readOnly", networkAccess: false },
-              outputSchema: RESULT_SCHEMA,
-              timeoutMs: synthesisBudgetMs,
-              effort: args.synthesisEffort ?? "high",
-            });
-            ownerRun = {
-              ...synthesisRun,
-              durationMs: (error.activity?.elapsedMs ?? finalizationPlan.workMs) + synthesisRun.durationMs,
-              usage: sumUsage([ownerWorkUsage, usageBreakdown(synthesisRun)]),
-              supervision: error.supervision ?? synthesisRun.supervision,
-            };
-            finalization.recovered = true;
-          } catch (synthesisError) {
-            synthesisError.priorUsage = ownerWorkUsage;
-            synthesisError.finalizationTrigger = finalization.trigger;
-            error = synthesisError;
-          }
-        } else {
-          error.finalizationTrigger = finalization.trigger;
+        try {
+          const synthesisRun = await instance.runTurn({
+            threadId: ownerLane.threadId,
+            text: compactSchemaRecoveryPrompt({
+              mode: args.mode,
+              objective: args.objective,
+              acceptance: args.acceptance,
+              scope: args.scope,
+              activity: error.activity,
+            }),
+            cwd,
+            sandboxPolicy: { type: "readOnly", networkAccess: false },
+            outputSchema: RESULT_SCHEMA,
+            timeoutMs: checkpointMs,
+            effort: args.schemaRepairEffort ?? "high",
+            watchdog: ownerWatchdog,
+          });
+          ownerRun = {
+            ...synthesisRun,
+            durationMs: (error.activity?.elapsedMs ?? 0) + synthesisRun.durationMs,
+            usage: sumUsage([ownerWorkUsage, usageBreakdown(synthesisRun)]),
+            supervision: error.supervision ?? synthesisRun.supervision,
+          };
+          schemaRecovery.recovered = true;
+        } catch (synthesisError) {
+          synthesisError.priorUsage = ownerWorkUsage;
+          synthesisError.schemaRecoveryTrigger = schemaRecovery.trigger;
+          error = synthesisError;
         }
       }
       if (ownerRun) {
-        // The same warm worker thread converted interrupted work into a bounded structured result.
+        // The same warm worker thread converted an invalid final payload into the required schema.
       } else {
         ownerLane.invalidOutputs += 1;
         const classification = classifyTurnFailure(error, schedule);
@@ -793,7 +780,7 @@ async function runTask(args, context = {}) {
             reason: error.supervision.reason,
           } : null,
           supervisorError,
-          finalization,
+          schemaRecovery,
         };
         project.metrics = recordMetrics(project.metrics, {
           kind: "failed",
@@ -803,35 +790,21 @@ async function runTask(args, context = {}) {
           supervisorChecked: supervisorAttempted,
           supervisorInterrupted: error.code === "SUPERVISOR_INTERRUPTED",
           hardTimeout: error.code === "TURN_HARD_TIMEOUT",
-          synthesisAttempted: finalization.attempted,
+          synthesisAttempted: schemaRecovery.attempted,
           synthesisRecovered: false,
           diagnostic,
           laneRuns: [
             ...(ownerFailureUsage.totalTokens ? [{ lane: args.lane, usage: ownerFailureUsage }] : []),
-            ...(supervisorRun ? [{ lane: "supervisor", usage: usageBreakdown(supervisorRun) }] : []),
-            ...(!supervisorRun && supervisorFailureUsage ? [{ lane: "supervisor", usage: supervisorFailureUsage }] : []),
+            ...supervisorRuns.map((run) => ({ lane: "supervisor", usage: usageBreakdown(run) })),
+            ...supervisorFailureUsages.map((usage) => ({ lane: "supervisor", usage })),
           ],
         });
         await writeRegistry(registry);
         context.progress?.report(100, `Heliolune Leader · ${args.lane} failed · ${classification}`, {
           force: true, workerLane: args.lane, workerStatus: "failed", workerProgress: 100,
         });
-        if (error.code === "TURN_HARD_TIMEOUT") {
-          error.message = `${error.message}; classification=${classification}; lastEvent=${diagnostic.lastEvent ?? "unknown"}; silentMs=${diagnostic.silentMs ?? "unknown"}; supervisor=${diagnostic.supervision?.action ?? "not-used"}; finalization=${finalization.attempted ? "failed" : "not-attempted"}`;
-        }
         throw error;
       }
-    }
-    if (ownerRun.steering?.attempted) {
-      finalization = {
-        ...finalization,
-        attempted: true,
-        recovered: ownerRun.steering.accepted,
-        trigger: "in_turn_steer",
-        steerAccepted: ownerRun.steering.accepted,
-        steerError: ownerRun.steering.error,
-        steerSkippedReason: ownerRun.steering.skippedReason,
-      };
     }
     ownerLane.turns += fallbackTurnAttempted ? 2 : 1;
     ownerLane.lastUsedAt = new Date().toISOString();
@@ -851,9 +824,10 @@ async function runTask(args, context = {}) {
         const verifierLane = await ensureLane(instance, registry, project, "verifier", cwd, "read-only");
         const run = await instance.runTurn({
           threadId: verifierLane.threadId, text: compactVerification(args, ownerRun.output), cwd,
-          sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: VERIFY_SCHEMA, timeoutMs,
+          sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: VERIFY_SCHEMA, timeoutMs: checkpointMs,
+          watchdog: livenessWatchdog("verifier", "analyze", `Verify: ${args.objective}`),
           onActivity: (activity) => {
-            const update = workerProgress({ lane: "verifier", snapshot: activity, hardMs: timeoutMs });
+            const update = workerProgress({ lane: "verifier", snapshot: activity, targetMs: schedule.sizingTargetMs });
             const overall = 76 + Math.max(0, update.progress - 8) / 54 * 9;
             context.progress?.report(overall, update.message, {
               workerLane: "verifier", workerStatus: "verifying", workerProgress: update.progress,
@@ -895,7 +869,7 @@ async function runTask(args, context = {}) {
               acceptance: args.acceptance,
               owner: ownerRun.output,
               verifier: verifierRun?.output ?? null,
-              finalization,
+              schemaRecovery,
               timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0 },
               backlog: leaderBacklog,
             }),
@@ -906,7 +880,7 @@ async function runTask(args, context = {}) {
             effort: args.leaderEffort ?? "high",
             onActivity: (activity) => {
               const leaderTimeoutMs = (args.leaderTimeoutSeconds ?? 60) * 1000;
-              const update = workerProgress({ lane: "supervisor", snapshot: activity, hardMs: leaderTimeoutMs });
+              const update = workerProgress({ lane: "supervisor", snapshot: activity, targetMs: leaderTimeoutMs });
               const overall = 90 + Math.max(0, update.progress - 8) / 54 * 7;
               context.progress?.report(overall, update.message, {
                 workerLane: "supervisor", workerStatus: "reporting", workerProgress: update.progress,
@@ -936,8 +910,8 @@ async function runTask(args, context = {}) {
     const usage = sumUsage([
       usageBreakdown(ownerRun),
       usageBreakdown(verifierRun),
-      usageBreakdown(supervisorRun),
-      supervisorFailureUsage,
+      ...supervisorRuns.map(usageBreakdown),
+      ...supervisorFailureUsages,
       usageBreakdown(leaderRun),
       leaderFailureUsage,
     ]);
@@ -956,16 +930,16 @@ async function runTask(args, context = {}) {
       supervisorChecked: supervisorAttempted,
       supervisorInterrupted: false,
       hardTimeout: false,
-      synthesisAttempted: finalization.attempted,
-      synthesisRecovered: finalization.recovered,
+      synthesisAttempted: schemaRecovery.attempted,
+      synthesisRecovered: schemaRecovery.recovered,
       leaderReported: Boolean(leaderRun),
       leaderReportFailed: Boolean(leaderError),
       leaderDeferred: !useLeader,
       laneRuns: [
         { lane: args.lane, usage: usageBreakdown(ownerRun) },
         ...(verifierRun ? [{ lane: "verifier", usage: usageBreakdown(verifierRun) }] : []),
-        ...(supervisorRun ? [{ lane: "supervisor", usage: usageBreakdown(supervisorRun) }] : []),
-        ...(!supervisorRun && supervisorFailureUsage ? [{ lane: "supervisor", usage: supervisorFailureUsage }] : []),
+        ...supervisorRuns.map((run) => ({ lane: "supervisor", usage: usageBreakdown(run) })),
+        ...supervisorFailureUsages.map((usage) => ({ lane: "supervisor", usage })),
         ...(leaderRun ? [{ lane: "supervisor", usage: usageBreakdown(leaderRun) }] : []),
         ...(!leaderRun && leaderFailureUsage ? [{ lane: "supervisor", usage: leaderFailureUsage }] : []),
       ],
@@ -988,10 +962,10 @@ async function runTask(args, context = {}) {
         leaderEffort: args.leaderEffort ?? "high", leaderError,
         leaderDeferred: !useLeader,
         model: "gpt-5.6-luna", effort: "max", promptVersion: PROMPT_VERSION,
-        synthesisEffort: args.synthesisEffort ?? "high",
+        schemaRepairEffort: args.schemaRepairEffort ?? "high",
       },
       supervision: ownerRun.supervision,
-      finalization,
+      schemaRecovery,
       usage,
       cost,
       timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0, leaderMs: leaderRun?.durationMs ?? 0, wallMs: Date.now() - startedAt },
@@ -1030,14 +1004,9 @@ async function runBatch(args, context = {}) {
       artifactDirectory: path.join(jobDirectory(), "patches", batchId),
     })
     : null;
-  const timeoutSeconds = args.timeoutSeconds ?? 120;
-  const timeoutMs = timeoutSeconds * 1000;
-  const finalizationPlan = finalizationSchedule({
-    timeoutSeconds,
-    synthesisReserveSeconds: args.synthesisReserveSeconds,
-    finalization: "auto",
-  });
-  const batchSchedule = batchSupervisionSchedule(timeoutSeconds);
+  const checkpointSeconds = args.checkpointSeconds ?? 90;
+  const checkpointMs = checkpointSeconds * 1000;
+  const batchSchedule = batchSupervisionSchedule(checkpointSeconds);
   const budgetOwner = workstreams.find((workstream) => workstream.mode !== "analyze") ?? workstreams[0];
   const riskRank = { low: 0, moderate: 1, high: 2 };
   const highestRisk = workstreams.reduce((highest, workstream) => (
@@ -1061,7 +1030,6 @@ async function runBatch(args, context = {}) {
   const workerPhaseProgress = () => 4 + weightedWorkstreamProgress(workstreams, progressById, statusById) * 0.76;
   const liveSnapshots = new Map();
   let managerPromise = null;
-  const managerDecisions = new Map();
   const managerRuns = [];
   const managerErrors = [];
   const managerFailureUsages = [];
@@ -1091,7 +1059,7 @@ async function runBatch(args, context = {}) {
           timeoutMs: batchSchedule.leaderTimeoutMs,
           effort: "high",
           onActivity: (snapshot) => {
-            const update = workerProgress({ lane: "supervisor", snapshot, hardMs: batchSchedule.leaderTimeoutMs });
+            const update = workerProgress({ lane: "supervisor", snapshot, targetMs: batchSchedule.leaderTimeoutMs });
             context.progress?.report(workerPhaseProgress(), update.message, {
               workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
               explanation: update.explanation,
@@ -1103,10 +1071,6 @@ async function runBatch(args, context = {}) {
         leaderLane.lastUsage = usageBreakdown(managerRun);
         leaderLane.uncachedInputTokens += leaderLane.lastUsage.uncachedInputTokens;
         managerRuns.push(managerRun);
-        for (const decision of managerRun.output.decisions) {
-          const snapshot = snapshots.find((item) => item.slot === decision.slot);
-          if (snapshot) managerDecisions.set(`${decision.slot}:${snapshot.workstreamId}`, decision);
-        }
         context.progress?.report(workerPhaseProgress(), "Heliolune Leader · parallel liveness decisions returned", {
           force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
           explanation: managerRun.output.summary,
@@ -1117,7 +1081,7 @@ async function runBatch(args, context = {}) {
         managerErrors.push(managerError);
         const failureUsage = error.usage ?? error.activity?.usage ?? null;
         if (failureUsage) managerFailureUsages.push(failureUsage);
-        context.progress?.report(workerPhaseProgress(), "Heliolune Leader · management check unavailable · workers retain their hard deadlines", {
+        context.progress?.report(workerPhaseProgress(), "Heliolune Leader · management check unavailable · worker leases remain active", {
           force: true, workerLane: "supervisor", workerStatus: "failed", workerProgress: 100,
           explanation: managerError,
         });
@@ -1126,6 +1090,25 @@ async function runBatch(args, context = {}) {
     }).finally(() => { managerPromise = null; });
     return managerPromise;
   };
+  const workerWatchdog = (slot, workstream) => ({
+    renewable: true,
+    afterMs: batchSchedule.checkpointMs,
+    repeatMs: batchSchedule.repeatMs,
+    onCheck: async (snapshot) => {
+      liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
+      if (snapshot?.silentMs < batchSchedule.staleMs) {
+        return { action: "continue", confidence: "high", reason: "Recent app-server activity renewed this worker lease.", source: "activity" };
+      }
+      const decisions = await manageActiveWorkers();
+      const decision = decisions.find((item) => item.slot === slot);
+      if (decision?.action === "interrupt" && decision.confidence !== "high") {
+        return { ...decision, action: "continue", originalAction: "interrupt", reason: "Only a high-confidence liveness judgment may stop a silent worker.", source: "batch-leader" };
+      }
+      return decision
+        ? { ...decision, source: "batch-leader" }
+        : { action: "continue", confidence: "low", reason: "The shared Leader did not flag this slot; its renewable lease remains active.", source: "batch-leader-default" };
+    },
+  });
   context.progress?.report(2, `Heliolune Leader · speed-first batch ${batchId.slice(0, 8)} · ${workstreams.length} ${mutatingBatch ? "isolated write" : "read-only"} workstreams · ${parallelism} Luna/max slots`, { force: true });
 
   let executions;
@@ -1156,7 +1139,7 @@ async function runBatch(args, context = {}) {
             cwd: workerCwd,
             sandboxPolicy: workerSandbox.policy,
             outputSchema,
-            timeoutMs,
+            timeoutMs: checkpointMs,
             effort: "max",
             onStarted: (handle) => {
               activeTurns.set(workstream.id, handle);
@@ -1166,57 +1149,26 @@ async function runBatch(args, context = {}) {
             },
             onActivity: (snapshot) => {
               liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
-              const update = workerProgress({ lane: slot, snapshot, hardMs: timeoutMs });
+              const update = workerProgress({ lane: slot, snapshot, targetMs: batchSchedule.sizingTargetMs });
               progressById.set(workstream.id, update.progress);
               context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} · ${update.message}`, {
                 workerLane: slot, workerStatus: "working", workerProgress: update.progress,
                 explanation: update.explanation,
               });
             },
-            steer: finalizationPlan.enabled ? {
-              afterMs: finalizationPlan.workMs,
-              forceAfterMs: finalizationPlan.steerGraceMs,
-              text: compactSteerPrompt({ objective: workstream.objective, acceptance: workstream.acceptance }),
-              shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < 45_000,
-              onStatus: ({ phase }) => {
-                progressById.set(workstream.id, 90);
-                context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} finalization ${phase}`, {
-                  force: true, workerLane: slot, workerStatus: "working", workerProgress: 90,
-                });
-              },
-            } : null,
-            watchdog: batchSchedule.enabled ? {
-              afterMs: batchSchedule.checkpointMs,
-              onCheck: async (snapshot) => {
-                liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
-                const decisionKey = `${slot}:${workstream.id}`;
-                let decision = managerDecisions.get(decisionKey);
-                if (!decision) {
-                  const decisions = await manageActiveWorkers();
-                  decision = managerDecisions.get(decisionKey) ?? decisions.find((item) => item.slot === slot);
-                }
-                return decision
-                  ? { ...decision, source: "batch-leader" }
-                  : { action: "continue", confidence: "low", reason: "The shared Leader did not flag this slot; retain its independent hard deadline.", source: "batch-leader-default" };
-              },
-            } : null,
+            watchdog: workerWatchdog(slot, workstream),
           });
         } catch (workError) {
-          const remainingMs = streamStartedAt + timeoutMs - Date.now();
-          const graceMs = workError.code === "TURN_HARD_TIMEOUT" && workError.missingCompletion
-            ? activityAwareGraceMs({ timeoutSeconds, snapshot: workError.activity })
-            : 0;
-          const synthesisBudgetMs = Math.max(remainingMs, graceMs);
-          if (!shouldAttemptSynthesis(workError, finalizationPlan, 45_000) || synthesisBudgetMs < 10_000) throw workError;
+          if (workError.code !== "INVALID_STRUCTURED_OUTPUT") throw workError;
           const priorUsage = workError.usage ?? workError.activity?.usage ?? null;
           progressById.set(workstream.id, 94);
-          context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} using bounded Luna/high schema synthesis`, {
+          context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} repairing invalid structured output with Luna/high`, {
             force: true, workerLane: slot, workerStatus: "working", workerProgress: 94,
           });
           try {
             const synthesisRun = await instance.runTurn({
               threadId: laneState.threadId,
-              text: compactSynthesisPrompt({
+              text: compactSchemaRecoveryPrompt({
                 mode: workstream.mode,
                 objective: workstream.objective,
                 acceptance: workstream.acceptance,
@@ -1226,17 +1178,23 @@ async function runBatch(args, context = {}) {
               cwd: workerCwd,
               sandboxPolicy: { type: "readOnly", networkAccess: false },
               outputSchema,
-              timeoutMs: synthesisBudgetMs,
+              timeoutMs: checkpointMs,
               effort: "high",
+              watchdog: workerWatchdog(slot, workstream),
             });
             run = {
               ...synthesisRun,
               durationMs: Date.now() - streamStartedAt,
               usage: sumUsage([priorUsage, usageBreakdown(synthesisRun)]),
-              finalizationRecovered: true,
+              schemaRecoveryRecovered: true,
             };
           } catch (synthesisError) {
             synthesisError.priorUsage = priorUsage;
+            synthesisError.originalFailure = {
+              code: workError.code ?? "UNKNOWN",
+              missingCompletion: Boolean(workError.missingCompletion),
+              activity: workError.activity ?? null,
+            };
             throw synthesisError;
           }
         }
@@ -1276,6 +1234,7 @@ async function runBatch(args, context = {}) {
         return { id: workstream.id, requestedLane: workstream.lane, slot, status: run.output.status, run, durationMs: Date.now() - streamStartedAt };
       } catch (error) {
         const failureUsage = normalizeUsage(error.usage ?? error.activity?.usage);
+        const originalFailure = error.originalFailure ?? error;
         laneState.turns += 1;
         laneState.invalidOutputs += 1;
         laneState.lastUsedAt = new Date().toISOString();
@@ -1297,6 +1256,30 @@ async function runBatch(args, context = {}) {
           status: "failed",
           error: compactStatusExplanation(error.message, 500),
           usage: failureUsage,
+          failure: {
+            code: originalFailure.code ?? "UNKNOWN",
+            missingCompletion: Boolean(originalFailure.missingCompletion),
+            activity: originalFailure.activity ? {
+              eventCount: originalFailure.activity.eventCount,
+              lastMethod: originalFailure.activity.lastMethod,
+              lastItemType: originalFailure.activity.lastItemType,
+              lastItemPhase: originalFailure.activity.lastItemPhase,
+              hasFinalAnswer: originalFailure.activity.hasFinalAnswer,
+              silentMs: originalFailure.activity.silentMs,
+            } : null,
+            schemaRepair: error.originalFailure ? {
+              code: error.code ?? "UNKNOWN",
+              message: compactStatusExplanation(error.message, 300),
+              activity: error.activity ? {
+                eventCount: error.activity.eventCount,
+                lastMethod: error.activity.lastMethod,
+                lastItemType: error.activity.lastItemType,
+                lastItemPhase: error.activity.lastItemPhase,
+                hasFinalAnswer: error.activity.hasFinalAnswer,
+                silentMs: error.activity.silentMs,
+              } : null,
+            } : null,
+          },
           durationMs: Date.now() - streamStartedAt,
         };
       }
@@ -1363,7 +1346,7 @@ async function runBatch(args, context = {}) {
       timeoutMs: (args.leaderTimeoutSeconds ?? 60) * 1000,
       effort: args.leaderEffort ?? "high",
       onActivity: (snapshot) => {
-        const update = workerProgress({ lane: "supervisor", snapshot, hardMs: (args.leaderTimeoutSeconds ?? 60) * 1000 });
+        const update = workerProgress({ lane: "supervisor", snapshot, targetMs: (args.leaderTimeoutSeconds ?? 60) * 1000 });
         context.progress?.report(86 + update.progress / 100 * 11, update.message, {
           workerLane: "supervisor", workerStatus: "reporting", workerProgress: update.progress,
           explanation: update.explanation,
@@ -1422,11 +1405,11 @@ async function runBatch(args, context = {}) {
   });
   project.lastUsedAt = new Date().toISOString();
   await writeRegistry(registry);
-  const taskOutcomes = leaderInput.map((outcome) => ({
-    id: outcome.id, lane: outcome.lane, slot: outcome.slot, status: outcome.status,
-    mode: workstreams.find((workstream) => workstream.id === outcome.id)?.mode,
-    durationMs: outcome.durationMs,
-    ...(outcome.status === "failed" ? { error: outcome.summary } : {}),
+  const taskOutcomes = executions.map((execution) => ({
+    id: execution.id, lane: execution.requestedLane, slot: execution.slot, status: execution.status,
+    mode: workstreams.find((workstream) => workstream.id === execution.id)?.mode,
+    durationMs: execution.durationMs,
+    ...(execution.status === "failed" ? { error: execution.error, failure: execution.failure } : {}),
   }));
   context.progress?.report(100, `Heliolune Leader · speed-first batch complete · ${status} · handing off to Sol`, { force: true });
   return {
@@ -1521,12 +1504,11 @@ async function poolStatus(args) {
   return project ?? { cwd: path.resolve(args.cwd), lanes: {}, initialized: false };
 }
 
-async function startVisibleJob({ lane, workerLanes, activeLanes, maximumRuntimeMs, run }) {
+async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
   let jobId;
   let latestSnapshot = null;
   let persistence = Promise.resolve();
   const ownerStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
-  const expiresAt = new Date(Date.now() + maximumRuntimeMs).toISOString();
   const persist = (record) => {
     persistence = persistence.catch(() => {}).then(() => writeJobRecord(record.snapshot?.jobId ?? jobId, record));
     return persistence;
@@ -1539,7 +1521,7 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, maximumRuntimeM
     onSnapshot: (snapshot) => {
       latestSnapshot = snapshot;
       if (snapshot.status === "running") {
-        void persist({ status: "running", startedAt: snapshot.startedAt, lane: snapshot.lane, ownerPid: process.pid, ownerStartedAt, expiresAt, heartbeatAt: new Date().toISOString(), snapshot });
+        void persist({ status: "running", startedAt: snapshot.startedAt, lane: snapshot.lane, ownerPid: process.pid, ownerStartedAt, heartbeatAt: new Date().toISOString(), snapshot });
       }
     },
     run: async (progress) => {
@@ -1553,7 +1535,6 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, maximumRuntimeM
           lane,
           ownerPid: process.pid,
           ownerStartedAt,
-          expiresAt,
           snapshot: {
             ...latestSnapshot,
             status: "completed",
@@ -1583,7 +1564,6 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, maximumRuntimeM
           lane,
           ownerPid: process.pid,
           ownerStartedAt,
-          expiresAt,
           snapshot: {
             ...latestSnapshot,
             status: "failed",
@@ -1624,7 +1604,6 @@ async function startTask(args) {
       cwd: args.cwd,
       parallelism: SPEED_FIRST.defaultParallelism,
       workstreams: defaultParallelWorkstreams(args),
-      timeoutSeconds: args.timeoutSeconds,
       maxFiles: budgets.maxFiles,
       maxCommands: budgets.maxCommands,
     });
@@ -1633,7 +1612,6 @@ async function startTask(args) {
     lane: args.lane,
     workerLanes: LANES,
     activeLanes: [args.lane],
-    maximumRuntimeMs: (args.timeoutSeconds ?? 120) * 1000 + 180_000,
     run: (progress) => runTask(args, { progress }),
   });
 }
@@ -1642,15 +1620,10 @@ async function startBatch(args) {
   const parallelism = speedParallelism(args.parallelism);
   const slots = burstLanes(parallelism);
   const activeLanes = slots.slice(0, Math.min(slots.length, args.workstreams?.length ?? 0));
-  const waves = Math.max(1, Math.ceil((args.workstreams?.length ?? 1) / parallelism));
-  const maximumRuntimeMs = waves * (args.timeoutSeconds ?? 120) * 1000
-    + (activeLanes.length + 1) * 60_000
-    + 180_000;
   return startVisibleJob({
     lane: SPEED_FIRST.id,
     workerLanes: [...slots, "supervisor"],
     activeLanes,
-    maximumRuntimeMs,
     run: (progress) => runBatch({ ...args, parallelism }, { progress }),
   });
 }

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "completedAt": "2026-08-02T18:25:54.424Z",
+  "repository": "D:\\code\\heliolune",
+  "entrypoint": "start_task",
+  "status": "completed",
+  "priority": "speed-first",
+  "parallelism": 4,
+  "reportMode": "leader",
+  "outcomes": [
+    { "id": "owner", "lane": "integration", "slot": "burst-1", "status": "completed", "mode": "analyze", "durationMs": 44010 },
+    { "id": "contract", "lane": "core", "slot": "burst-2", "status": "completed", "mode": "analyze", "durationMs": 92440 },
+    { "id": "edges", "lane": "tests", "slot": "burst-3", "status": "completed", "mode": "analyze", "durationMs": 218899 },
+    { "id": "verify", "lane": "verifier", "slot": "burst-4", "status": "completed", "mode": "analyze", "durationMs": 162639 }
+  ],
+  "routing": {
+    "workerEffort": "max",
+    "leaderEffort": "high",
+    "leaderManagementUsed": false,
+    "leaderManagementChecks": 0
+  },
+  "usage": {
+    "inputTokens": 107850,
+    "cachedInputTokens": 82944,
+    "outputTokens": 16172,
+    "reasoningOutputTokens": 12890,
+    "cacheRate": 0.7690681502086231
+  },
+  "cost": {
+    "actualLuna": 0.651162,
+    "historicalProjectedSolOnly": 2.67155967,
+    "historicalProjectedSavings": 2.02039767,
+    "historicalProjectedSavingsRate": 0.756261
+  },
+  "timing": {
+    "workerWallMs": 219551,
+    "workerSumMs": 517988,
+    "slowestWorkerMs": 218899,
+    "leaderMs": 22359,
+    "wallMs": 241912
+  },
+  "acceptance": {
+    "allWorkersCompleted": true,
+    "workerExceededFormerDeadline": true,
+    "timeBasedInterruptions": 0,
+    "managementTurns": 0
+  }
+}

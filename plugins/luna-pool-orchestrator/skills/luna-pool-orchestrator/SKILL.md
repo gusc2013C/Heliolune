@@ -11,7 +11,7 @@ Sol plans once, sends one compact delta, blocks without generating, then reviews
 
 Before repository exploration, require `luna-pool.runtime_info`, `luna-pool.start_task`, and `luna-await.await_task`. Call `runtime_info` once and require:
 
-- `version=0.6.3`, `defaultProfile=speed-first`, `defaultParallelism=4`;
+- `version=0.6.4`, `defaultProfile=speed-first`, `defaultParallelism=4`;
 - `burstThreadsEphemeral=true`, `appServerWindowHidden=true`;
 - on Windows, `statusSurface=native-window`.
 
@@ -31,7 +31,7 @@ Call `luna-pool.start_task` with only:
 - one outcome-oriented `objective`;
 - 1–8 testable `acceptance` items;
 - exact files or narrowest relevant directories in `scope`;
-- only useful volatile `repoState`, `risk`, `reservedBoundary`, or `timeoutSeconds`.
+- only useful volatile `repoState`, `risk`, or `reservedBoundary`.
 
 Do not paste files, transcripts, stable role text, or generic project history. Keep roles stable and send only incremental task state; workers inspect the repository.
 
@@ -41,11 +41,13 @@ Only the owner writes, in a detached ephemeral worktree. Heliolune applies its p
 
 Burst threads are ephemeral and the standalone app-server is hidden. On Windows, the `Heliolune Leader` WPF window is the only automatic visible worker surface; no Codex Desktop worker task or console window should appear.
 
-Use `profile=token-first` only for a dirty/non-Git mutating checkout, impossible write isolation, or a strict sequential dependency. Read-only work stays parallel. `start_batch` is advanced-only for explicitly designed 2–8 streams. Prefer scope near 90 seconds; narrow scope before raising a bounded deadline, which may reach 600 seconds.
+Use `profile=token-first` only for a dirty/non-Git mutating checkout, impossible write isolation, or a strict sequential dependency. Read-only work stays parallel. `start_batch` is advanced-only for explicitly designed 2–8 streams. Its optional `checkpointSeconds` controls only the first renewable liveness observation, never execution duration. Prefer independent workstreams sized near 90 seconds; split broad work into narrow queued streams instead of imposing a deadline. The scheduler uses a shared queue, so the first idle Luna slot immediately claims the next remaining stream while slower siblings continue.
+
+Workers use renewable liveness leases. Recent app-server activity renews a lease without a model call and there is no fixed execution cutoff. Sustained silence wakes the shared Luna/high Leader; only a high-confidence stall decision may interrupt a worker. Ambiguous evidence, an unavailable Leader, or a low/medium-confidence interrupt recommendation keeps the lease active for another check.
 
 ## Await once
 
-Immediately call `luna-await.await_task` exactly once with the returned `jobId`. While blocked, stop generating: do not poll, read job files, send progress commentary, or open another model session. The native window provides token-free bilingual status, natural-language activity, timing, cache, and projected savings. Disable it only at the user's request.
+Immediately call `luna-await.await_task` exactly once with the returned `jobId`; this wait has no Heliolune deadline and ends only at a terminal result or orphaned orchestrator process. While blocked, stop generating: do not poll, read job files, send progress commentary, or open another model session. The native window provides token-free bilingual status, natural-language activity, timing, cache, and projected savings. Disable it only at the user's request.
 
 ## Accept
 

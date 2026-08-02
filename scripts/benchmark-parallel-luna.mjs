@@ -46,10 +46,10 @@ const workstreams = [
     signals: ["params.turn.id", "params.turnid"],
   },
   {
-    id: "finalization-budget",
-    file: "plugins/luna-pool-orchestrator/scripts/finalization.mjs",
-    question: "For the default 120-second example, does the schedule reserve 40 seconds and leave an 80-second work budget?",
-    signals: ["40", "80"],
+    id: "renewable-wait",
+    file: "plugins/luna-pool-orchestrator/scripts/app-server-client.mjs",
+    question: "When the watchdog is renewable, does completion waiting omit the fixed notification timeout and repeat liveness checkpoints?",
+    signals: ["renewable", "repeatms"],
   },
   {
     id: "stale-supervision",
@@ -134,6 +134,18 @@ async function mapWithConcurrency(items, parallelism, work) {
   return results;
 }
 
+const renewableBenchmarkWatchdog = {
+  renewable: true,
+  afterMs: 90_000,
+  repeatMs: 30_000,
+  onCheck: async () => ({
+    action: "continue",
+    confidence: "high",
+    reason: "The benchmark measures natural completion and does not impose a worker deadline.",
+    source: "benchmark-renewal",
+  }),
+};
+
 async function runProfile({ executable, parallelism, repeat }) {
   const client = new AppServerClient({ executable });
   const profileStartedAt = Date.now();
@@ -159,7 +171,8 @@ async function runProfile({ executable, parallelism, repeat }) {
         cwd: repoRoot,
         sandboxPolicy: { type: "readOnly", networkAccess: false },
         outputSchema,
-        timeoutMs: 120_000,
+        timeoutMs: renewableBenchmarkWatchdog.afterMs,
+        watchdog: renewableBenchmarkWatchdog,
         effort: "max",
       });
       process.stderr.write(`[p${parallelism} r${repeat}] ${workstream.id} ${run.durationMs}ms\n`);

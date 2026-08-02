@@ -139,15 +139,16 @@ export function validateSpeedWorkstreams(workstreams) {
   return normalized;
 }
 
-export function batchSupervisionSchedule(timeoutSeconds) {
-  const hardSeconds = Math.max(30, Math.min(600, Number(timeoutSeconds) || 120));
-  if (hardSeconds <= 90) return { enabled: false, hardMs: hardSeconds * 1000 };
-  const checkpointSeconds = Math.max(60, Math.min(90, hardSeconds - 30));
+export function batchSupervisionSchedule(requestedCheckpointSeconds) {
+  const checkpointSeconds = Math.min(90, Math.max(30, Number(requestedCheckpointSeconds) || 90));
   return {
     enabled: true,
-    hardMs: hardSeconds * 1000,
+    renewable: true,
     checkpointMs: checkpointSeconds * 1000,
-    leaderTimeoutMs: Math.min(30, hardSeconds - checkpointSeconds - 5) * 1000,
+    repeatMs: 30_000,
+    staleMs: 45_000,
+    leaderTimeoutMs: 30_000,
+    sizingTargetMs: 90_000,
   };
 }
 
@@ -190,7 +191,7 @@ export function compactBurstTask(workstream, budget) {
       ? "Stop after decisive review evidence; do not run the full acceptance suite merely to rediscover failures in the base snapshot."
       : "Reserve the final portion of the work window for decisive checks after the last edit. Once acceptance passes, do not add cleanup or hardening that you cannot verify again before returning.",
     "Completion means the scoped work is done and every supplied, runnable acceptance check has decisive current evidence. Unknown or unavailable hidden tests belong in risks and do not make status partial. Use status=partial only when supplied work remains unfinished or a supplied check is missing, stale, failed, or not run.",
-    "Prefer finishing within 90 seconds, but continue bounded work until the supplied hard deadline when decisive evidence legitimately needs longer. Never coordinate with other workers or decide architecture, security, public APIs, or migrations. Stop when acceptance has decisive evidence. Return status=partial rather than broadening scope or exhausting the deadline. Return the schema only.",
+    "Prefer a workstream sized near 90 seconds, but there is no fixed execution deadline while app-server activity shows live bounded progress. Never coordinate with other workers or decide architecture, security, public APIs, or migrations. Stop when acceptance has decisive evidence. Return status=partial rather than broadening scope. Return the schema only.",
   ].join("\n");
 }
 
@@ -203,13 +204,13 @@ export function compactBatchLeaderPrompt({ batchId, workstreams, outcomes, integ
       integration,
       timing,
     })}`,
-    "Act only as the shared operations leader and reporting compressor. Read-only review workstreams inspected independent base snapshots in parallel and cannot observe or verify a concurrent writer's patch; report their findings as review guidance, never as evidence that the writer's later files are missing or contradictory. Treat actualChangePaths and integration as authoritative for artifact state. Account for every workstream, preserve decisive evidence, failures, risks, and needsSol decisions, and produce one compact handoff. Do not inspect the repository, call tools, plan or assign work, resolve disagreements, decide reserved boundaries, or perform final acceptance. Return the schema only.",
+    "Act only as the shared operations leader and reporting compressor. Read-only review workstreams inspected independent base snapshots in parallel and cannot observe or verify a concurrent writer's patch; report their findings as review guidance, never as evidence that the writer's later files are missing or contradictory. Worker risks are candidate findings unless a supplied passed check proves them: do not present unsupported claims as established facts, upgrade their severity, or imply that your confidence is a correctness verdict. Treat actualChangePaths and integration as authoritative for artifact state. Account for every workstream, preserve decisive evidence, failures, risks, and needsSol decisions, and produce one compact handoff. Do not inspect the repository, call tools, plan or assign work, resolve disagreements, decide reserved boundaries, or perform final acceptance. Return the schema only.",
   ].join("\n");
 }
 
 export function compactBatchSupervisorPrompt({ batchId, snapshots, schedule }) {
   return [
-    `BATCH_SUPERVISE_DELTA ${JSON.stringify({ batchId, checkpointMs: schedule.checkpointMs, hardMs: schedule.hardMs, workers: snapshots })}`,
-    "Manage liveness only. For every supplied active burst slot, recommend continue unless sustained silence and event history make a stall likely; recommend interrupt only with high confidence. Do not inspect the repository, call tools, plan or reassign work, judge correctness, or change scope. Return the schema only.",
+    `BATCH_SUPERVISE_DELTA ${JSON.stringify({ batchId, checkpointMs: schedule.checkpointMs, staleAfterMs: schedule.staleMs, workers: snapshots })}`,
+    "Manage liveness only. Workers have renewable leases and no execution deadline. For every supplied active burst slot, recommend continue while activity indicates bounded work; recommend interrupt only with high confidence after sustained silence indicates a stall. Do not inspect the repository, call tools, plan or reassign work, judge correctness, or change scope. Return the schema only.",
   ].join("\n");
 }

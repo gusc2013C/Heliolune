@@ -1,7 +1,7 @@
 import readline from "node:readline";
 import { waitForJobRecord } from "./job-files.mjs";
 
-const VERSION = "0.6.3";
+const VERSION = "0.6.4";
 const TOOL = {
   name: "await_task",
   title: "Await Heliolune task",
@@ -11,7 +11,6 @@ const TOOL = {
     required: ["jobId"],
     properties: {
       jobId: { type: "string", minLength: 36, maxLength: 36 },
-      timeoutSeconds: { type: "integer", minimum: 30, maximum: 4200, default: 3900 },
     },
   },
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
@@ -42,7 +41,7 @@ async function handle(message) {
     }
     if (message.method === "tools/call" && message.params?.name === "await_task") {
       const args = message.params.arguments ?? {};
-      const result = await waitForJobRecord(args.jobId, { timeoutMs: (args.timeoutSeconds ?? 3900) * 1000 });
+      const result = await waitForJobRecord(args.jobId);
       send({ jsonrpc: "2.0", id: message.id, result: {
         content: [{ type: "text", text: JSON.stringify(result) }],
         isError: false,

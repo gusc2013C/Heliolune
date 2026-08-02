@@ -73,7 +73,6 @@ try {
     const started = response.result.structuredContent;
     const payload = await waitForJobRecord(started.jobId, {
       root: localAppData,
-      timeoutMs: ((task.timeoutSeconds ?? 900) + 180) * 1000,
     });
     runs.push({
       taskFile,

@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.6.3";
+const APP_VERSION = "0.6.4";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
 
 export const APP_SERVER_WINDOWS_HIDDEN = true;
@@ -112,7 +112,11 @@ export class AppServerClient {
       const error = new Error(`Codex app-server exited (code=${code}, signal=${signal})`);
       for (const pending of this.pending.values()) pending.reject(error);
       this.pending.clear();
-      for (const waiter of this.waiters) waiter.reject(error);
+      for (const waiter of this.waiters) {
+        clearTimeout(waiter.timer);
+        waiter.signal?.removeEventListener("abort", waiter.onAbort);
+        waiter.reject(error);
+      }
       this.waiters.clear();
       this.child = null;
     });
@@ -174,6 +178,13 @@ export class AppServerClient {
         activity.summaryText = `${activity.summaryText}${message.params?.delta ?? ""}`.slice(-2_000);
         activity.explanation = compactStatusExplanation(activity.summaryText);
       }
+      if (message.method === "item/completed") {
+        activity.lastItemType = message.params?.item?.type ?? null;
+        activity.lastItemPhase = message.params?.item?.phase ?? null;
+        if (message.params?.item?.type === "agentMessage" && message.params?.item?.phase === "final_answer") {
+          activity.finalAnswerItem = message.params.item;
+        }
+      }
       activity.lastEventAt = Date.now();
       activity.lastMethod = message.method;
       activity.eventCount += 1;
@@ -185,6 +196,7 @@ export class AppServerClient {
       if (!waiter.predicate(message)) continue;
       this.waiters.delete(waiter);
       clearTimeout(waiter.timer);
+      waiter.signal?.removeEventListener("abort", waiter.onAbort);
       waiter.resolve(message);
     }
   }
@@ -208,13 +220,27 @@ export class AppServerClient {
     this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
   }
 
-  waitFor(predicate, timeoutMs) {
+  waitFor(predicate, timeoutMs, signal = null) {
     return new Promise((resolve, reject) => {
-      const waiter = { predicate, resolve, reject, timer: null };
-      waiter.timer = setTimeout(() => {
-        this.waiters.delete(waiter);
-        reject(new Error("Timed out waiting for app-server notification"));
-      }, timeoutMs);
+      const waiter = { predicate, resolve, reject, timer: null, signal, onAbort: null };
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        waiter.timer = setTimeout(() => {
+          this.waiters.delete(waiter);
+          signal?.removeEventListener("abort", waiter.onAbort);
+          reject(new Error("Timed out waiting for app-server notification"));
+        }, timeoutMs);
+      }
+      if (signal) {
+        waiter.onAbort = () => {
+          this.waiters.delete(waiter);
+          clearTimeout(waiter.timer);
+          const error = new Error("Cancelled app-server notification wait");
+          error.code = "WAIT_CANCELLED";
+          reject(error);
+        };
+        if (signal.aborted) return waiter.onAbort();
+        signal.addEventListener("abort", waiter.onAbort, { once: true });
+      }
       this.waiters.add(waiter);
     });
   }
@@ -232,6 +258,9 @@ export class AppServerClient {
       eventCount: activity.eventCount,
       lastMethod: activity.lastMethod,
       explanation: activity.explanation ?? null,
+      lastItemType: activity.lastItemType ?? null,
+      lastItemPhase: activity.lastItemPhase ?? null,
+      hasFinalAnswer: Boolean(activity.finalAnswerItem),
       usage: this.latestUsage.get(turnId) ?? activity.usage ?? null,
     };
   }
@@ -276,7 +305,7 @@ export class AppServerClient {
     return true;
   }
 
-  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, steer = null, onActivity = null, onStarted = null }) {
+  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, onActivity = null, onStarted = null }) {
     const startedAt = Date.now();
     const response = await this.request("turn/start", {
       threadId,
@@ -303,6 +332,9 @@ export class AppServerClient {
       summaryIndex: null,
       summaryText: "",
       explanation: null,
+      lastItemType: null,
+      lastItemPhase: null,
+      finalAnswerItem: null,
       onActivity,
     });
     try { onStarted?.({ threadId, turnId }); }
@@ -310,94 +342,36 @@ export class AppServerClient {
     let completed;
     let supervision = null;
     let completionOutcome = null;
-    const steering = {
-      scheduled: Boolean(steer?.afterMs && steer?.text),
-      attempted: false,
-      accepted: false,
-      forced: false,
-      error: null,
-      forceError: null,
-      skippedReason: null,
-    };
-    let steerTimer = null;
-    let forceTimer = null;
-    let resolveFinalizationCutoff;
+    const completionAbort = new AbortController();
     try {
       const alreadyCompleted = this.completedTurns.get(turnId);
       const notificationCompletion = (alreadyCompleted
         ? Promise.resolve(alreadyCompleted)
         : this.waitFor(
           (message) => message.method === "turn/completed" && notificationTurnId(message) === turnId,
-          completionTimeoutMs,
+          watchdog?.renewable ? null : completionTimeoutMs,
+          completionAbort.signal,
         )).then(
         (message) => ({ kind: "completed", message }),
         (error) => ({ kind: "error", error }),
       );
-      const finalizationCutoff = new Promise((resolve) => { resolveFinalizationCutoff = resolve; });
-      const completion = Promise.race([notificationCompletion, finalizationCutoff])
-        .then((outcome) => (completionOutcome = outcome));
-      if (steering.scheduled) {
-        steerTimer = setTimeout(async () => {
-          if (completionOutcome) return;
-          if (steer.shouldSteer && !steer.shouldSteer(this.turnSnapshot(turnId))) {
-            steering.skippedReason = "worker_not_active";
-            try { steer.onStatus?.({ phase: "skipped", steering, snapshot: this.turnSnapshot(turnId) }); }
-            catch (error) { this.log(`steering status callback failed: ${error.message}`); }
-            return;
-          }
-          steering.attempted = true;
-          try { steer.onStatus?.({ phase: "attempted", steering, snapshot: this.turnSnapshot(turnId) }); }
-          catch (error) { this.log(`steering status callback failed: ${error.message}`); }
-          try {
-            await this.request("turn/steer", {
-              threadId,
-              expectedTurnId: turnId,
-              input: [{ type: "text", text: steer.text }],
-              responsesapiClientMetadata: { orchestrator: APP_NAME, phase: "reserved-finalization" },
-            }, 5_000);
-            steering.accepted = true;
-            try { steer.onStatus?.({ phase: "accepted", steering, snapshot: this.turnSnapshot(turnId) }); }
-            catch (error) { this.log(`steering status callback failed: ${error.message}`); }
-            if (steer.forceAfterMs) {
-              forceTimer = setTimeout(async () => {
-                if (completionOutcome) return;
-                steering.forced = true;
-                try {
-                  await this.request("turn/interrupt", { threadId, turnId }, 10_000).catch(() => {});
-                  const cutoff = new Error("Luna did not finish structured output within the reserved finalization window");
-                  cutoff.code = "FINALIZATION_INTERRUPTED";
-                  cutoff.activity = this.turnSnapshot(turnId);
-                  cutoff.steering = steering;
-                  await Promise.race([
-                    notificationCompletion,
-                    new Promise((resolve) => setTimeout(resolve, 2_000)),
-                  ]);
-                  if (!completionOutcome) resolveFinalizationCutoff({ kind: "error", error: cutoff });
-                  try { steer.onStatus?.({ phase: "forced", steering, snapshot: cutoff.activity }); }
-                  catch (error) { this.log(`steering status callback failed: ${error.message}`); }
-                } catch (error) {
-                  steering.forceError = error.message;
-                }
-              }, steer.forceAfterMs);
-              forceTimer.unref?.();
-            }
-          } catch (error) {
-            steering.error = error.message;
-            try { steer.onStatus?.({ phase: "failed", steering, snapshot: this.turnSnapshot(turnId) }); }
-            catch (callbackError) { this.log(`steering status callback failed: ${callbackError.message}`); }
-          }
-        }, steer.afterMs);
-        steerTimer.unref?.();
-      }
+      const completion = notificationCompletion.then((outcome) => (completionOutcome = outcome));
       if (watchdog?.afterMs && watchdog?.onCheck) {
-        let softTimer;
-        const soft = new Promise((resolve) => {
-          softTimer = setTimeout(() => resolve({ kind: "soft-timeout" }), watchdog.afterMs);
-          softTimer.unref?.();
-        });
-        const first = await Promise.race([completion, soft]);
-        clearTimeout(softTimer);
-        if (first.kind === "soft-timeout") {
+        let checkpointMs = watchdog.afterMs;
+        while (!completed) {
+          let checkpointTimer;
+          const checkpoint = new Promise((resolve) => {
+            checkpointTimer = setTimeout(() => resolve({ kind: "checkpoint" }), checkpointMs);
+            checkpointTimer.unref?.();
+          });
+          const first = await Promise.race([completion, checkpoint]);
+          clearTimeout(checkpointTimer);
+          if (first.kind === "completed") {
+            completed = first.message;
+            break;
+          }
+          if (first.kind === "error") throw first.error;
+
           supervision = await watchdog.onCheck(this.turnSnapshot(turnId));
           if (completionOutcome?.kind === "completed") {
             if (supervision?.action === "interrupt") {
@@ -405,38 +379,27 @@ export class AppServerClient {
                 ...supervision,
                 action: "continue",
                 originalAction: "interrupt",
-                reason: "Worker completed before the supervisor decision returned; no interrupt was sent.",
+                reason: "Worker completed before the liveness decision returned; no interrupt was sent.",
               };
             }
             completed = completionOutcome.message;
-          } else if (completionOutcome?.kind === "error") {
-            throw completionOutcome.error;
-          } else if (supervision?.action === "interrupt") {
-            if (steering.accepted) {
-              supervision = {
-                ...supervision,
-                action: "continue",
-                originalAction: "interrupt",
-                reason: "The active turn accepted finalization steering after the supervisor snapshot; keep the original hard deadline.",
-              };
-            }
+            break;
           }
-          if (!completed && supervision?.action === "interrupt") {
+          if (completionOutcome?.kind === "error") throw completionOutcome.error;
+          if (supervision?.action === "interrupt") {
             await this.request("turn/interrupt", { threadId, turnId }, 30_000).catch(() => {});
             const error = new Error(`Luna supervisor interrupted a likely stalled turn: ${supervision.reason}`);
             error.code = "SUPERVISOR_INTERRUPTED";
             error.supervision = supervision;
             throw error;
           }
-          if (!completed) {
+          if (!watchdog.renewable) {
             const final = await completion;
             if (final.kind === "error") throw final.error;
             completed = final.message;
+            break;
           }
-        } else if (first.kind === "error") {
-          throw first.error;
-        } else {
-          completed = first.message;
+          checkpointMs = watchdog.repeatMs ?? watchdog.afterMs;
         }
       } else {
         const final = await completion;
@@ -444,24 +407,44 @@ export class AppServerClient {
         completed = final.message;
       }
     } catch (error) {
-      clearTimeout(steerTimer);
-      clearTimeout(forceTimer);
-      await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
-      if (error.message === "Timed out waiting for app-server notification") {
+      completionAbort.abort();
+      const timedOut = error.message === "Timed out waiting for app-server notification";
+      const lateCompletion = timedOut ? this.completedTurns.get(turnId) : null;
+      const authoritativeFinalItem = timedOut ? this.turnActivity.get(turnId)?.finalAnswerItem : null;
+      if (lateCompletion) {
+        completed = lateCompletion;
+      } else if (authoritativeFinalItem) {
+        await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
+        completed = {
+          method: "turn/completed",
+          params: {
+            threadId,
+            turn: {
+              id: turnId,
+              status: "completed",
+              durationMs: Date.now() - startedAt,
+              items: [authoritativeFinalItem],
+            },
+          },
+        };
+      } else {
+        await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
+      }
+      if (timedOut && !completed) {
         error.code = "TURN_HARD_TIMEOUT";
         error.missingCompletion = !this.completedTurns.has(turnId);
       }
-      error.activity = this.turnSnapshot(turnId);
-      error.usage ??= this.latestUsage.get(turnId) ?? error.activity?.usage ?? null;
-      error.supervision ??= supervision;
-      error.steering = steering;
-      this.latestUsage.delete(turnId);
-      this.turnActivity.delete(turnId);
-      this.completedTurns.delete(turnId);
-      throw error;
+      if (!completed) {
+        error.activity = this.turnSnapshot(turnId);
+        error.usage ??= this.latestUsage.get(turnId) ?? error.activity?.usage ?? null;
+        error.supervision ??= supervision;
+        this.latestUsage.delete(turnId);
+        this.turnActivity.delete(turnId);
+        this.completedTurns.delete(turnId);
+        throw error;
+      }
     }
-    clearTimeout(steerTimer);
-    clearTimeout(forceTimer);
+    completionAbort.abort();
     const turn = completed.params.turn;
     const usage = this.latestUsage.get(turnId) ?? null;
     this.latestUsage.delete(turnId);
@@ -473,10 +456,9 @@ export class AppServerClient {
     const textOutput = (finalItems.at(-1) ?? fallbackItems.at(-1))?.text ?? "";
     if (turn.status !== "completed") {
       const error = new Error(turn.error?.message ?? `Luna turn ended with status ${turn.status}`);
-      error.code = steering.forced ? "FINALIZATION_INTERRUPTED" : "TURN_NOT_COMPLETED";
+      error.code = "TURN_NOT_COMPLETED";
       error.activity = activity;
       error.usage = usage;
-      error.steering = steering;
       throw error;
     }
     let structured;
@@ -487,7 +469,6 @@ export class AppServerClient {
       invalid.code = "INVALID_STRUCTURED_OUTPUT";
       invalid.activity = activity;
       invalid.usage = usage;
-      invalid.steering = steering;
       throw invalid;
     }
     return {
@@ -496,7 +477,6 @@ export class AppServerClient {
       usage,
       activity,
       supervision,
-      steering,
       output: structured,
     };
   }

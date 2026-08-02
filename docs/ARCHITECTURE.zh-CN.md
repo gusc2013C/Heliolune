@@ -27,19 +27,19 @@ Sol review and final acceptance
 - **Verifier**：风险或关键正确性声明需要时启用的独立只读 worker。
 - **Operations Leader**：只根据 MCP 提供的数据跟踪运行、判断存活并压缩上报。
 - **Profile**：默认使用 4 路并行 speed-first；持久 token-first 仅作为显式安全回退。
-- **Adapter**：负责 session、turn、steer/interrupt、进度和 usage 的 host/model 适配层。
+- **Adapter**：负责 session、turn、可续租存活判断、进度和 usage 的 host/model 适配层。
 
 ## 当前 Codex adapter
 
 Token-first 使用 `core`、`tests`、`integration` 与 `verifier` 四个持久 Luna/max lane；speed-first 使用默认 4 路或实验 8 路 Luna/max burst slot，且 workstream 必须由 Sol 预先定义。只读 burst session 可以复用；mutating workstream 在隔离 Git worktree 中使用 fresh ephemeral session，避免 checkout context 跨 worker 泄漏。兼容名为 `supervisor` 的 Luna/high session 作为共享 Operations Leader。所有 session 都不会显示为普通 Desktop task。
 
-Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和结构化 owner/verifier bundle。它可以上报 continue/interrupt、跨 lane lifecycle digest 和压缩结果，但不能规划、分配、决定保留边界或最终验收。
+Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和结构化 owner/verifier bundle。近期活动会直接续租，不唤醒 Leader；持续静默时 Leader 可以上报 continue/interrupt，但只有高置信度 stall 判断才能中止。它不能规划、分配、决定保留边界或最终验收。
 
-对 speed-first 而言，90 秒是 workstream 尺寸目标与共享管理检查点，不是硬上限；每个 worker 的有界硬截止最长可到 600 秒。一个共享 Leader session 将同时到达的检查请求合并成一个 turn，接收当前活跃 slot 的 snapshot，并逐 slot 建议 continue/interrupt。后续排队波次可在同一 warm session 上再执行一次有界 turn，不进行模型轮询。Leader 不得重新分配工作；失败或长尾 slot 不会丢弃已经完成的兄弟结果；终态再复用同一 Leader thread 向 Sol 汇总。
+对 speed-first 而言，90 秒是 workstream 尺寸目标与首次共享管理检查点，不是截止时间。每个 worker 持有可续租 lease；近期活动会无限续租，持续静默才交给共享 Leader。模糊或不可用的判断继续续租，只有高置信度 stall 才 interrupt。workstream 来自共享队列，任一空闲 slot 会立刻领取下一项，而不等待长尾 sibling。Leader 不得规划或重新分配；确定性调度器只执行 Sol 已经定义的队列。
 
-## Finalization
+## 结构化输出恢复
 
-任务总硬截止不会自动延长。60 秒以上任务默认预留 40–60 秒。活跃 work turn 到达预算时，adapter 使用 `turn/steer` 注入 `FINALIZE_NOW`，并给同一 Luna/max turn 10–20 秒停止工具、根据已获得证据输出 schema。若完成 turn 的文本不是合法 JSON，才允许同一 warm thread 启动一次 no-tools fallback。
+活动 worker 不会因墙钟时间被 steer 或中止。只有已经完成的 turn 返回非法 JSON 时，才允许同一 warm thread 启动一次 no-tools schema repair。
 
 ## 自适应 Leader
 
@@ -63,7 +63,9 @@ Speed-first 实现和修复要求干净 Git 根目录，以及窄、非重叠、
 
 Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，创建后台 job 与原生状态界面后立即返回。`luna-await.await_task` 再阻塞读取原子写入的终态文件。拆分是因为同一 server 的阻塞请求会串行化其他调用；原生窗口可继续读取本地 snapshot，又不增加 Sol turn 或模型 session。
 
-运行中记录包含 pool server PID、进程启动时间、心跳和有界过期时间。`luna-await` 在阻塞时验证 owner；若 owner 在写入终态前退出，就把陈旧记录原子转换为失败。原生窗口也执行相同 owner 检查，因此被遗弃的 `running` 快照不会再表现为永久挂起的 Luna 工作池。
+运行中记录包含 pool server PID、进程启动时间和心跳，但没有墙钟过期时间。`luna-await` 在阻塞时验证 owner；若 owner 在写入终态前退出，就把陈旧记录原子转换为失败。原生窗口也执行相同 owner 检查，因此既不会误杀活动工作，也不会让被遗弃的 `running` 快照永久挂起。
+
+Codex MCP 配置要求 transport 使用有限保护值，但 Heliolune 内部 await 没有截止。随附 `luna-await` 保护为 24 小时；即使 host 请求本身到达该保护，由独立 owner 持有的后台 job 仍会继续，保护值不会传给 worker，也不会中止其 app-server turn。
 
 Windows 使用系统自带 WSH/Windows PowerShell 启动唯一的 WPF 悬浮窗，不再同时提供内联 task 面板。`HELIOLUNE_STATUS_WINDOW=off` 可手工关闭。原生窗口实际渲染后才写 ready 标记；状态和终态文件原子写入用户本地 Codex 数据目录。
 

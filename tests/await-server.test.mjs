@@ -37,6 +37,7 @@ test("dedicated await MCP reads a completed job without blocking the status serv
   assert.equal(initialized.result.serverInfo.name, "heliolune-await");
   const listed = await request("tools/list");
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), ["await_task"]);
-  const response = await request("tools/call", { name: "await_task", arguments: { jobId, timeoutSeconds: 30 } });
+  assert.deepEqual(Object.keys(listed.result.tools[0].inputSchema.properties), ["jobId"]);
+  const response = await request("tools/call", { name: "await_task", arguments: { jobId } });
   assert.equal(JSON.parse(response.result.content[0].text).summary, "ok");
 });

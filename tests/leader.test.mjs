@@ -26,7 +26,7 @@ const routing = { ownerLane: "core", verifierUsed: false, ownerThreadId: "hidden
 test("leader prompt permits reporting but forbids planning and acceptance", () => {
   const prompt = compactLeaderPrompt({
     taskId: "task-1", lane: "core", objective: "Bounded task", acceptance: ["One criterion"],
-    owner, verifier: null, finalization: { attempted: false }, timing: { ownerMs: 10 },
+    owner, verifier: null, schemaRecovery: { attempted: false }, timing: { ownerMs: 10 },
   });
   assert.match(prompt, /operations leader and reporting compressor/);
   assert.match(prompt, /Do not inspect the repository/);
@@ -35,11 +35,11 @@ test("leader prompt permits reporting but forbids planning and acceptance", () =
 });
 
 test("leader result hides raw worker bundles and controller-irrelevant cost detail", () => {
-  const direct = buildControllerResult({ status: "completed", owner, verifier: null, leader: null, leaderError: null, includeRawResults: false, routing, supervision: null, finalization: {}, usage: {}, cost, timing: {} });
+  const direct = buildControllerResult({ status: "completed", owner, verifier: null, leader: null, leaderError: null, includeRawResults: false, routing, supervision: null, schemaRecovery: {}, usage: {}, cost, timing: {} });
   const summarized = buildControllerResult({
     status: "completed", owner, verifier: null,
     leader: { status: "completed", brief: "Done.", evidence: owner.evidence, changes: owner.changes, checks: owner.checks, risks: [], escalations: [], confidence: "high" },
-    leaderError: null, includeRawResults: false, routing, supervision: null, finalization: {}, usage: {}, cost, timing: {},
+    leaderError: null, includeRawResults: false, routing, supervision: null, schemaRecovery: {}, usage: {}, cost, timing: {},
   });
   assert.equal(summarized.reportMode, "leader");
   assert.equal("owner" in summarized, false);
@@ -54,7 +54,7 @@ test("raw worker results remain opt-in for audits", () => {
   const result = buildControllerResult({
     status: "completed", owner, verifier: null,
     leader: { status: "completed", brief: "Done.", evidence: [], changes: [], checks: [], risks: [], escalations: [], confidence: "high" },
-    leaderError: null, includeRawResults: true, routing, supervision: null, finalization: {}, usage: {}, cost, timing: {},
+    leaderError: null, includeRawResults: true, routing, supervision: null, schemaRecovery: {}, usage: {}, cost, timing: {},
   });
   assert.deepEqual(result.audit.owner, owner);
 });

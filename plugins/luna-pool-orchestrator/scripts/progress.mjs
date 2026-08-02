@@ -26,13 +26,13 @@ export function createProgressReporter({ token, send, minimumIntervalMs = 10_000
   };
 }
 
-export function workerProgress({ lane, snapshot, hardMs }) {
+export function workerProgress({ lane, snapshot, targetMs }) {
   const usage = snapshot?.usage?.last ?? snapshot?.usage ?? {};
   const elapsedSeconds = Math.max(0, Math.round((snapshot?.elapsedMs ?? 0) / 1000));
   const cacheRate = usage.inputTokens
     ? `${Math.round((usage.cachedInputTokens ?? 0) / usage.inputTokens * 100)}% cached`
     : "usage pending";
-  const progress = 8 + Math.min(54, (snapshot?.elapsedMs ?? 0) / Math.max(1, hardMs) * 54);
+  const progress = 8 + Math.min(54, (snapshot?.elapsedMs ?? 0) / Math.max(1, targetMs) * 54);
   return {
     progress,
     message: `Heliolune Leader · ${lane} Luna/max active · ${elapsedSeconds}s · ${snapshot?.eventCount ?? 0} events · ${cacheRate} · last ${snapshot?.lastMethod ?? "turn/start"}`,

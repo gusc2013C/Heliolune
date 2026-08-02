@@ -48,10 +48,10 @@ output.on("line", (line) => {
 function request(method, params = {}, timeoutMs = 60_000) {
   const id = nextId++;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(new Error(`Codex app-server request timed out: ${method}; stderr=${stderr.slice(-4000)}`));
-    }, timeoutMs);
+    const timer = Number.isFinite(timeoutMs) && timeoutMs > 0 ? setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`Codex app-server request timed out: ${method}; stderr=${stderr.slice(-4000)}`));
+      }, timeoutMs) : null;
     pending.set(id, { resolve, reject, timer });
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
   });
@@ -107,12 +107,11 @@ const taskArguments = {
   scope: ["plugins/luna-pool-orchestrator/scripts/progress.mjs"],
   risk: "low",
   reservedBoundary: false,
-  timeoutSeconds: 120,
 };
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.6.2" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.6.4" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");
@@ -151,8 +150,8 @@ try {
     threadId: thread.thread.id,
     server: "luna-await",
     tool: "await_task",
-    arguments: { jobId: started.jobId, timeoutSeconds: 300 },
-  }, 330_000);
+    arguments: { jobId: started.jobId },
+  }, null);
   stage("await_task is blocking on the independent server");
   const awaited = await awaitResponse;
   const finalRecord = await readJobRecord(started.jobId);

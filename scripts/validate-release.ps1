@@ -21,7 +21,7 @@ $required = @(
     (Join-Path $pluginRoot 'scripts\app-server-client.mjs'),
     (Join-Path $pluginRoot 'scripts\pricing.mjs'),
     (Join-Path $pluginRoot 'scripts\supervision.mjs'),
-    (Join-Path $pluginRoot 'scripts\finalization.mjs'),
+    (Join-Path $pluginRoot 'scripts\schema-recovery.mjs'),
     (Join-Path $pluginRoot 'scripts\orchestration-policy.mjs'),
     (Join-Path $pluginRoot 'scripts\leader.mjs'),
     (Join-Path $pluginRoot 'scripts\profiles.mjs'),
@@ -52,9 +52,11 @@ $required = @(
     (Join-Path $repoRoot 'docs\0.6.2-FAST-START-BENCHMARK.zh-CN.md'),
     (Join-Path $repoRoot 'docs\0.6.3-RUNTIME-DIAGNOSTIC.md'),
     (Join-Path $repoRoot 'docs\0.6.3-RUNTIME-DIAGNOSTIC.zh-CN.md'),
+    (Join-Path $repoRoot 'docs\0.6.4-RENEWABLE-LIVENESS.md'),
+    (Join-Path $repoRoot 'docs\0.6.4-RENEWABLE-LIVENESS.zh-CN.md'),
     (Join-Path $repoRoot 'tests\pricing.test.mjs'),
     (Join-Path $repoRoot 'tests\supervision.test.mjs'),
-    (Join-Path $repoRoot 'tests\finalization.test.mjs'),
+    (Join-Path $repoRoot 'tests\schema-recovery.test.mjs'),
     (Join-Path $repoRoot 'tests\leader.test.mjs'),
     (Join-Path $repoRoot 'tests\profiles.test.mjs'),
     (Join-Path $repoRoot 'tests\worktrees.test.mjs'),
@@ -75,11 +77,12 @@ $required = @(
     (Join-Path $repoRoot 'scripts\run-parallel-write-smoke.mjs'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis-direct.json'),
-    (Join-Path $repoRoot 'benchmarks\forced-finalization.json'),
+    (Join-Path $repoRoot 'benchmarks\renewable-liveness.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6-parallel-cold-r1.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6-parallel-cold-r2.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6.2-fast-start-code-r1.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6.3-backend-diagnostic-r5.json')
+    (Join-Path $repoRoot 'benchmarks\results\0.6.4-renewable-fast-start-r1.json')
 )
 
 foreach ($path in $required) {
@@ -92,7 +95,7 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | Convert
 if ($manifest.name -ne 'luna-pool-orchestrator') {
     throw "Unexpected plugin name: $($manifest.name)"
 }
-if ($manifest.version -notmatch '^0\.6\.3(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.6\.4(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 if ($manifest.author.name -ne 'Sicheng Gu' -or $manifest.interface.developerName -ne 'Sicheng Gu') {
@@ -141,7 +144,7 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
     throw 'README versions do not match the plugin manifest.'
 }
 
-foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs', 'orchestration-policy.mjs', 'leader.mjs', 'profiles.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'status-window.mjs')) {
+foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'schema-recovery.mjs', 'orchestration-policy.mjs', 'leader.mjs', 'profiles.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'status-window.mjs')) {
     & node --check (Join-Path $pluginRoot "scripts\$script")
     if ($LASTEXITCODE -ne 0) {
         throw "Node syntax validation failed: $script"

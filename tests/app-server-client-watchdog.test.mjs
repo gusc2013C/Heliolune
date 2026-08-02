@@ -66,7 +66,53 @@ test("recent app-server events prove a worker is live at soft timeout", async (t
   assert.equal(run.supervision.action, "continue");
 });
 
-test("top-level turnId completion does not wait until the hard timeout", async (t) => {
+test("renewable liveness lets an active worker finish beyond the fixed completion window", async (t) => {
+  const client = await clientForTest(t);
+  let checks = 0;
+  const startedAt = Date.now();
+  const run = await client.runTurn({
+    threadId: "fake-thread", text: "RENEWABLE_COMPLETE", cwd: process.cwd(),
+    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 80,
+    watchdog: {
+      renewable: true,
+      afterMs: 50,
+      repeatMs: 40,
+      onCheck: async (snapshot) => {
+        checks += 1;
+        assert.ok(snapshot.eventCount > 0);
+        return { action: "continue", confidence: "high", reason: "activity renews the lease", source: "activity" };
+      },
+    },
+  });
+  assert.equal(run.output.ok, true);
+  assert.ok(Date.now() - startedAt >= 200);
+  assert.ok(checks >= 3);
+});
+
+test("renewable liveness repeats checks and interrupts only a judged stall", async (t) => {
+  const client = await clientForTest(t);
+  let checks = 0;
+  await assert.rejects(
+    client.runTurn({
+      threadId: "fake-thread", text: "STALL", cwd: process.cwd(),
+      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 40,
+      watchdog: {
+        renewable: true,
+        afterMs: 30,
+        repeatMs: 30,
+        onCheck: async () => {
+          checks += 1;
+          return checks < 2
+            ? { action: "continue", confidence: "low", reason: "one silent sample is ambiguous", source: "test-supervisor" }
+            : { action: "interrupt", confidence: "high", reason: "sustained silence across checks", source: "test-supervisor" };
+        },
+      },
+    }),
+    (error) => error.code === "SUPERVISOR_INTERRUPTED" && checks === 2,
+  );
+});
+
+test("top-level turnId completion does not wait until the fixed completion window", async (t) => {
   const client = await clientForTest(t);
   const startedAt = Date.now();
   const run = await client.runTurn({
@@ -78,7 +124,20 @@ test("top-level turnId completion does not wait until the hard timeout", async (
   assert.equal(run.activity.lastMethod, "turn/completed");
 });
 
-test("supervisor can interrupt a silent worker before hard timeout", async (t) => {
+test("an authoritative final-answer item survives a missing turn completion", async (t) => {
+  const client = await clientForTest(t);
+  const run = await client.runTurn({
+    threadId: "fake-thread", text: "FINAL_ITEM_ONLY", cwd: process.cwd(),
+    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 100,
+  });
+  assert.equal(run.output.ok, true);
+  assert.equal(run.activity.hasFinalAnswer, true);
+  assert.equal(run.activity.lastItemType, "agentMessage");
+  assert.equal(run.activity.lastItemPhase, "final_answer");
+  assert.equal(run.usage.last.inputTokens, 120);
+});
+
+test("supervisor can interrupt a silent worker before the non-renewable completion window", async (t) => {
   const client = await clientForTest(t);
   await assert.rejects(
     client.runTurn({
@@ -108,7 +167,7 @@ test("a worker that completes while the supervisor thinks is not interrupted", a
   assert.equal(run.supervision.originalAction, "interrupt");
 });
 
-test("hard timeout is classified when no supervisor is configured", async (t) => {
+test("non-renewable turns retain a fixed completion window for bounded Leader calls", async (t) => {
   const client = await clientForTest(t);
   await assert.rejects(
     client.runTurn({
@@ -121,7 +180,7 @@ test("hard timeout is classified when no supervisor is configured", async (t) =>
   );
 });
 
-test("active work can be interrupted and followed by synthesis on the same thread", async (t) => {
+test("a bounded non-renewable turn can be followed by schema recovery on the same thread", async (t) => {
   const client = await clientForTest(t);
   let firstUsage;
   await assert.rejects(
@@ -143,57 +202,6 @@ test("active work can be interrupted and followed by synthesis on the same threa
   });
   assert.equal(synthesis.output.ok, true);
   assert.equal(firstUsage.last.inputTokens, 100);
-});
-
-test("an active turn can be steered to finalize before its hard deadline", async (t) => {
-  const client = await clientForTest(t);
-  const run = await client.runTurn({
-    threadId: "fake-thread", text: "ACTIVE_TIMEOUT", cwd: process.cwd(),
-    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
-    steer: { afterMs: 80, text: "FINALIZE_NOW" },
-  });
-  assert.equal(run.output.ok, true);
-  assert.equal(run.steering.attempted, true);
-  assert.equal(run.steering.accepted, true);
-});
-
-test("a worker that ignores finalization steering is interrupted early for bounded synthesis", async (t) => {
-  const client = await clientForTest(t);
-  await assert.rejects(
-    client.runTurn({
-      threadId: "fake-thread", text: "ACTIVE_TIMEOUT IGNORE_STEER", cwd: process.cwd(),
-      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 3_000,
-      steer: { afterMs: 50, forceAfterMs: 40, text: "FINALIZE_NOW" },
-    }),
-    (error) => error.code === "FINALIZATION_INTERRUPTED"
-      && error.steering.accepted === true
-      && error.steering.forced === true,
-  );
-});
-
-test("a turn that completes before the reserve window is never steered", async (t) => {
-  const client = await clientForTest(t);
-  const run = await client.runTurn({
-    threadId: "fake-thread", text: "LIVE", cwd: process.cwd(),
-    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
-    steer: { afterMs: 200, text: "FINALIZE_NOW" },
-  });
-  assert.equal(run.output.ok, true);
-  assert.equal(run.steering.attempted, false);
-});
-
-test("a stale turn skips finalization steering", async (t) => {
-  const client = await clientForTest(t);
-  await assert.rejects(
-    client.runTurn({
-      threadId: "fake-thread", text: "STALL", cwd: process.cwd(),
-      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 100,
-      steer: { afterMs: 40, text: "FINALIZE_NOW", shouldSteer: (snapshot) => snapshot.silentMs < 10 },
-    }),
-    (error) => error.code === "TURN_HARD_TIMEOUT"
-      && error.steering.attempted === false
-      && error.steering.skippedReason === "worker_not_active",
-  );
 });
 
 test("invalid structured output preserves usage for bounded recovery", async (t) => {

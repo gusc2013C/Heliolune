@@ -7,12 +7,12 @@ English · [简体中文](RELEASE_CHECKLIST.zh-CN.md)
 - [ ] Run `pwsh -File .\scripts\validate-release.ps1`.
 - [ ] Run validation under both Windows PowerShell 5.1 and PowerShell 7.
 - [ ] Confirm `.agents/plugins/marketplace.json` and the plugin manifest are not ignored.
-- [ ] Run cold initialization, same-lane warm reuse, timeout, and verifier smoke tests.
-- [ ] Exercise recent-activity, sustained-silence, supervisor-race, and hard-timeout watchdog paths.
-- [ ] Exercise active-timeout and invalid-JSON finalization recovery; confirm synthesis does not extend the hard deadline.
-- [ ] Exercise progress-token present/absent, monotonic/rate-limited updates, live activity, finalization, verification, Leader compression, and terminal status.
-- [ ] Exercise `start_task` plus the independent `luna-await.await_task`; confirm Sol does not poll or generate while Luna is running.
-- [ ] Exercise `start_batch` with 4-way and explicit 8-way read-only workstreams; record stragglers and shared-Leader time.
+- [ ] Run cold initialization, same-lane warm reuse, renewable liveness, and verifier smoke tests.
+- [ ] Exercise recent-activity renewal, repeated sustained-silence checks, high-confidence interruption, supervisor race, and Leader-unavailable continuation.
+- [ ] Confirm active work is never time-steered; exercise completed-invalid-JSON schema recovery without repository exploration.
+- [ ] Exercise progress-token present/absent, monotonic/rate-limited updates, live activity, liveness checks, verification, Leader compression, and terminal status.
+- [ ] Exercise `start_task` plus the independent no-deadline `luna-await.await_task`; confirm Sol does not poll or generate while Luna is running.
+- [ ] Exercise `start_batch` with 4-way, queued work stealing, and explicit 8-way read-only workstreams; record stragglers and shared-Leader time.
 - [ ] Exercise a mutating batch in detached Git worktrees; confirm disjoint patches apply unstaged and dirty-main, changed-`HEAD`, partial-worker, overlap, and scope-escape paths block atomically.
 - [ ] Confirm the native status surface lists persistent and dynamic burst lanes, reaches a terminal active-worker state, and shows a bounded Luna-authored natural-language explanation without raw reasoning or transcripts.
 - [ ] Confirm no inline MCP App resource or `job_status` tool is exposed; verify the Windows native window and ready handshake.

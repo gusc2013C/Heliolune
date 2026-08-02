@@ -14,16 +14,6 @@
   ],
   "risk": "low",
   "reservedBoundary": false,
-  "verification": "never",
-  "timeoutSeconds": 120,
-  "softTimeoutSeconds": 70,
-  "staleAfterSeconds": 30,
-  "supervision": "auto",
-  "supervisorEffort": "high",
-  "finalization": "auto",
-  "synthesisReserveSeconds": 40,
-  "synthesisEffort": "high",
-  "reporting": "direct",
   "maxFiles": 3,
   "maxCommands": 8
 }

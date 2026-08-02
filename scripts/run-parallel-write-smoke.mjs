@@ -65,7 +65,7 @@ try {
     arguments: {
       cwd: fixture,
       parallelism: 4,
-      timeoutSeconds: 120,
+      checkpointSeconds: 90,
       workstreams: [
         {
           id: "alpha",
@@ -92,7 +92,7 @@ try {
   });
   if (startedResponse.result?.isError) throw new Error(startedResponse.result.content?.[0]?.text ?? "start_batch failed");
   const started = startedResponse.result.structuredContent;
-  const result = await waitForJobRecord(started.jobId, { root: localAppData, timeoutMs: 240_000 });
+  const result = await waitForJobRecord(started.jobId, { root: localAppData });
   const alpha = (await readFile(path.join(fixture, "alpha.txt"), "utf8")).replaceAll("\r\n", "\n");
   const beta = (await readFile(path.join(fixture, "beta.txt"), "utf8")).replaceAll("\r\n", "\n");
   const staged = await command("git", ["diff", "--cached", "--name-only"], fixture);

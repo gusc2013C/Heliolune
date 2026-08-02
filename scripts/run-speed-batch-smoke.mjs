@@ -8,7 +8,12 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const serverPath = path.join(repoRoot, "plugins", "luna-pool-orchestrator", "scripts", "server.mjs");
 const showWindow = process.argv.includes("--show-window");
 const fastStart = process.argv.includes("--fast-start");
+const queuedWork = process.argv.includes("--queued");
+const eightWay = process.argv.includes("--eight");
 const targetArgument = process.argv.find((argument) => argument.startsWith("--target="));
+const checkpointArgument = process.argv.find((argument) => argument.startsWith("--checkpoint="));
+const checkpointSeconds = checkpointArgument ? Number(checkpointArgument.slice("--checkpoint=".length)) : 90;
+const parallelism = eightWay ? 8 : 4;
 const taskRoot = targetArgument ? path.resolve(targetArgument.slice("--target=".length)) : repoRoot;
 const child = spawn(process.execPath, [serverPath], {
   cwd: repoRoot,
@@ -79,6 +84,57 @@ const workstreams = [
     reservedBoundary: false,
   },
 ];
+if (queuedWork) {
+  workstreams.push({
+    id: "job-records",
+    lane: "integration",
+    objective: "Confirm how running job records distinguish a live owner from an orphan without a wall-clock expiry.",
+    acceptance: ["Cite the owner-process check and confirm that legacy expiry timestamps are not enforced."],
+    scope: ["plugins/luna-pool-orchestrator/scripts/job-files.mjs"],
+    risk: "low",
+    reservedBoundary: false,
+  });
+}
+if (eightWay) {
+  workstreams.push(
+    {
+      id: "await-contract",
+      lane: "integration",
+      objective: "Confirm that await_task has no wall-clock timeout field and waits for a terminal or orphaned job record.",
+      acceptance: ["Cite the tool schema and wait call."],
+      scope: ["plugins/luna-pool-orchestrator/scripts/await-server.mjs"],
+      risk: "low",
+      reservedBoundary: false,
+    },
+    {
+      id: "renewable-policy",
+      lane: "core",
+      objective: "Confirm the renewable checkpoint, repeat interval, and high-confidence liveness boundary.",
+      acceptance: ["Cite the schedule and supervisor prompt."],
+      scope: ["plugins/luna-pool-orchestrator/scripts/supervision.mjs"],
+      risk: "low",
+      reservedBoundary: false,
+    },
+    {
+      id: "schema-recovery",
+      lane: "verifier",
+      objective: "Confirm that schema recovery cannot continue repository exploration or implementation.",
+      acceptance: ["Cite the no-tools recovery instruction."],
+      scope: ["plugins/luna-pool-orchestrator/scripts/schema-recovery.mjs"],
+      risk: "low",
+      reservedBoundary: false,
+    },
+    {
+      id: "cost-model",
+      lane: "integration",
+      objective: "Confirm that reasoning output is not billed twice and cached input uses its own rate.",
+      acceptance: ["Cite the pricing calculation."],
+      scope: ["plugins/luna-pool-orchestrator/scripts/pricing.mjs"],
+      risk: "low",
+      reservedBoundary: false,
+    },
+  );
+}
 
 try {
   await request("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
@@ -98,7 +154,6 @@ try {
       scope: ["src/merge-windows.mjs"],
       risk: "low",
       reservedBoundary: false,
-      timeoutSeconds: 120,
     } : {
       cwd: taskRoot,
       lane: "integration",
@@ -111,15 +166,14 @@ try {
       ],
       risk: "low",
       reservedBoundary: false,
-      timeoutSeconds: 120,
     },
   } : {
     name: "start_batch",
     arguments: {
       cwd: repoRoot,
-      parallelism: 4,
+      parallelism,
       workstreams,
-      timeoutSeconds: 120,
+      checkpointSeconds,
     },
   };
   const response = await request("tools/call", {
@@ -127,8 +181,8 @@ try {
   });
   if (response.result?.isError) throw new Error(response.result.content?.[0]?.text ?? `${invocation.name} failed`);
   const started = response.result.structuredContent;
-  const result = await waitForJobRecord(started.jobId, { timeoutMs: 240_000 });
-  if (result.priority !== "speed-first" || result.parallelism !== 4) throw new Error("Unexpected speed-first routing result");
+  const result = await waitForJobRecord(started.jobId);
+  if (result.priority !== "speed-first" || result.parallelism !== parallelism) throw new Error("Unexpected speed-first routing result");
   if (result.taskOutcomes?.length !== (fastStart ? 4 : workstreams.length)) throw new Error("Not every workstream reached a terminal outcome");
   if (!result.usage || !result.cost || !result.timing) throw new Error("Missing usage, cost, or timing telemetry");
   process.stdout.write(`${JSON.stringify({

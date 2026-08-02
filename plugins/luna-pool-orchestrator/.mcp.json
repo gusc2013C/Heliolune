@@ -14,7 +14,7 @@
       "args": ["./scripts/await-server.mjs"],
       "cwd": ".",
       "startup_timeout_sec": 30,
-      "tool_timeout_sec": 4500,
+      "tool_timeout_sec": 86400,
       "default_tools_approval_mode": "approve",
       "enabled_tools": ["await_task"]
     }
