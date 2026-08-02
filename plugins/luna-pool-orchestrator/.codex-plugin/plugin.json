@@ -1,7 +1,7 @@
 {
   "name": "luna-pool-orchestrator",
-  "version": "0.6.1",
-  "description": "Parallel-first engineering orchestration with four Luna workers by default, safe token-first fallback, a shared operations leader, and token-free native status.",
+  "version": "0.6.2",
+  "description": "Fast-start parallel engineering orchestration with four Luna workers by default, safe token-first fallback, a shared operations leader, and token-free native status.",
   "author": {
     "name": "Sicheng Gu",
     "url": "https://github.com/gusc2013C"
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Heliolune",
     "shortDescription": "Low-cost Luna work with visible Sol governance.",
-    "longDescription": "Heliolune defaults to Sol-defined four-worker Luna/max speed bursts behind a start-once, await-once MCP boundary, with eight-way as an explicit experiment and token-first as a safety fallback. Parallel writes use detached Git worktrees and deterministic safe-apply gates. One shared Luna/high operations leader manages long-running sessions and compresses results while Sol retains planning, architecture, risk, integration review, and final acceptance. A native Windows panel shows token-free live status.",
+    "longDescription": "Heliolune's compact start_task fast path deterministically expands one Sol brief into a four-worker Luna/max burst, with custom batches as an advanced path and token-first as a safety fallback. Parallel writes use detached Git worktrees and deterministic safe-apply gates. One shared Luna/high operations leader manages long-running sessions and compresses results while Sol retains planning, architecture, risk, integration review, and final acceptance. A native Windows panel shows token-free live status.",
     "developerName": "Sicheng Gu",
     "category": "Productivity",
     "capabilities": [
@@ -30,7 +30,7 @@
     ],
     "websiteURL": "https://github.com/gusc2013C/Heliolune",
     "defaultPrompt": [
-      "Use $luna-pool-orchestrator with its default four-way parallel routing for this engineering task.",
+      "Use $luna-pool-orchestrator fast start for this engineering task; send one compact task and use its default four-way parallel routing.",
       "Use $luna-pool-orchestrator in token-first fallback mode because parallel write isolation is unsafe here."
     ]
   },

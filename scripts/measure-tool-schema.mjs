@@ -31,13 +31,12 @@ try {
   await request("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
   const listed = await request("tools/list");
   const tools = listed.result.tools;
-  const tokenNames = new Set(["initialize_pool", "start_task", "pool_status", "cost_dashboard"]);
-  const speedNames = new Set(["initialize_pool", "start_batch", "pool_status", "cost_dashboard"]);
+  const installedNames = new Set(["start_task", "start_batch", "cost_dashboard"]);
   process.stdout.write(`${JSON.stringify({
     all: measure(tools),
-    tokenFirstSurface: measure(tools.filter((tool) => tokenNames.has(tool.name))),
-    speedFirstSurface: measure(tools.filter((tool) => speedNames.has(tool.name))),
-    marginalSpeedSchema: measure(tools.filter((tool) => tool.name === "start_batch")),
+    installedSurface: measure(tools.filter((tool) => installedNames.has(tool.name))),
+    normalFastPath: measure(tools.filter((tool) => tool.name === "start_task")),
+    advancedBatchSchema: measure(tools.filter((tool) => tool.name === "start_batch")),
   }, null, 2)}\n`);
 } finally {
   child.kill();

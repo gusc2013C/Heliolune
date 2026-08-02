@@ -3,6 +3,7 @@ import readline from "node:readline";
 let nextTurn = 1;
 const timers = new Map();
 const activeByThread = new Map();
+const textByTurn = new Map();
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -31,6 +32,10 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     }
     result(message.id, { turnId });
     for (const timer of timers.get(turnId) ?? []) clearTimeout(timer);
+    if (textByTurn.get(turnId)?.includes("IGNORE_STEER")) {
+      timers.set(turnId, []);
+      return;
+    }
     const scheduled = [];
     scheduled.push(setTimeout(() => send({
       jsonrpc: "2.0",
@@ -56,6 +61,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       });
       activeByThread.delete(message.params.threadId);
       timers.delete(turnId);
+      textByTurn.delete(turnId);
     }, 30));
     timers.set(turnId, scheduled);
     return;
@@ -66,6 +72,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const text = message.params.input?.[0]?.text ?? "";
   result(message.id, { turn: { id: turnId } });
   activeByThread.set(message.params.threadId, turnId);
+  textByTurn.set(turnId, text);
   if (text.includes("STALL")) return;
 
   const scheduled = [];

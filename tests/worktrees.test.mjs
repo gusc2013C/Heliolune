@@ -81,6 +81,25 @@ test("out-of-scope worktree changes block integration and preserve main state", 
   assert.ok((await readFile(patch.patchPath)).length > 0);
 });
 
+test("a failed read-only companion does not block a completed isolated writer", async (t) => {
+  const root = await repository(t);
+  const artifacts = path.join(os.tmpdir(), `heliolune-patches-${Date.now()}-${process.pid}`);
+  t.after(() => rm(artifacts, { recursive: true, force: true }));
+  const workstreams = [
+    { id: "owner", mode: "repair", scope: ["a.txt"] },
+    { id: "review", mode: "analyze", scope: ["a.txt"] },
+  ];
+  const session = await prepareParallelWriteBatch({ cwd: root, batchId: "test", workstreams, artifactDirectory: artifacts });
+  t.after(() => cleanupParallelWriteBatch(session));
+  await writeFile(path.join(worktreeFor(session, "owner"), "a.txt"), "a1\n");
+  const patches = await Promise.all(workstreams.map((workstream) => collectWorktreePatch(session, workstream)));
+  const integration = await integrateParallelWriteBatch(session, patches, [
+    { id: "owner", status: "completed" }, { id: "review", status: "failed" },
+  ]);
+  assert.equal(integration.applied, true);
+  assert.equal((await readFile(path.join(root, "a.txt"), "utf8")).replaceAll("\r\n", "\n"), "a1\n");
+});
+
 test("dirty main worktrees are rejected before any parallel checkout is created", async (t) => {
   const root = await repository(t);
   await writeFile(path.join(root, "a.txt"), "dirty\n");

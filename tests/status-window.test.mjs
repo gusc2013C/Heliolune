@@ -87,6 +87,29 @@ test("Windows PowerShell can read the fallback status record", { skip: process.p
   assert.equal(snapshot.workers[0].explanation, "Inspecting the focused regression.");
 });
 
+test("native panel probe marks orphaned worker snapshots failed", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-status-orphan-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobId = "44444444-4444-4444-8444-444444444444";
+  await writeFile(path.join(root, `${jobId}.json`), JSON.stringify({
+    status: "running",
+    ownerPid: 2147483646,
+    snapshot: {
+      jobId, status: "running", lane: "speed-first", effort: "max", progress: 84,
+      message: "stale", elapsedMs: 180_000, updates: [],
+      workers: [{ lane: "burst-1", status: "working", progress: 90, explanation: "stale" }],
+    },
+  }));
+  const { stdout } = await execFileAsync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+    "-File", statusScript, "-JobId", jobId, "-JobRoot", root, "-Probe",
+  ], { windowsHide: true });
+  const snapshot = JSON.parse(stdout.trim());
+  assert.equal(snapshot.status, "failed");
+  assert.equal(snapshot.progress, 100);
+  assert.equal(snapshot.workers[0].status, "failed");
+});
+
 test("WPF initializes when Codex omits the windir environment variable", { skip: process.platform !== "win32" }, async () => {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "windir"));
   env.windir = "";

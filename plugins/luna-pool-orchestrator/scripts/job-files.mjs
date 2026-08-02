@@ -37,14 +37,61 @@ export async function readJobRecord(jobId, root) {
   }
 }
 
-export async function waitForJobRecord(jobId, { root, timeoutMs = 3_900_000, pollMs = 500 } = {}) {
+export function processIsAlive(pid, signal = process.kill) {
+  const numericPid = Number(pid);
+  if (!Number.isSafeInteger(numericPid) || numericPid <= 0) return false;
+  try {
+    signal(numericPid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+async function failOrphanedRecord(jobId, record, root, message) {
+  const latest = await readJobRecord(jobId, root);
+  if (latest?.status === "completed") return { terminal: true, result: latest.result };
+  if (latest?.status === "failed") throw new Error(latest.error ?? message);
+  const completedAt = new Date().toISOString();
+  const failed = {
+    ...latest,
+    status: "failed",
+    completedAt,
+    error: message,
+    snapshot: latest?.snapshot ? {
+      ...latest.snapshot,
+      status: "failed",
+      progress: 100,
+      message,
+      updatedAt: completedAt,
+      error: message,
+      workers: latest.snapshot.workers?.map((worker) => ["idle", "completed", "failed"].includes(worker.status)
+        ? worker
+        : { ...worker, status: "failed", progress: 100, explanation: message, updatedAt: completedAt }) ?? [],
+    } : latest?.snapshot,
+  };
+  await writeJobRecord(jobId, failed, root);
+  throw new Error(message);
+}
+
+export async function waitForJobRecord(jobId, { root, timeoutMs = 3_900_000, pollMs = 500, isAlive = processIsAlive, now = () => Date.now() } = {}) {
   validateJobId(jobId);
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
+  const deadline = now() + timeoutMs;
+  while (now() < deadline) {
     const record = await readJobRecord(jobId, root);
     if (record?.status === "completed") return record.result;
     if (record?.status === "failed") throw new Error(record.error ?? "Heliolune job failed");
-    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, deadline - Date.now()))));
+    if (record?.status === "running" && record.ownerPid && !isAlive(record.ownerPid)) {
+      const message = `Heliolune orchestrator process ${record.ownerPid} exited before job ${jobId} reached a terminal result. Restart Codex and retry the bounded task.`;
+      const terminal = await failOrphanedRecord(jobId, record, root, message);
+      if (terminal?.terminal) return terminal.result;
+    }
+    if (record?.status === "running" && record.expiresAt && now() > Date.parse(record.expiresAt)) {
+      const message = `Heliolune job ${jobId} exceeded its orchestration deadline without a terminal result. Retry with narrower scope.`;
+      const terminal = await failOrphanedRecord(jobId, record, root, message);
+      if (terminal?.terminal) return terminal.result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(pollMs, Math.max(1, deadline - now()))));
   }
   throw new Error(`Timed out awaiting Heliolune job ${jobId}`);
 }

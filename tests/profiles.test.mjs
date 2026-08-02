@@ -8,6 +8,7 @@ import {
   burstLanes,
   compactBatchSupervisorPrompt,
   compactBurstTask,
+  defaultParallelWorkstreams,
   mapWithConcurrency,
   speedParallelism,
   validateSpeedWorkstreams,
@@ -22,6 +23,24 @@ test("execution profiles separate cache-oriented and burst-oriented routing", ()
   assert.deepEqual(burstLanes(4), ["burst-1", "burst-2", "burst-3", "burst-4"]);
   assert.equal(burstLanes(8).length, 8);
   assert.throws(() => speedParallelism(6), /4, 8/);
+});
+
+test("compact start_task expands deterministically into four meaningful workers", () => {
+  const workstreams = defaultParallelWorkstreams({
+    lane: "core",
+    mode: "repair",
+    objective: "Fix exact-gap merging without mutating input",
+    acceptance: ["Tests pass", "Input stays unchanged"],
+    scope: ["src/merge.mjs", "test/merge.test.mjs"],
+    risk: "low",
+  });
+  assert.deepEqual(workstreams.map(({ id }) => id), ["owner", "contract", "edges", "verify"]);
+  assert.deepEqual(workstreams.map(({ mode }) => mode), ["repair", "analyze", "analyze", "analyze"]);
+  assert.deepEqual(workstreams.map(({ lane }) => lane), ["core", "core", "tests", "verifier"]);
+  assert.ok(workstreams.every(({ scope }) => scope.length === 2));
+  assert.match(workstreams[1].objective, /contract/i);
+  assert.match(workstreams[2].objective, /edge cases/i);
+  assert.match(workstreams[3].objective, /Independently/);
 });
 
 test("speed-first accepts unique Sol-defined workstreams and isolates narrow writes", () => {

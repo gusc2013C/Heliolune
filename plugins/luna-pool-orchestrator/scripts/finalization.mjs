@@ -14,7 +14,7 @@ export function finalizationSchedule(options = {}) {
       reason: options.finalization === "off" ? "disabled" : "hard_timeout_below_60s",
     };
   }
-  const defaultReserve = Math.max(40, Math.min(90, Math.ceil(hardSeconds * 0.3)));
+  const defaultReserve = Math.max(40, Math.min(90, Math.ceil(hardSeconds * 0.5)));
   const reserveSeconds = boundedInteger(options.synthesisReserveSeconds, defaultReserve, 20, Math.min(300, hardSeconds - 30));
   return {
     enabled: true,
@@ -26,7 +26,7 @@ export function finalizationSchedule(options = {}) {
 
 export function shouldAttemptSynthesis(error, schedule, staleMs) {
   if (!schedule.enabled) return false;
-  return error?.code === "INVALID_STRUCTURED_OUTPUT";
+  return error?.code === "INVALID_STRUCTURED_OUTPUT" || error?.code === "FINALIZATION_INTERRUPTED";
 }
 
 export function compactSteerPrompt({ objective, acceptance }) {

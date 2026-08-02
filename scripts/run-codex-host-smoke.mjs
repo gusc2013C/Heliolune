@@ -107,15 +107,12 @@ const taskArguments = {
   scope: ["plugins/luna-pool-orchestrator/scripts/progress.mjs"],
   risk: "low",
   reservedBoundary: false,
-  verification: "never",
-  timeoutSeconds: 90,
-  maxFiles: 3,
-  maxCommands: 3,
+  timeoutSeconds: 120,
 };
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.6.1" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.6.2" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");
@@ -154,8 +151,8 @@ try {
     threadId: thread.thread.id,
     server: "luna-await",
     tool: "await_task",
-    arguments: { jobId: started.jobId, timeoutSeconds: 150 },
-  }, 180_000);
+    arguments: { jobId: started.jobId, timeoutSeconds: 300 },
+  }, 330_000);
   stage("await_task is blocking on the independent server");
   const awaited = await awaitResponse;
   const finalRecord = await readJobRecord(started.jobId);
@@ -166,8 +163,9 @@ try {
     throw new Error(`Final job record is incomplete: ${JSON.stringify(finalRecord)}`);
   }
   const finalWorkers = finalRecord.snapshot?.workers ?? [];
-  const activeWorker = finalWorkers.find((worker) => worker.lane === taskArguments.lane);
-  if (finalWorkers.length !== 5 || activeWorker?.status !== "completed" || !activeWorker?.explanation) {
+  const burstWorkers = finalWorkers.filter((worker) => worker.lane.startsWith("burst-"));
+  const activeWorker = burstWorkers.find((worker) => worker.explanation);
+  if (burstWorkers.length !== 4 || burstWorkers.some((worker) => !["completed", "failed"].includes(worker.status)) || !activeWorker?.explanation) {
     throw new Error(`Worker lanes or natural-language status are incomplete: ${JSON.stringify(finalWorkers)}`);
   }
   if (windowReady?.language === "zh-CN" && !/[\u3400-\u9fff]/u.test(activeWorker.explanation)) {

@@ -49,6 +49,21 @@ function Read-HelioluneSnapshot {
     try {
         $record = Get-Content -LiteralPath $jobFile -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($null -ne $record.snapshot) {
+            if (($record.status -eq 'running') -and ($null -ne $record.ownerPid)) {
+                $ownerAlive = $null -ne (Get-Process -Id ([int]$record.ownerPid) -ErrorAction SilentlyContinue)
+                if (-not $ownerAlive) {
+                    $record.snapshot.status = 'failed'
+                    $record.snapshot.progress = 100
+                    $record.snapshot.message = $strings.OrchestratorExited
+                    foreach ($worker in @($record.snapshot.workers)) {
+                        if (($worker.status -ne 'idle') -and ($worker.status -ne 'completed') -and ($worker.status -ne 'failed')) {
+                            $worker.status = 'failed'
+                            $worker.progress = 100
+                            $worker.explanation = $strings.OrchestratorExited
+                        }
+                    }
+                }
+            }
             return $record.snapshot
         }
         $resultUsage = $null

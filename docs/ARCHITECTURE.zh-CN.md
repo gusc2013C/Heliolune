@@ -61,7 +61,9 @@ Speed-first 实现和修复要求干净 Git 根目录，以及窄、非重叠、
 
 ## 可见进度边界
 
-Codex Desktop 使用两个 stdio MCP server。`luna-pool.start_task` 或 `luna-pool.start_batch` 创建后台 job 与原生状态界面后立即返回；`luna-await.await_task` 再阻塞读取原子写入的终态文件。拆分是因为同一 server 的阻塞请求会串行化其他调用；原生窗口可继续读取本地 snapshot，又不增加 Sol turn 或模型 session。
+Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，创建后台 job 与原生状态界面后立即返回。`luna-await.await_task` 再阻塞读取原子写入的终态文件。拆分是因为同一 server 的阻塞请求会串行化其他调用；原生窗口可继续读取本地 snapshot，又不增加 Sol turn 或模型 session。
+
+运行中记录包含 pool server PID、进程启动时间、心跳和有界过期时间。`luna-await` 在阻塞时验证 owner；若 owner 在写入终态前退出，就把陈旧记录原子转换为失败。原生窗口也执行相同 owner 检查，因此被遗弃的 `running` 快照不会再表现为永久挂起的 Luna 工作池。
 
 Windows 使用系统自带 WSH/Windows PowerShell 启动唯一的 WPF 悬浮窗，不再同时提供内联 task 面板。`HELIOLUNE_STATUS_WINDOW=off` 可手工关闭。原生窗口实际渲染后才写 ready 标记；状态和终态文件原子写入用户本地 Codex 数据目录。
 

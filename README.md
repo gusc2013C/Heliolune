@@ -4,11 +4,11 @@ English · [简体中文](README.zh-CN.md)
 
 **High-intelligence supervision, low-cost execution.**
 
-Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models behind a compact, blocking MCP boundary. Its first adapter is a Codex plugin in which GPT-5.6 Sol governs persistent token-first Luna/max lanes or Sol-defined four/eight-worker speed bursts with detached-worktree write isolation.
+Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models behind a compact, blocking MCP boundary. Its first adapter is a Codex plugin in which GPT-5.6 Sol sends one compact task and the MCP expands it into a four-worker Luna/max burst with detached-worktree write isolation.
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current release: **`0.6.1`**. Public contracts may change before 1.0.
+> Current release: **`0.6.2`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
@@ -21,8 +21,8 @@ controller / governor
   |  compact objective, acceptance criteria, scope and budget
   v
 Heliolune MCP boundary (start once, await once, never poll from Sol)
-  |-- function-affine owner lane
-  |-- optional independent verifier
+  |-- exact-scope owner
+  |-- contract, edge/test and correctness reviews
   v
 compact evidence, changes, checks, risks, timing and usage
   |
@@ -34,11 +34,11 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 
 ## Current capabilities
 
-- Four reusable worker lanes—`core`, `tests`, `integration`, and `verifier`—plus one shared operations-leader session (the compatibility lane name remains `supervisor`).
-- Four-way speed-first is the default profile; eight-way is experimental, and token-first remains an explicit safety fallback.
+- One compact `start_task` fast path deterministically creates an exact-scope owner plus contract, edge/test, and correctness-risk reviews.
+- Four-way speed-first is the default profile; custom 2–8 stream batches are advanced, and token-first remains an explicit safety fallback.
 - Luna workers use `max` reasoning effort.
 - Worker sessions are ephemeral and normally stay out of the Codex Desktop task list.
-- Related tasks reuse the same function-affine lane while the MCP process lives, improving cache locality.
+- Read-only burst sessions are reused while the MCP process lives; mutating worktrees receive fresh isolated sessions.
 - One asynchronous start plus one blocking await replaces controller-side polling; Sol stops generating until the terminal result returns.
 - Adaptive Leader reporting compresses large or risky owner/verifier bundles while small tasks defer a compact digest and avoid another model turn.
 - Token-free live status uses one automatic Windows WPF panel. It dynamically shows every active persistent or burst lane, compact natural-language Luna reasoning summaries, and a history-calibrated Sol-only cost / savings projection while Sol is blocked.
@@ -71,14 +71,12 @@ Workers may inspect or modify only the scope granted by the host and task contra
 
 | Tool | Purpose |
 |---|---|
-| `initialize_pool` | Validate the local app-server and initialize the default four-way speed-first lanes (or an explicit fallback profile) plus the shared Leader. A paid health turn is optional. |
-| `start_batch` | Default route: start 2–8 meaningful analysis, implementation, repair, or companion-review workstreams on four or eight Luna/max workers; writes are worktree-isolated. |
-| `start_task` | Explicit token-first safety fallback for one bounded task. |
+| `start_task` | Default fast path: expand one compact Sol brief into four Luna/max workstreams; `profile=token-first` is the safety fallback. |
+| `start_batch` | Advanced custom route for 2–8 Sol-defined workstreams on four or eight Luna/max workers. |
 | `await_task` (`luna-await`) | Block once on a started job and return the compact terminal bundle. |
-| `pool_status` | Return compact runtime, lane, model, and reuse metadata. |
 | `cost_dashboard` | Return cumulative cost, history-calibrated Sol-only projections, cache, timing, and per-lane totals without invoking a model. |
 
-On Codex Desktop, Sol calls either `start_task` or `start_batch`, then `luna-await.await_task` exactly once and remains blocked there. It must never poll `pool_status` or local job records. The independent await server lets the native window keep reading status without creating another model session or controller turn.
+The default plugin intentionally enables only these three pool tools; low-frequency `initialize_pool` and `pool_status` diagnostics remain server APIs but are excluded from the model tool surface to reduce every Sol turn's prefix. On Codex Desktop, Sol normally calls `start_task`, then `luna-await.await_task` exactly once and remains blocked there. It must never poll status or local job records.
 
 Heliolune launches one native WPF panel on Windows. The panel auto-detects English or Simplified Chinese, dynamically shows token-first or four/eight-worker burst lanes plus the shared Leader, and adds actual Luna estimated cost, a historical-profile Sol-only projection, and projected savings when terminal usage arrives. It closes 15 seconds after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Heliolune does not also render an inline task panel. A host progress token may still receive standard `notifications/progress` from the start call.
 
@@ -102,7 +100,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.6.1` |
+| Plugin version | `0.6.2` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -119,29 +117,21 @@ Use the actual checkout path if it differs. Start a **new Codex task** after ins
 
 ## First use
 
-Start with a no-charge session/model health check:
-
-```text
-Use $luna-pool-orchestrator for this repository.
-Initialize the four Luna/max lanes with healthTurn=false.
-Do not modify code yet.
-```
-
-Then delegate a bounded task:
+Delegate a bounded task directly:
 
 ```text
 Use $luna-pool-orchestrator.
-Have the appropriate Luna/max lane inspect and fix the failing parser tests.
-Limit scope to src/parser and tests/parser, run the focused tests, and return compact evidence.
-Sol must review the result and make the final acceptance decision.
+Use the compact start_task fast path to inspect and fix the failing parser tests.
+Limit scope to src/parser and tests/parser, run the focused tests, await once,
+and let Sol review the integrated result and make the final acceptance decision.
 ```
 
-By default, ask Sol to use four-way parallel routing rather than manually assigning Luna work:
+No manual four-way decomposition is needed:
 
 ```text
-Use $luna-pool-orchestrator with its default parallel routing.
-Sol should define meaningful independent workstreams and use four Luna/max workers,
-let the shared Leader manage long-running sessions, await once, and review the compact result.
+Use $luna-pool-orchestrator fast start with its default four-way routing.
+Send one compact objective, acceptance list and exact scope; let the MCP create the owner
+and three review streams, await once, then review the compact result.
 Prefer workstreams under 90 seconds, but do not treat 90 seconds as a hard limit.
 ```
 
@@ -164,7 +154,7 @@ Good tasks have an explicit outcome, one to eight testable acceptance criteria, 
 - `verifier`: independent read-only verification; never the implementation owner.
 - `supervisor`: shared operations leader for liveness, deferred cross-lane tracking, and report compression; uses `high` by default, accepts `xhigh`, and never plans, assigns, inspects the repository, or performs acceptance.
 
-Four-way speed-first is the default, including narrow or single-file work. Sol should pair one exact-scope mutating owner with meaningful read-only contract, edge-case/test, and correctness-risk streams; read-only streams may inspect the same files, but mutating scopes must never overlap. Token-first is an explicit fallback only when a mutating repository is dirty or non-Git, write scopes cannot be isolated safely, or a strict dependency makes parallel results unusable. Read-only work remains parallel on dirty repositories. Eight-way burst remains explicit because its tail latency varied substantially.
+Four-way speed-first is the default, including narrow or single-file work. `start_task` creates one exact-scope owner with read-only contract, edge-case/test, and correctness-risk streams; Sol no longer spends prompt tokens spelling these roles out. Token-first is an explicit fallback only when a mutating repository is dirty or non-Git, write scopes cannot be isolated safely, or a strict dependency makes parallel results unusable. Read-only work remains parallel on dirty repositories. Explicit custom 4/8-way batches remain available through `start_batch`.
 
 Prefer each speed-first workstream to finish within 90 seconds, but allow a bounded independent deadline up to 600 seconds. At each workstream's checkpoint, one shared Luna/high Leader session coalesces simultaneous requests, receives compact liveness snapshots, and may recommend continue or interrupt. A queued second wave can use another bounded turn on that same warm Leader session; there is no polling. The Leader cannot plan, redistribute scope, or accept the batch. Completed siblings survive a straggler or failed workstream.
 
@@ -195,6 +185,8 @@ Reference measurements for the alpha build are local microbenchmarks, not univer
 | Timeout behavior | 30.317s for a 30s limit |
 
 Price-weighted figures are estimates unless billed credits are available. Repository size, host prefix, cache state, task shape, model pricing, and acceptance policy can materially change the result. See [Benchmark methodology](docs/BENCHMARKS.md).
+
+The 0.6.2 deterministic coding check reached 12/12 in both arms: Sol-only took 123.532s and the Heliolune engine took 127.451s, with measured Luna worker cost of 0.457633 units. See the [0.6.2 fast-start benchmark](docs/0.6.2-FAST-START-BENCHMARK.md) for the controller-cost caveat and startup-surface measurements.
 
 ### Default price table
 

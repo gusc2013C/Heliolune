@@ -4,6 +4,22 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.2] - 2026-08-02
+
+### Fast start
+
+- Make compact `start_task` the normal route. The MCP deterministically expands one Sol objective, acceptance list, and scope into an exact-scope owner plus contract, edge/test, and correctness-risk Luna/max workstreams.
+- Reduce the hot-path skill by 65.5%, from approximately 3,173 to 1,096 serialized-character tokens. Remove low-frequency `initialize_pool` and `pool_status` from the default enabled tool surface; the installed pool schema is approximately 1,192 tokens and the normal `start_task` schema is approximately 455 tokens.
+- Add a strict availability gate: when `start_task` or `await_task` is absent, Sol stops immediately and requests a new Codex task/restart instead of scanning plugin caches, rereading manifests, or manually launching MCP scripts.
+
+### Reliability
+
+- Persist every job's orchestrator PID, process start, heartbeat, and bounded expiry. The independent await server now converts an orphaned running record into a terminal failure instead of waiting up to 65 minutes on a stale snapshot.
+- Let the native bilingual status window detect an exited orchestrator directly, mark unfinished worker cards failed, explain recovery, and close normally.
+- Increase the default structured-finalization reserve to 50% for short tasks (capped at 90 seconds). If Luna/max ignores the stop-and-synthesize steer for 10 seconds, interrupt that turn and use the remaining budget for a same-session, read-only Luna/high schema synthesis.
+- Keep each worker hard-bounded and preserve completed sibling outcomes; a live straggler may use its declared deadline but cannot make the job wait indefinitely.
+- Do not hold a safely isolated owner patch merely because a read-only companion timed out; only incomplete mutating workstreams block deterministic integration.
+
 ## [0.6.1] - 2026-08-02
 
 ### Changed

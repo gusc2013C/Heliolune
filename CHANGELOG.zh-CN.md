@@ -4,6 +4,22 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.6.2] - 2026-08-02
+
+### 快速启动
+
+- 将紧凑 `start_task` 设为常规入口。MCP 根据一份 Sol objective、acceptance 与 scope，确定性生成精确 scope owner，以及 contract、边界/测试、正确性风险三路 Luna/max 审查。
+- 热路径 skill 缩小 65.5%，按序列化字符估算从约 3,173 降至 1,096 token。低频 `initialize_pool` 与 `pool_status` 不再默认注入工具面；安装态 pool schema 约 1,192 token，常规 `start_task` schema 约 455 token。
+- 增加严格可用性门：当前 Codex 任务若未暴露 `start_task` 或 `await_task`，Sol 立即要求新建任务/重启，不再扫描插件缓存、重复读取 manifest 或手工启动 MCP。
+
+### 可靠性
+
+- 每个 job 持久化编排进程 PID、进程启动时间、心跳与有界过期时间。独立 await server 会把失去 owner 的旧 `running` 记录转为终态失败，不再对静态快照等待最长 65 分钟。
+- 原生中英双语悬浮窗可独立发现编排进程退出，将未完成 worker 标为失败，显示恢复建议并正常关闭。
+- 短任务默认结构化收尾预留提高到硬截止的 50%（最多 90 秒）。若 Luna/max 在 stop-and-synthesize steer 后 10 秒仍未交付，就中断该 turn，并用剩余预算在同一 session 上执行只读 Luna/high schema 合成。
+- 每个 worker 仍有独立硬截止，已完成兄弟结果会保留；活跃长尾可用完声明的截止，但不能让 job 无限等待。
+- 只读伴随审查超时不再阻止已安全隔离的 owner patch；只有未完成的 mutating workstream 会阻止确定性集成。
+
 ## [0.6.1] - 2026-08-02
 
 ### 变更

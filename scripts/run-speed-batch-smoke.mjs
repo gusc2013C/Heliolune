@@ -7,6 +7,9 @@ import { waitForJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(repoRoot, "plugins", "luna-pool-orchestrator", "scripts", "server.mjs");
 const showWindow = process.argv.includes("--show-window");
+const fastStart = process.argv.includes("--fast-start");
+const targetArgument = process.argv.find((argument) => argument.startsWith("--target="));
+const taskRoot = targetArgument ? path.resolve(targetArgument.slice("--target=".length)) : repoRoot;
 const child = spawn(process.execPath, [serverPath], {
   cwd: repoRoot,
   stdio: ["pipe", "pipe", "pipe"],
@@ -79,7 +82,38 @@ const workstreams = [
 
 try {
   await request("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
-  const response = await request("tools/call", {
+  const invocation = fastStart ? {
+    name: "start_task",
+    arguments: targetArgument ? {
+      cwd: taskRoot,
+      lane: "core",
+      mode: "repair",
+      objective: "Repair mergeMaintenanceWindows so it validates safe-integer half-open windows and a non-negative safe-integer maxGapMs, never mutates input, returns fresh sorted pairs, and merges overlap, adjacency, or a gap less than or equal to maxGapMs.",
+      acceptance: [
+        "Only src/merge-windows.mjs changes",
+        "Invalid containers, pairs, endpoint order, endpoints, and maxGapMs throw TypeError",
+        "Frozen input and fresh output pairs are supported",
+        "node --test passes",
+      ],
+      scope: ["src/merge-windows.mjs"],
+      risk: "low",
+      reservedBoundary: false,
+      timeoutSeconds: 120,
+    } : {
+      cwd: taskRoot,
+      lane: "integration",
+      mode: "analyze",
+      objective: "Confirm how Heliolune reports bounded worker progress and avoids Sol polling.",
+      acceptance: ["Cite decisive implementation evidence", "Identify the one-await controller contract"],
+      scope: [
+        "plugins/luna-pool-orchestrator/scripts/progress.mjs",
+        "plugins/luna-pool-orchestrator/scripts/await-server.mjs",
+      ],
+      risk: "low",
+      reservedBoundary: false,
+      timeoutSeconds: 120,
+    },
+  } : {
     name: "start_batch",
     arguments: {
       cwd: repoRoot,
@@ -87,12 +121,15 @@ try {
       workstreams,
       timeoutSeconds: 120,
     },
+  };
+  const response = await request("tools/call", {
+    ...invocation,
   });
-  if (response.result?.isError) throw new Error(response.result.content?.[0]?.text ?? "start_batch failed");
+  if (response.result?.isError) throw new Error(response.result.content?.[0]?.text ?? `${invocation.name} failed`);
   const started = response.result.structuredContent;
   const result = await waitForJobRecord(started.jobId, { timeoutMs: 240_000 });
   if (result.priority !== "speed-first" || result.parallelism !== 4) throw new Error("Unexpected speed-first routing result");
-  if (result.taskOutcomes?.length !== workstreams.length) throw new Error("Not every workstream reached a terminal outcome");
+  if (result.taskOutcomes?.length !== (fastStart ? 4 : workstreams.length)) throw new Error("Not every workstream reached a terminal outcome");
   if (!result.usage || !result.cost || !result.timing) throw new Error("Missing usage, cost, or timing telemetry");
   process.stdout.write(`${JSON.stringify({
     jobId: started.jobId,
@@ -105,7 +142,12 @@ try {
     cost: result.cost,
     timing: result.timing,
     display: started.display,
+    entrypoint: invocation.name,
+    taskRoot,
   }, null, 2)}\n`);
+} catch (error) {
+  error.message = `${error.message}; server stderr=${stderr}`;
+  throw error;
 } finally {
   child.kill();
 }

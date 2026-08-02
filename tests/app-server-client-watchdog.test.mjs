@@ -129,6 +129,20 @@ test("an active turn can be steered to finalize before its hard deadline", async
   assert.equal(run.steering.accepted, true);
 });
 
+test("a worker that ignores finalization steering is interrupted early for bounded synthesis", async (t) => {
+  const client = await clientForTest(t);
+  await assert.rejects(
+    client.runTurn({
+      threadId: "fake-thread", text: "ACTIVE_TIMEOUT IGNORE_STEER", cwd: process.cwd(),
+      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 3_000,
+      steer: { afterMs: 50, forceAfterMs: 40, text: "FINALIZE_NOW" },
+    }),
+    (error) => error.code === "FINALIZATION_INTERRUPTED"
+      && error.steering.accepted === true
+      && error.steering.forced === true,
+  );
+});
+
 test("a turn that completes before the reserve window is never steered", async (t) => {
   const client = await clientForTest(t);
   const run = await client.runTurn({

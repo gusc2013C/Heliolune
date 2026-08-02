@@ -4,9 +4,9 @@
 
 **高智力监督，低成本执行。**
 
-Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个可用适配器面向 Codex，由 GPT-5.6 Sol 管理持久 token-first Luna/max lane，或带 detached-worktree 写隔离的 4/8 路 speed-first worker。
+Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 自动展开为带 detached-worktree 写隔离的 4 路 Luna/max worker。
 
-> 当前发布版本：**`0.6.1`**。1.0 之前公共接口仍可能调整。
+> 当前发布版本：**`0.6.2`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -31,8 +31,8 @@ Sol review and final acceptance
 
 ## 当前能力
 
-- `core`、`tests`、`integration` 三个 owner lane，以及独立只读 `verifier`。
-- speed-first 默认启动 4 路 Luna/max burst worker，8 路为实验选项；token-first 仅作为显式安全回退。
+- 一个紧凑 `start_task` 自动生成精确 scope owner，以及 contract、边界/测试、正确性风险三路审查。
+- speed-first 默认启动 4 路 Luna/max worker；自定义 2–8 路 batch 属于高级入口，token-first 仅作显式安全回退。
 - worker 使用 Luna/max；共享 Operations Leader 默认使用 Luna/high，可选 xhigh。
 - session 使用 `ephemeral=true`，通常不会出现在 Codex Desktop 普通任务列表中。
 - 同一功能持续复用固定 lane，提高 prompt/cache 命中率。
@@ -65,16 +65,16 @@ Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能
 
 | 工具 | 用途 |
 |---|---|
-| `initialize_pool` | 校验本地 app-server，初始化默认 4 路 speed-first lane（或显式回退 profile）与共享 Leader；真实付费健康 turn 可选。 |
-| `start_batch` | 默认路由：用 4 或 8 个 Luna/max worker 启动 2–8 个有意义的分析、实现、修复或伴随审查 workstream；写入由 worktree 隔离。 |
-| `start_task` | 单任务 token-first 显式安全回退。 |
+| `start_task` | 默认快速入口：把一份 Sol 紧凑任务自动展开为 4 路 Luna/max；`profile=token-first` 为安全回退。 |
+| `start_batch` | 高级自定义入口：用 4 或 8 个 Luna/max worker 运行 2–8 个 Sol 定义的 workstream。 |
 | `await_task`（`luna-await`） | 对已启动任务阻塞等待一次，返回紧凑终态结果。 |
-| `pool_status` | 不调用模型，返回 lane、prompt 版本、复用次数与最近 usage。 |
 | `cost_dashboard` | 不调用模型，返回累计成本、历史校准的 Sol-only 预测、缓存与分 lane 统计。 |
+
+默认插件只启用上述三个 pool 工具；低频 `initialize_pool` 与 `pool_status` 诊断 API 仍保留在 server 内，但不注入模型工具面，以降低每个 Sol turn 的固定前缀。
 
 ## Codex 中可见的工作状态
 
-Codex Desktop 使用 `start_task` 或 `start_batch` 后立即调用一次 `luna-await.await_task`，Sol 在该调用上停止生成；模型不得轮询 `pool_status` 或读取本地 job 文件。独立等待服务器让原生窗口在阻塞期间持续读取状态，不会创建新的模型 session 或 controller turn。
+Codex Desktop 默认使用 `start_task`，随后立即调用一次 `luna-await.await_task`，Sol 在该调用上停止生成；模型不得轮询状态或读取本地 job 文件。独立等待服务器让原生窗口在阻塞期间持续读取状态，不会创建新的模型 session 或 controller turn。
 
 Heliolune 在 Windows 自动启动一个 WPF 悬浮窗，不再同时提供内联 task 面板。窗口根据系统用户语言自动切换英语/简体中文，动态显示 token-first 或 4/8 路 burst worker 与共享 Leader；终态 token 用量到达后，还会显示 Luna 实际估算费用、历史 profile 预计的 Sol-only 费用和预估节省，并在完成 15 秒后关闭。`HELIOLUNE_STATUS_WINDOW=off` 可关闭，`on` 可强制启用。
 
@@ -100,28 +100,21 @@ codex plugin add luna-pool-orchestrator@heliolune
 
 ## 首次使用
 
-先做不调用 Luna turn 的健康检查：
-
-```text
-Use $luna-pool-orchestrator for this repository.
-Initialize the pool with healthTurn=false. Do not modify code.
-```
-
-然后提交有界任务：
+直接提交有界任务：
 
 ```text
 Use $luna-pool-orchestrator.
-Have the appropriate Luna/max lane fix the failing parser tests.
-Limit scope to src/parser and tests/parser, run focused tests,
-and let Sol review and accept the final result.
+Use compact start_task to fix the failing parser tests.
+Limit scope to src/parser and tests/parser, run focused tests, await once,
+and let Sol review and accept the integrated result.
 ```
 
-默认让 Sol 使用 4 路并行，而不是手工分配 Luna：
+默认无需让 Sol 手工拆出四套提示词：
 
 ```text
-使用 $luna-pool-orchestrator 的默认并行路由。
-由 Sol 定义有意义的独立 workstream，并使用 4 个 Luna/max worker，
-由共享 Leader 管理长任务，只 await 一次，最后由 Sol 审查。
+使用 $luna-pool-orchestrator 的 fast start 默认四路并行。
+Sol 只发送一份紧凑 objective、acceptance 和精确 scope；由 MCP 自动生成 owner
+与三路审查，只 await 一次，最后由 Sol 审查。
 优先将每个 workstream 缩到 90 秒内，但不要把 90 秒当作硬上限。
 ```
 
@@ -146,13 +139,15 @@ await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff�
 
 公开接口保留 `verification=auto`，finalization 与报告路由则由 0.6 内部自动管理。活跃 worker 超过工作预算时，MCP 在同一 turn 内发送 `FINALIZE_NOW`，不延长硬截止；worker 可以诚实返回 `partial`。若已完成 turn 只是不符合 JSON，才启用同一 warm thread 的一次 no-tools fallback turn。
 
-默认使用 4 路 speed-first，小任务或单文件任务也不例外。Sol 应把一个精确 scope 的写 owner，与只读的 contract、边界/测试、正确性风险 workstream 配对；只读 workstream 可以查看同一文件，但写 scope 绝不能重叠。只有 mutating 仓库 dirty/非 Git、写 scope 无法安全隔离，或严格依赖使并行结果不可用时，才显式回退 token-first；dirty 仓库里的只读工作仍保持并行。8 路因长尾方差较大，必须显式选择。
+默认使用 4 路 speed-first，小任务或单文件任务也不例外。`start_task` 自动生成一个精确 scope owner，以及只读 contract、边界/测试、正确性风险审查，Sol 不再为固定角色重复消耗提示 token。只有 mutating 仓库 dirty/非 Git、写 scope 无法安全隔离，或严格依赖使并行结果不可用时，才显式回退 token-first；dirty 仓库里的只读工作仍保持并行。显式自定义 4/8 路 batch 继续由 `start_batch` 提供。
 
 并行 workstream 优先缩到 90 秒内，但独立硬截止允许最长 600 秒。到各自检查点时，共享 Luna/high Leader session 会合并同时发生的请求，读取当前活跃 session 的紧凑 snapshot，并可建议 continue/interrupt；后续排队波次可在同一 warm session 上再进行一次有界检查，不做轮询。Leader 不得规划、重分配 scope 或验收 batch。单个长尾或失败不会丢弃已完成的兄弟 workstream。
 
 mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓库相对、非重叠且不含 glob/父目录跳转的路径。每个写 worker 在已验证 `HEAD` 的 fresh detached worktree 中启动。Heliolune 捕获 tracked、删除、rename、binary 与 untracked 变更，校验实际路径，全部 gate 通过后统一应用 patch、保持 index 未 staged，并清理临时 worktree。若 gate 失败，主 checkout 不变，结果返回本地 patch artifact 给 Sol；不得盲目应用。
 
 ## 费用
+
+0.6.2 确定性代码测试中，Sol-only 与 Heliolune 均达到隐藏测试 12/12；墙钟分别为 123.532 秒与 127.451 秒，Luna worker 实测费用 0.457633 单位。controller 费用边界与启动工具面数据见 [0.6.2 快速启动 benchmark](docs/0.6.2-FAST-START-BENCHMARK.zh-CN.md)。
 
 默认费率为用户提供的每百万 token 价格单位：
 

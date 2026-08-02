@@ -54,7 +54,9 @@ Only then are all patches applied and immediately unstaged for Sol review. If an
 
 ## Visible progress boundary
 
-Codex Desktop uses two stdio MCP servers. `luna-pool.start_task` or `luna-pool.start_batch` returns immediately after creating the background job and native status surface. `luna-await.await_task` then blocks on an atomically written result file. Splitting the servers is necessary because a blocking request serializes calls to one server; the native window can continue reading local snapshots without another Sol turn or model session.
+Codex Desktop uses two stdio MCP servers. The normal path is one compact `luna-pool.start_task` call; the pool server deterministically expands it into four workstreams and returns immediately after creating the background job and native status surface. `luna-await.await_task` then blocks on an atomically written result file. Splitting the servers is necessary because a blocking request serializes calls to one server; the native window can continue reading local snapshots without another Sol turn or model session.
+
+Running records carry the pool-server PID, process start, heartbeat, and bounded expiry. `luna-await` verifies that owner while blocked; if the owner process exits before a terminal write, it atomically converts the stale record to failure. The native window performs the same owner check for local visibility. This prevents an abandoned `running` snapshot from looking like a permanently hung Luna pool.
 
 Windows uses one WPF panel launched through the inbox WSH/Windows PowerShell runtime. Heliolune no longer provides a second inline task panel. The native window can be disabled with `HELIOLUNE_STATUS_WINDOW=off`. It publishes a short-lived ready marker only after rendering; task snapshots and results are written atomically under the user's local Codex data directory.
 

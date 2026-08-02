@@ -16,6 +16,63 @@ export const SPEED_FIRST = Object.freeze({
 
 export const DEFAULT_PROFILE = SPEED_FIRST;
 
+function compactAcceptance(acceptance) {
+  return (Array.isArray(acceptance) ? acceptance : [])
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+export function defaultParallelWorkstreams(args) {
+  const mode = args.mode ?? "analyze";
+  const objective = String(args.objective ?? "").trim();
+  const acceptance = compactAcceptance(args.acceptance);
+  const shared = {
+    scope: args.scope ?? [],
+    repoState: args.repoState,
+    risk: args.risk ?? "moderate",
+    reservedBoundary: Boolean(args.reservedBoundary),
+  };
+  const reviewAcceptance = acceptance.length
+    ? acceptance
+    : ["Return decisive repository evidence for the assigned review question."];
+
+  return [
+    {
+      ...shared,
+      id: "owner",
+      lane: args.lane ?? "core",
+      mode,
+      objective,
+      acceptance,
+    },
+    {
+      ...shared,
+      id: "contract",
+      lane: "core",
+      mode: "analyze",
+      objective: `Check contract and acceptance mismatches for: ${objective}`,
+      acceptance: reviewAcceptance,
+    },
+    {
+      ...shared,
+      id: "edges",
+      lane: "tests",
+      mode: "analyze",
+      objective: `Find edge cases, regressions, and decisive tests for: ${objective}`,
+      acceptance: reviewAcceptance,
+    },
+    {
+      ...shared,
+      id: "verify",
+      lane: "verifier",
+      mode: "analyze",
+      objective: `Independently derive the correct result and highest-risk failure for: ${objective}`,
+      acceptance: reviewAcceptance,
+    },
+  ];
+}
+
 export function speedParallelism(value) {
   const parsed = Number(value ?? SPEED_FIRST.defaultParallelism);
   if (!SPEED_FIRST.allowedParallelism.includes(parsed)) {

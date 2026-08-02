@@ -129,7 +129,9 @@ export async function collectWorktreePatch(session, workstream) {
 
 export async function integrateParallelWriteBatch(session, patches, executions) {
   const executionById = new Map(executions.map((execution) => [execution.id, execution]));
-  const incomplete = patches.filter((record) => executionById.get(record.id)?.status !== "completed").map((record) => record.id);
+  const incomplete = patches
+    .filter((record) => record.mode !== "analyze" && executionById.get(record.id)?.status !== "completed")
+    .map((record) => record.id);
   if (incomplete.length) return { applied: false, reason: "incomplete-workstreams", workstreams: incomplete, changedPaths: [] };
   const scopeViolations = patches.filter((record) => record.outOfScope.length).map((record) => ({ id: record.id, paths: record.outOfScope }));
   if (scopeViolations.length) return { applied: false, reason: "out-of-scope-changes", violations: scopeViolations, changedPaths: [] };

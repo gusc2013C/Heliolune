@@ -18,6 +18,7 @@
       "AutoClose": "Task complete · closing in {0}s",
       "Idle": "Waiting for an assigned task",
       "NoExplanation": "Starting up and waiting for Luna to explain its current work…",
+      "OrchestratorExited": "The Heliolune orchestrator exited before this task finished. Restart Codex and retry the bounded task.",
       "Elapsed": "elapsed",
       "ActiveCount": "{0} active",
       "BurstWorker": "Burst worker {0}"
@@ -61,6 +62,7 @@
       "AutoClose": "任务完成，窗口将在 {0} 秒后关闭",
       "Idle": "等待分配任务",
       "NoExplanation": "正在启动，等待 Luna 汇报当前工作…",
+      "OrchestratorExited": "Heliolune 编排进程已在任务完成前退出。请重启 Codex，并缩小任务范围后重试。",
       "Elapsed": "已用时",
       "ActiveCount": "{0} 个活动",
       "BurstWorker": "并行工作单元 {0}"

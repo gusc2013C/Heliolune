@@ -58,6 +58,10 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   ]);
   const startTool = listed.result.tools.find((tool) => tool.name === "start_task");
   assert.equal(startTool._meta, undefined);
+  assert.equal(startTool.inputSchema.properties.profile.default, "speed-first");
+  assert.deepEqual(startTool.inputSchema.required, ["cwd", "lane", "mode", "objective", "acceptance", "scope"]);
+  assert.equal(startTool.inputSchema.properties.maxFiles, undefined);
+  assert.equal(startTool.inputSchema.properties.verification, undefined);
   assert.equal(initialized.result.capabilities.resources, undefined);
   const batchTool = listed.result.tools.find((tool) => tool.name === "start_batch");
   assert.deepEqual(batchTool.inputSchema.properties.parallelism.enum, [4, 8]);

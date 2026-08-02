@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.6.2";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
 
 export function compactStatusExplanation(value, maxLength = 360) {
@@ -253,8 +253,9 @@ export class AppServerClient {
       sandboxPolicy,
       outputSchema,
       responsesapiClientMetadata: { orchestrator: APP_NAME, lane: model },
-    }, 60_000);
+    }, Math.min(60_000, Math.max(1_000, timeoutMs)));
     const turnId = response.turn.id;
+    const completionTimeoutMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
     this.turnActivity.set(turnId, {
       startedAt,
       lastEventAt: Date.now(),
@@ -273,21 +274,28 @@ export class AppServerClient {
       scheduled: Boolean(steer?.afterMs && steer?.text),
       attempted: false,
       accepted: false,
+      forced: false,
       error: null,
+      forceError: null,
       skippedReason: null,
     };
     let steerTimer = null;
+    let forceTimer = null;
+    let resolveFinalizationCutoff;
     try {
       const alreadyCompleted = this.completedTurns.get(turnId);
-      const completion = (alreadyCompleted
+      const notificationCompletion = (alreadyCompleted
         ? Promise.resolve(alreadyCompleted)
         : this.waitFor(
           (message) => message.method === "turn/completed" && notificationTurnId(message) === turnId,
-          timeoutMs,
+          completionTimeoutMs,
         )).then(
-        (message) => (completionOutcome = { kind: "completed", message }),
-        (error) => (completionOutcome = { kind: "error", error }),
+        (message) => ({ kind: "completed", message }),
+        (error) => ({ kind: "error", error }),
       );
+      const finalizationCutoff = new Promise((resolve) => { resolveFinalizationCutoff = resolve; });
+      const completion = Promise.race([notificationCompletion, finalizationCutoff])
+        .then((outcome) => (completionOutcome = outcome));
       if (steering.scheduled) {
         steerTimer = setTimeout(async () => {
           if (completionOutcome) return;
@@ -310,6 +318,29 @@ export class AppServerClient {
             steering.accepted = true;
             try { steer.onStatus?.({ phase: "accepted", steering, snapshot: this.turnSnapshot(turnId) }); }
             catch (error) { this.log(`steering status callback failed: ${error.message}`); }
+            if (steer.forceAfterMs) {
+              forceTimer = setTimeout(async () => {
+                if (completionOutcome) return;
+                steering.forced = true;
+                try {
+                  await this.request("turn/interrupt", { threadId, turnId }, 10_000).catch(() => {});
+                  const cutoff = new Error("Luna did not finish structured output within the reserved finalization window");
+                  cutoff.code = "FINALIZATION_INTERRUPTED";
+                  cutoff.activity = this.turnSnapshot(turnId);
+                  cutoff.steering = steering;
+                  await Promise.race([
+                    notificationCompletion,
+                    new Promise((resolve) => setTimeout(resolve, 2_000)),
+                  ]);
+                  if (!completionOutcome) resolveFinalizationCutoff({ kind: "error", error: cutoff });
+                  try { steer.onStatus?.({ phase: "forced", steering, snapshot: cutoff.activity }); }
+                  catch (error) { this.log(`steering status callback failed: ${error.message}`); }
+                } catch (error) {
+                  steering.forceError = error.message;
+                }
+              }, steer.forceAfterMs);
+              forceTimer.unref?.();
+            }
           } catch (error) {
             steering.error = error.message;
             try { steer.onStatus?.({ phase: "failed", steering, snapshot: this.turnSnapshot(turnId) }); }
@@ -374,7 +405,8 @@ export class AppServerClient {
       }
     } catch (error) {
       clearTimeout(steerTimer);
-      await this.request("turn/interrupt", { threadId, turnId }, 30_000).catch(() => {});
+      clearTimeout(forceTimer);
+      await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
       if (error.message === "Timed out waiting for app-server notification") error.code = "TURN_HARD_TIMEOUT";
       error.activity = this.turnSnapshot(turnId);
       error.supervision ??= supervision;
@@ -385,6 +417,7 @@ export class AppServerClient {
       throw error;
     }
     clearTimeout(steerTimer);
+    clearTimeout(forceTimer);
     const turn = completed.params.turn;
     const usage = this.latestUsage.get(turnId) ?? null;
     this.latestUsage.delete(turnId);
@@ -396,7 +429,7 @@ export class AppServerClient {
     const textOutput = (finalItems.at(-1) ?? fallbackItems.at(-1))?.text ?? "";
     if (turn.status !== "completed") {
       const error = new Error(turn.error?.message ?? `Luna turn ended with status ${turn.status}`);
-      error.code = "TURN_NOT_COMPLETED";
+      error.code = steering.forced ? "FINALIZATION_INTERRUPTED" : "TURN_NOT_COMPLETED";
       error.activity = activity;
       error.usage = usage;
       error.steering = steering;

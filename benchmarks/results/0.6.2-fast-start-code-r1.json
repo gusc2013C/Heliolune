@@ -1,0 +1,72 @@
+{
+  "version": "0.6.2",
+  "date": "2026-08-02",
+  "benchmark": "mergeMaintenanceWindows",
+  "baselineCommit": "0cd5a5c6cc77c5c1b13a21c053862a77eb22b89b",
+  "pricingUnitsPerMillionTokens": {
+    "gpt-5.6-sol": { "input": 125, "cachedInput": 12.5, "output": 750 },
+    "gpt-5.6-luna": { "input": 5, "cachedInput": 0.5, "output": 30 }
+  },
+  "solOnly": {
+    "taskId": "019fc2b8-cb58-7b41-80d4-cb03dd69dbde",
+    "wallMs": 123532,
+    "hiddenTests": { "passed": 12, "total": 12 },
+    "usage": {
+      "inputTokens": 120374,
+      "cachedInputTokens": 96768,
+      "outputTokens": 4469,
+      "reasoningOutputTokens": 2454
+    },
+    "estimatedCost": 7.5121
+  },
+  "heliolune": {
+    "jobId": "e34b5429-ad9f-4e33-af16-8fb448ad0af4",
+    "entrypoint": "start_task",
+    "profile": "speed-first",
+    "parallelism": 4,
+    "wallMs": 127451,
+    "workerWallMs": 111236,
+    "hiddenTests": { "passed": 12, "total": 12 },
+    "integration": {
+      "applied": true,
+      "reason": "safe-apply",
+      "changedPaths": ["src/merge-windows.mjs"]
+    },
+    "outcomes": [
+      { "id": "owner", "status": "completed", "durationMs": 109723 },
+      { "id": "contract", "status": "partial", "durationMs": 90448 },
+      { "id": "edges", "status": "completed", "durationMs": 42516 },
+      { "id": "verify", "status": "completed", "durationMs": 57299 }
+    ],
+    "lunaUsage": {
+      "inputTokens": 126833,
+      "cachedInputTokens": 74496,
+      "outputTokens": 5290,
+      "reasoningOutputTokens": 2808,
+      "cacheRate": 0.5873550259001995
+    },
+    "lunaCost": 0.457633,
+    "projectedSolOnlyCost": 1.87755715,
+    "projectedSavingsRate": 0.756261,
+    "solControllerUsage": null
+  },
+  "comparison": {
+    "qualityEqual": true,
+    "helioluneWallTimeDeltaPercent": 3.1726,
+    "helioluneSpeedRatio": 0.96925,
+    "workerOnlyCostDeltaPercent": -93.908,
+    "costCaveat": "The Heliolune arm was driven by the repository harness, so no Sol controller turn was billed. Worker-only savings are not an end-to-end Codex-session saving. The built-in historical projection is directional."
+  },
+  "startupSurface": {
+    "skillApproxTokensBefore": 3173,
+    "skillApproxTokensAfter": 1096,
+    "skillReductionPercent": 65.5,
+    "installedPoolSchemaApproxTokensBefore": 1586,
+    "installedPoolSchemaApproxTokensAfter": 1192,
+    "normalStartTaskSchemaApproxTokens": 455,
+    "combinedSkillAndInstalledPoolReductionPercent": 51.9
+  },
+  "excluded": [
+    "The 0.6.1 Heliolune Codex task is excluded because its task-local tool registry did not expose the installed MCP. It manually searched plugin caches and launched a server process that exited before terminal persistence, so it was not a valid Heliolune run."
+  ]
+}

@@ -31,6 +31,7 @@ import {
   compactBatchLeaderPrompt,
   compactBatchSupervisorPrompt,
   compactBurstTask,
+  defaultParallelWorkstreams,
   mapWithConcurrency,
   speedParallelism,
   validateSpeedWorkstreams,
@@ -44,8 +45,8 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-const VERSION = "0.6.1";
-const PROMPT_VERSION = "mcp-v9-isolated-write";
+const VERSION = "0.6.2";
+const PROMPT_VERSION = "mcp-v10-fast-start";
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
 const STATUS_LANGUAGE = detectSystemLanguage() === "zh-CN"
@@ -98,6 +99,20 @@ const RESULT_SCHEMA = {
         decision: { type: "string", maxLength: 300 }, reason: { type: "string", maxLength: 500 },
       } },
     },
+  },
+};
+
+const REVIEW_RESULT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status", "summary", "evidence", "checks", "risks", "needsSol"],
+  properties: {
+    status: RESULT_SCHEMA.properties.status,
+    summary: { type: "string", maxLength: 800 },
+    evidence: { ...RESULT_SCHEMA.properties.evidence, maxItems: 4 },
+    checks: { ...RESULT_SCHEMA.properties.checks, maxItems: 4 },
+    risks: { ...RESULT_SCHEMA.properties.risks, maxItems: 4 },
+    needsSol: { ...RESULT_SCHEMA.properties.needsSol, maxItems: 2 },
   },
 };
 
@@ -237,21 +252,19 @@ const BATCH_SUPERVISOR_SCHEMA = {
 const RUN_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["cwd", "lane", "mode", "objective", "acceptance"],
+  required: ["cwd", "lane", "mode", "objective", "acceptance", "scope"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
     lane: { type: "string", enum: ["core", "tests", "integration"], description: "Stable function-affine owner lane." },
     mode: { type: "string", enum: ["analyze", "implement", "repair"], description: "Whether Luna may modify repository files." },
-    objective: { type: "string", maxLength: 4000, description: "Compact task objective; omit background Luna can inspect itself." },
+    objective: { type: "string", maxLength: 2000, description: "Compact task objective; omit repository text and stable background." },
     acceptance: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", maxLength: 500 } },
     repoState: { type: "string", maxLength: 1000, description: "Only volatile state such as commit, failing command, or dirty paths." },
-    scope: { type: "array", maxItems: 12, items: { type: "string", maxLength: 300 } },
+    scope: { type: "array", minItems: 1, maxItems: 12, items: { type: "string", maxLength: 300 } },
     risk: { type: "string", enum: ["low", "moderate", "high"], default: "moderate" },
     reservedBoundary: { type: "boolean", default: false, description: "True for architecture, security boundary, public API, or irreversible migration." },
-    verification: { type: "string", enum: ["auto", "always", "never"], default: "auto" },
-    timeoutSeconds: { type: "integer", minimum: 30, maximum: 3600, default: 900 },
-    maxFiles: { type: "integer", minimum: 3, maximum: 30, default: 12, description: "Soft cap on distinct files inspected before Luna must synthesize." },
-    maxCommands: { type: "integer", minimum: 3, maximum: 50, default: 20, description: "Soft cap on repository tool calls before Luna must synthesize." },
+    profile: { type: "string", enum: ["speed-first", "token-first"], default: "speed-first", description: "Default auto-generates four parallel Luna workstreams. Use token-first only when isolated writes are unsafe." },
+    timeoutSeconds: { type: "integer", minimum: 30, maximum: 600, default: 120 },
   },
 };
 
@@ -327,8 +340,8 @@ const TOOLS = [
   },
   {
     name: "start_task",
-    title: "Start token-first Heliolune fallback",
-    description: "Explicit fallback for a mutating non-Git/dirty repository or work that cannot be isolated safely. Run one cache-oriented Luna/max owner and await once.",
+    title: "Start Heliolune task",
+    description: "Default fast path: send one compact task and auto-run an exact-scope Luna/max owner plus contract, edge/test, and correctness reviewers in parallel. Set profile=token-first only when isolated writes are unsafe. Await once.",
     inputSchema: RUN_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
@@ -565,7 +578,7 @@ async function runTask(args, context = {}) {
     const project = registry.projects[key] ??= { cwd, lanes: {}, createdAt: new Date().toISOString() };
     const sandbox = sandboxFor(args.mode, cwd);
     const ownerLane = await ensureLane(instance, registry, project, args.lane, cwd, sandbox.legacy);
-    const timeoutSeconds = args.timeoutSeconds ?? 900;
+    const timeoutSeconds = args.timeoutSeconds ?? 120;
     const timeoutMs = timeoutSeconds * 1000;
     const deadlineAt = startedAt + timeoutMs;
     const finalizationPlan = finalizationSchedule({
@@ -612,6 +625,7 @@ async function runTask(args, context = {}) {
         },
         steer: finalizationPlan.enabled ? {
           afterMs: finalizationPlan.workMs,
+          forceAfterMs: 10_000,
           text: compactSteerPrompt({ objective: args.objective, acceptance: args.acceptance }),
           shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < (schedule.staleMs ?? 45_000),
           onStatus: ({ phase }) => {
@@ -620,6 +634,7 @@ async function runTask(args, context = {}) {
               accepted: `Heliolune Leader · ${args.lane} accepted finalization steering · waiting for its compact result`,
               skipped: `Heliolune Leader · ${args.lane} is stale · finalization steering skipped`,
               failed: `Heliolune Leader · ${args.lane} finalization steering was not accepted · hard deadline remains active`,
+              forced: `Heliolune Leader · ${args.lane} finalization exceeded its reserve · switching to bounded Luna/high synthesis`,
             };
             context.progress?.report(66, messages[phase] ?? `Heliolune Leader · ${args.lane} finalization status: ${phase}`, { force: true });
           },
@@ -695,7 +710,7 @@ async function runTask(args, context = {}) {
         finalization = {
           ...finalization,
           attempted: true,
-          trigger: error.code === "INVALID_STRUCTURED_OUTPUT" ? "invalid_structured_output" : "active_work_budget_exhausted",
+        trigger: error.code === "INVALID_STRUCTURED_OUTPUT" ? "invalid_structured_output" : "finalization_reserve_exhausted",
         };
         const remainingMs = deadlineAt - Date.now();
         if (remainingMs >= 10_000) {
@@ -992,7 +1007,7 @@ async function runBatch(args, context = {}) {
   const timeoutMs = timeoutSeconds * 1000;
   const finalizationPlan = finalizationSchedule({
     timeoutSeconds,
-    synthesisReserveSeconds: args.synthesisReserveSeconds ?? 30,
+    synthesisReserveSeconds: args.synthesisReserveSeconds,
     finalization: "auto",
   });
   const batchSchedule = batchSupervisionSchedule(timeoutSeconds);
@@ -1085,48 +1100,91 @@ async function runBatch(args, context = {}) {
         force: true, workerLane: slot, workerStatus: "working", workerProgress: 2,
       });
       try {
-        const run = await instance.runTurn({
-          threadId: laneState.threadId,
-          text: compactBurstTask(workstream, { maxFiles, maxCommands }),
-          cwd: workerCwd,
-          sandboxPolicy: workerSandbox.policy,
-          outputSchema: RESULT_SCHEMA,
-          timeoutMs,
-          effort: "max",
-          onActivity: (snapshot) => {
-            liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
-            const update = workerProgress({ lane: slot, snapshot, hardMs: timeoutMs });
-            const perStreamShare = 78 / workstreams.length;
-            const overall = 4 + completedCount / workstreams.length * 78 + update.progress / 100 * perStreamShare;
-            context.progress?.report(overall, `Heliolune Leader · ${slot} · ${workstream.id} · ${update.message}`, {
-              workerLane: slot, workerStatus: "working", workerProgress: update.progress,
-              explanation: update.explanation,
-            });
-          },
-          steer: finalizationPlan.enabled ? {
-            afterMs: finalizationPlan.workMs,
-            text: compactSteerPrompt({ objective: workstream.objective, acceptance: workstream.acceptance }),
-            shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < 45_000,
-            onStatus: ({ phase }) => context.progress?.report(80, `Heliolune Leader · ${slot} · ${workstream.id} finalization ${phase}`, {
-              force: true, workerLane: slot, workerStatus: "working", workerProgress: 90,
-            }),
-          } : null,
-          watchdog: batchSchedule.enabled ? {
-            afterMs: batchSchedule.checkpointMs,
-            onCheck: async (snapshot) => {
+        let run;
+        const outputSchema = workstream.mode === "analyze" ? REVIEW_RESULT_SCHEMA : RESULT_SCHEMA;
+        try {
+          run = await instance.runTurn({
+            threadId: laneState.threadId,
+            text: compactBurstTask(workstream, { maxFiles, maxCommands }),
+            cwd: workerCwd,
+            sandboxPolicy: workerSandbox.policy,
+            outputSchema,
+            timeoutMs,
+            effort: "max",
+            onActivity: (snapshot) => {
               liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
-              const decisionKey = `${slot}:${workstream.id}`;
-              let decision = managerDecisions.get(decisionKey);
-              if (!decision) {
-                const decisions = await manageActiveWorkers();
-                decision = managerDecisions.get(decisionKey) ?? decisions.find((item) => item.slot === slot);
-              }
-              return decision
-                ? { ...decision, source: "batch-leader" }
-                : { action: "continue", confidence: "low", reason: "The shared Leader did not flag this slot; retain its independent hard deadline.", source: "batch-leader-default" };
+              const update = workerProgress({ lane: slot, snapshot, hardMs: timeoutMs });
+              const perStreamShare = 78 / workstreams.length;
+              const overall = 4 + completedCount / workstreams.length * 78 + update.progress / 100 * perStreamShare;
+              context.progress?.report(overall, `Heliolune Leader · ${slot} · ${workstream.id} · ${update.message}`, {
+                workerLane: slot, workerStatus: "working", workerProgress: update.progress,
+                explanation: update.explanation,
+              });
             },
-          } : null,
-        });
+            steer: finalizationPlan.enabled ? {
+              afterMs: finalizationPlan.workMs,
+              forceAfterMs: 10_000,
+              text: compactSteerPrompt({ objective: workstream.objective, acceptance: workstream.acceptance }),
+              shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < 45_000,
+              onStatus: ({ phase }) => context.progress?.report(80, `Heliolune Leader · ${slot} · ${workstream.id} finalization ${phase}`, {
+                force: true, workerLane: slot, workerStatus: "working", workerProgress: 90,
+              }),
+            } : null,
+            watchdog: batchSchedule.enabled ? {
+              afterMs: batchSchedule.checkpointMs,
+              onCheck: async (snapshot) => {
+                liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
+                const decisionKey = `${slot}:${workstream.id}`;
+                let decision = managerDecisions.get(decisionKey);
+                if (!decision) {
+                  const decisions = await manageActiveWorkers();
+                  decision = managerDecisions.get(decisionKey) ?? decisions.find((item) => item.slot === slot);
+                }
+                return decision
+                  ? { ...decision, source: "batch-leader" }
+                  : { action: "continue", confidence: "low", reason: "The shared Leader did not flag this slot; retain its independent hard deadline.", source: "batch-leader-default" };
+              },
+            } : null,
+          });
+        } catch (workError) {
+          const remainingMs = streamStartedAt + timeoutMs - Date.now();
+          if (!shouldAttemptSynthesis(workError, finalizationPlan, 45_000) || remainingMs < 10_000) throw workError;
+          const priorUsage = workError.usage ?? workError.activity?.usage ?? null;
+          context.progress?.report(81, `Heliolune Leader · ${slot} · ${workstream.id} using bounded Luna/high schema synthesis`, {
+            force: true, workerLane: slot, workerStatus: "working", workerProgress: 94,
+          });
+          try {
+            const synthesisRun = await instance.runTurn({
+              threadId: laneState.threadId,
+              text: compactSynthesisPrompt({
+                mode: workstream.mode,
+                objective: workstream.objective,
+                acceptance: workstream.acceptance,
+                scope: workstream.scope,
+                activity: workError.activity,
+              }),
+              cwd: workerCwd,
+              sandboxPolicy: { type: "readOnly", networkAccess: false },
+              outputSchema,
+              timeoutMs: remainingMs,
+              effort: "high",
+            });
+            run = {
+              ...synthesisRun,
+              durationMs: Date.now() - streamStartedAt,
+              usage: sumUsage([priorUsage, usageBreakdown(synthesisRun)]),
+              finalizationRecovered: true,
+            };
+          } catch (synthesisError) {
+            synthesisError.priorUsage = priorUsage;
+            throw synthesisError;
+          }
+        }
+        run.output = {
+          changes: [],
+          needsVerifier: false,
+          ...run.output,
+        };
         laneState.turns += 1;
         laneState.lastUsedAt = new Date().toISOString();
         laneState.lastUsage = usageBreakdown(run);
@@ -1359,10 +1417,12 @@ async function poolStatus(args) {
   return project ?? { cwd: path.resolve(args.cwd), lanes: {}, initialized: false };
 }
 
-async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
+async function startVisibleJob({ lane, workerLanes, activeLanes, maximumRuntimeMs, run }) {
   let jobId;
   let latestSnapshot = null;
   let persistence = Promise.resolve();
+  const ownerStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + maximumRuntimeMs).toISOString();
   const persist = (record) => {
     persistence = persistence.catch(() => {}).then(() => writeJobRecord(record.snapshot?.jobId ?? jobId, record));
     return persistence;
@@ -1375,7 +1435,7 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
     onSnapshot: (snapshot) => {
       latestSnapshot = snapshot;
       if (snapshot.status === "running") {
-        void persist({ status: "running", startedAt: snapshot.startedAt, lane: snapshot.lane, snapshot });
+        void persist({ status: "running", startedAt: snapshot.startedAt, lane: snapshot.lane, ownerPid: process.pid, ownerStartedAt, expiresAt, heartbeatAt: new Date().toISOString(), snapshot });
       }
     },
     run: async (progress) => {
@@ -1387,6 +1447,9 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
           status: "completed",
           completedAt,
           lane,
+          ownerPid: process.pid,
+          ownerStartedAt,
+          expiresAt,
           snapshot: {
             ...latestSnapshot,
             status: "completed",
@@ -1414,6 +1477,9 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
           status: "failed",
           completedAt,
           lane,
+          ownerPid: process.pid,
+          ownerStartedAt,
+          expiresAt,
           snapshot: {
             ...latestSnapshot,
             status: "failed",
@@ -1448,10 +1514,21 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
 }
 
 async function startTask(args) {
+  if ((args.profile ?? DEFAULT_PROFILE.id) === SPEED_FIRST.id) {
+    return startBatch({
+      cwd: args.cwd,
+      parallelism: SPEED_FIRST.defaultParallelism,
+      workstreams: defaultParallelWorkstreams(args),
+      timeoutSeconds: args.timeoutSeconds,
+      maxFiles: 3,
+      maxCommands: 6,
+    });
+  }
   return startVisibleJob({
     lane: args.lane,
     workerLanes: LANES,
     activeLanes: [args.lane],
+    maximumRuntimeMs: (args.timeoutSeconds ?? 120) * 1000 + 180_000,
     run: (progress) => runTask(args, { progress }),
   });
 }
@@ -1460,10 +1537,15 @@ async function startBatch(args) {
   const parallelism = speedParallelism(args.parallelism);
   const slots = burstLanes(parallelism);
   const activeLanes = slots.slice(0, Math.min(slots.length, args.workstreams?.length ?? 0));
+  const waves = Math.max(1, Math.ceil((args.workstreams?.length ?? 1) / parallelism));
+  const maximumRuntimeMs = waves * (args.timeoutSeconds ?? 120) * 1000
+    + (activeLanes.length + 1) * 60_000
+    + 180_000;
   return startVisibleJob({
     lane: SPEED_FIRST.id,
     workerLanes: [...slots, "supervisor"],
     activeLanes,
+    maximumRuntimeMs,
     run: (progress) => runBatch({ ...args, parallelism }, { progress }),
   });
 }

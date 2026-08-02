@@ -6,8 +6,8 @@ test("reserves a bounded synthesis window inside the original deadline", () => {
   const schedule = finalizationSchedule({ timeoutSeconds: 120 });
   assert.equal(schedule.enabled, true);
   assert.equal(schedule.hardMs, 120_000);
-  assert.equal(schedule.workMs, 80_000);
-  assert.equal(schedule.reserveMs, 40_000);
+  assert.equal(schedule.workMs, 60_000);
+  assert.equal(schedule.reserveMs, 60_000);
   assert.equal(schedule.workMs + schedule.reserveMs, schedule.hardMs);
 });
 
@@ -23,6 +23,7 @@ test("starts a fallback turn only for invalid structured output", () => {
   assert.equal(shouldAttemptSynthesis({ code: "TURN_HARD_TIMEOUT", activity: { silentMs: 1 } }, schedule, 45_000), false);
   assert.equal(shouldAttemptSynthesis({ code: "TURN_HARD_TIMEOUT", activity: { silentMs: 60_000 } }, schedule, 45_000), false);
   assert.equal(shouldAttemptSynthesis({ code: "INVALID_STRUCTURED_OUTPUT" }, schedule, 45_000), true);
+  assert.equal(shouldAttemptSynthesis({ code: "FINALIZATION_INTERRUPTED" }, schedule, 45_000), true);
   assert.equal(shouldAttemptSynthesis({ code: "TURN_NOT_COMPLETED" }, schedule, 45_000), false);
 });
 
