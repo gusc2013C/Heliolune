@@ -39,7 +39,7 @@ Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和
 
 ## Finalization
 
-任务总硬截止不会自动延长。60 秒以上任务默认预留 40–90 秒。活跃 work turn 到达预算时，adapter 使用 `turn/steer` 注入 `FINALIZE_NOW`，让同一 Luna/max turn 停止工具并根据已获得证据输出 schema。若完成 turn 的文本不是合法 JSON，才允许同一 warm thread 启动一次 no-tools fallback。
+任务总硬截止不会自动延长。60 秒以上任务默认预留 40–60 秒。活跃 work turn 到达预算时，adapter 使用 `turn/steer` 注入 `FINALIZE_NOW`，并给同一 Luna/max turn 10–20 秒停止工具、根据已获得证据输出 schema。若完成 turn 的文本不是合法 JSON，才允许同一 warm thread 启动一次 no-tools fallback。
 
 ## 自适应 Leader
 

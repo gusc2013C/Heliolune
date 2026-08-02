@@ -4,6 +4,28 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.6.3] - 2026-08-02
+
+### 运行时身份与界面
+
+- 增加不调用模型的 `runtime_info` 预检。skill 只有在已加载 MCP 明确报告 0.6.3、默认 4 路 `speed-first`、ephemeral burst thread、隐藏 standalone app-server 和 Windows 原生状态窗时才允许启动付费任务，避免新 skill 误用旧串行 MCP。
+- 紧凑 skill 约 1,099 个序列化字符 token，与 0.6.2 的 1,096 基本相同。`runtime_info` 为安装工具面增加约 92 个 schema token，用于避免代价高得多的错误派发和缓存扫描。
+- 所有 Luna burst thread 保持 ephemeral，standalone app-server 强制隐藏。Windows 自动可见界面只有 WPF Leader 悬浮窗；Heliolune 不创建 Codex Desktop worker task。
+- 通过官方 shell environment policy 优先使用 Codex bundled Python、Node 和 Git，同时保留正常 host PATH 回退，避免失效 Gaia Python launcher 等旧虚拟环境 shim 覆盖可用工具链。
+
+### 并行可靠性
+
+- contract lane 与 owner 并发运行。只有明确 `status=blocked` 且包含真实保留边界 `needsSol` 决策时才能中断 writer；普通歧义和可能的隐藏期望只记为非阻塞风险。
+- contract、edges、verify 明确是独立 base snapshot 审查。Leader 不再把它们无法观察并发 owner patch 误报为实现缺失或冲突。
+- 总进度提高 mutating owner 权重；未安全完成但非空的 patch 会作为隔离恢复候选返回，真正 incomplete writer 仍不会自动集成。
+- 自动收尾从 50%/最多 90 秒改为 40–60 秒，并给原 turn 10–20 秒比例化 steer grace；最后一次修改后必须重新取得决定性检查证据。
+- `completed` 以已提供且可运行的 acceptance 为准。不可见 hidden tests 记入风险，不再让已经完成的 worker 永远返回 `partial`。
+
+### 诊断 benchmark
+
+- 增加无依赖 Python 后端 fixture。最终 4 路运行在 337.050 秒内安全集成两个文件，Luna 费用 0.584154，worker 输入缓存率 69.83%，历史校准的 Sol-only 预估节省 75.63%。
+- Sol 验收通过公开测试 12/12 与仓库外隐藏测试 8/8。报告保留此前失败轮次，因为每轮分别暴露并推动修复了上述独立编排缺陷。
+
 ## [0.6.2] - 2026-08-02
 
 ### 快速启动

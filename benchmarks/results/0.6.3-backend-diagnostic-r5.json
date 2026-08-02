@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "release": "0.6.3",
+  "measuredAt": "2026-08-02T16:31:10.295Z",
+  "fixture": {
+    "name": "ParcelPulse",
+    "domain": "dependency-free Python inventory event reconciliation and CLI",
+    "repository": "D:\\code\\heliolune-diagnostic-backend-0.6.3",
+    "baseCommit": "f3c76952c659317bb9f04075ca409d00804149ca",
+    "purpose": "Disposable Heliolune orchestration diagnostic; not a product deliverable."
+  },
+  "finalRun": {
+    "jobId": "29f25467-381c-47da-8a37-350d4f1ad51b",
+    "status": "completed",
+    "profile": "speed-first",
+    "parallelism": 4,
+    "workerEffort": "max",
+    "leaderEffort": "high",
+    "contractGuard": "parallel-not-triggered",
+    "integration": {
+      "applied": true,
+      "reason": "safe-apply",
+      "changedPaths": ["parcelpulse/cli.py", "parcelpulse/engine.py"]
+    },
+    "timingMs": {
+      "wall": 337050,
+      "workerWall": 318448,
+      "workerSum": 698186,
+      "slowestWorker": 317014,
+      "leader": 18597
+    },
+    "usage": {
+      "inputTokens": 134910,
+      "cachedInputTokens": 94208,
+      "outputTokens": 11118,
+      "reasoningOutputTokens": 8458,
+      "cacheRate": 0.6983025720850937
+    },
+    "cost": {
+      "unit": "price_units_per_million_tokens",
+      "actualLuna": 0.584154,
+      "historicalProjectedSolOnly": 2.39664211,
+      "historicalProjectedSavings": 1.81248811,
+      "historicalProjectedSavingsRate": 0.756261,
+      "sameTokenSolSensitivity": 14.60385
+    },
+    "acceptance": {
+      "publicTests": { "passed": 12, "total": 12 },
+      "externalHiddenTests": { "passed": 8, "total": 8 },
+      "total": { "passed": 20, "total": 20 }
+    },
+    "visibility": {
+      "standaloneAppServerHidden": true,
+      "burstThreadsEphemeral": true,
+      "automaticWindowsSurface": "native WPF Leader window"
+    }
+  },
+  "diagnosticTrials": [
+    {
+      "stage": "stale-host reproduction",
+      "result": "serial old MCP toolset and visible Codex worker surface",
+      "fix": "runtime_info fail-closed gate before paid work"
+    },
+    {
+      "stage": "concurrent guard",
+      "wallMs": 282224,
+      "actualLunaCost": 0.463916,
+      "result": "contract false-positive interrupted owner",
+      "fix": "only status=blocked with non-empty reserved needsSol may interrupt"
+    },
+    {
+      "stage": "base snapshot semantics",
+      "wallMs": 319352,
+      "actualLunaCost": 0.627871,
+      "result": "reviewers treated initial isolated snapshots as missing owner work",
+      "fix": "base-snapshot review prompts and authoritative integration metadata"
+    },
+    {
+      "stage": "worker toolchain",
+      "wallMs": 340850,
+      "actualLunaCost": 0.748333,
+      "result": "stale Gaia Python shim prevented final verification",
+      "fix": "prefer Codex bundled toolchain through shell_environment_policy"
+    },
+    {
+      "stage": "finalization budget",
+      "wallMs": 364526,
+      "actualLunaCost": 0.788574,
+      "result": "visible tests passed but unknown hidden tests caused partial",
+      "fix": "40-60 second reserve and supplied-acceptance completion semantics"
+    },
+    {
+      "stage": "final",
+      "wallMs": 337050,
+      "actualLunaCost": 0.584154,
+      "result": "completed, safely integrated, 20/20 Sol acceptance"
+    }
+  ],
+  "limitations": [
+    "This was a single Heliolune arm, not a paired Sol-only speed benchmark.",
+    "The savings number is a history-calibrated projection because MCP cannot observe controller tokens.",
+    "A new Codex task or full app restart is required to replace an already loaded stale MCP process."
+  ]
+}

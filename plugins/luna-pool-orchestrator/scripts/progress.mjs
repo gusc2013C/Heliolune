@@ -39,3 +39,28 @@ export function workerProgress({ lane, snapshot, hardMs }) {
     explanation: snapshot?.explanation ?? null,
   };
 }
+
+export function weightedWorkstreamProgress(workstreams = [], progressById = new Map(), statusById = new Map()) {
+  if (!workstreams.length) return 0;
+  const mutatingOwner = workstreams.find((workstream) => workstream.id === "owner" && workstream.mode !== "analyze")
+    ?? workstreams.find((workstream) => workstream.mode !== "analyze");
+  const ownerWeight = mutatingOwner ? 0.6 : 1 / workstreams.length;
+  const otherWeight = mutatingOwner ? (1 - ownerWeight) / Math.max(1, workstreams.length - 1) : ownerWeight;
+  let total = 0;
+  for (const workstream of workstreams) {
+    const progress = Number(progressById instanceof Map ? progressById.get(workstream.id) : progressById?.[workstream.id]);
+    const bounded = Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0;
+    const weight = workstream.id === mutatingOwner?.id ? ownerWeight : otherWeight;
+    total += bounded * weight;
+  }
+  const ownerProgress = mutatingOwner
+    ? Number(progressById instanceof Map ? progressById.get(mutatingOwner.id) : progressById?.[mutatingOwner.id]) || 0
+    : 100;
+  const ownerStatus = mutatingOwner
+    ? (statusById instanceof Map ? statusById.get(mutatingOwner.id) : statusById?.[mutatingOwner.id])
+    : "completed";
+  // Keep the UI honest: review lanes cannot make a stalled writer look nearly done.
+  if (mutatingOwner && ownerProgress < 100 && !["completed", "failed"].includes(ownerStatus)) return Math.min(79, total);
+  if (Math.abs(total - 100) < 1e-9) return 100;
+  return Math.max(0, Math.min(100, total));
+}

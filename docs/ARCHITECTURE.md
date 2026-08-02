@@ -66,7 +66,7 @@ Hosts that attach an MCP progress token may also receive monotonically increasin
 
 Hard timeouts are classified from the final activity snapshot as `hard_timeout_active` or `hard_timeout_stalled`. The registry retains only the compact diagnostic and counters, not the worker transcript.
 
-Before that hard deadline, the adapter reserves a finalization window. A live work turn that consumes its exploration budget receives an in-turn `turn/steer` instruction to stop tools and emit the result schema from evidence already gathered. This preserves active reasoning and context locality while permitting an honest partial result. A completed turn with invalid JSON may use one same-thread, no-tools fallback turn. Stalled turns do not enter fallback finalization, and the total deadline is never extended.
+Before that hard deadline, the adapter reserves a 40–60 second finalization window. A live work turn that consumes its exploration budget receives an in-turn `turn/steer` instruction and 10–20 seconds to stop tools and emit the result schema from evidence already gathered. This preserves active reasoning and context locality while permitting an honest partial result. A completed turn with invalid JSON may use one same-thread, no-tools fallback turn. Stalled turns do not enter fallback finalization, and the total deadline is never extended.
 
 ## Reserved decisions
 

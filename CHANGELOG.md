@@ -4,6 +4,28 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.3] - 2026-08-02
+
+### Runtime identity and visibility
+
+- Add the token-free `runtime_info` preflight. The skill now refuses paid work unless the loaded MCP reports 0.6.3, four-way `speed-first`, ephemeral burst threads, a hidden standalone app-server, and the native Windows status surface. This prevents a new skill from dispatching through a stale serial MCP process.
+- Keep the compact skill at approximately 1,099 serialized-character tokens, essentially unchanged from 0.6.2's 1,096. `runtime_info` adds approximately 92 schema tokens to the installed surface; it replaces much more expensive failed dispatches and cache inspection.
+- Keep all Luna burst threads ephemeral and the standalone app-server hidden. The WPF Leader panel is the only automatic Windows worker surface; Heliolune does not create Codex Desktop worker tasks.
+- Prefer Codex's bundled Python, Node, and Git toolchain through the documented shell environment policy. This avoids stale virtual-environment shims such as a broken Gaia Python launcher while retaining normal host PATH fallbacks.
+
+### Parallel reliability
+
+- Run the contract lane concurrently with the owner. Only an explicit `status=blocked` plus a real reserved `needsSol` decision can interrupt the writer; ordinary ambiguity and possible hidden expectations remain non-blocking risks.
+- Mark contract, edge, and verifier results as independent base-snapshot guidance. The Leader no longer treats their inability to observe a concurrent owner patch as evidence that the patch is missing or contradictory.
+- Weight progress toward the mutating owner, expose quarantined non-empty patches as recovery candidates, and keep safety gates closed for genuinely incomplete writers.
+- Reduce automatic finalization reserve from 50%/90 seconds to a 40–60 second window, give the original turn a proportional 10–20 second steer grace, and require decisive checks after the last edit.
+- Define `completed` against supplied, runnable acceptance checks. Unavailable hidden tests are reported as risks and no longer make every otherwise complete worker result `partial`.
+
+### Diagnostic benchmark
+
+- Add a dependency-free Python backend fixture benchmark. The final four-way run safely integrated two files in 337.050 seconds for 0.584154 Luna price units, with 69.83% worker input cache and a history-calibrated 75.63% projected saving versus Sol-only.
+- Sol acceptance passed 12/12 public tests and 8/8 repository-external hidden tests. Earlier failed trials are retained in the report because each exposed a separate orchestration defect fixed above.
+
 ## [0.6.2] - 2026-08-02
 
 ### Fast start

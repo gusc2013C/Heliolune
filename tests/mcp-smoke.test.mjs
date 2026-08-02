@@ -54,19 +54,26 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
 
   const listed = await request("tools/list");
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), [
-    "initialize_pool", "start_batch", "start_task", "pool_status", "cost_dashboard",
+    "runtime_info", "initialize_pool", "start_batch", "start_task", "pool_status", "cost_dashboard",
   ]);
+  const runtimeResponse = await request("tools/call", { name: "runtime_info", arguments: {} });
+  const runtime = JSON.parse(runtimeResponse.result.content[0].text);
+  assert.equal(runtime.version, "0.6.3");
+  assert.equal(runtime.defaultProfile, "speed-first");
+  assert.equal(runtime.defaultParallelism, 4);
+  assert.equal(runtime.burstThreadsEphemeral, true);
+  assert.equal(runtime.appServerWindowHidden, true);
   const startTool = listed.result.tools.find((tool) => tool.name === "start_task");
   assert.equal(startTool._meta, undefined);
   assert.equal(startTool.inputSchema.properties.profile.default, "speed-first");
   assert.deepEqual(startTool.inputSchema.required, ["cwd", "lane", "mode", "objective", "acceptance", "scope"]);
-  assert.equal(startTool.inputSchema.properties.maxFiles, undefined);
+  assert.equal(startTool.inputSchema.properties.maxFiles.maximum, 30);
   assert.equal(startTool.inputSchema.properties.verification, undefined);
   assert.equal(initialized.result.capabilities.resources, undefined);
   const batchTool = listed.result.tools.find((tool) => tool.name === "start_batch");
   assert.deepEqual(batchTool.inputSchema.properties.parallelism.enum, [4, 8]);
   assert.equal(batchTool.inputSchema.properties.workstreams.maxItems, 8);
-  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "parallelism", "workstreams", "timeoutSeconds"]);
+  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "parallelism", "workstreams", "timeoutSeconds", "maxFiles", "maxCommands"]);
 
   const dashboardResponse = await request("tools/call", {
     name: "cost_dashboard",

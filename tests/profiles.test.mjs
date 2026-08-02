@@ -4,6 +4,7 @@ import {
   DEFAULT_PROFILE,
   SPEED_FIRST,
   TOKEN_FIRST,
+  adaptiveBudgets,
   batchSupervisionSchedule,
   burstLanes,
   compactBatchSupervisorPrompt,
@@ -25,6 +26,14 @@ test("execution profiles separate cache-oriented and burst-oriented routing", ()
   assert.throws(() => speedParallelism(6), /4, 8/);
 });
 
+test("task budgets adapt to risk while explicit overrides remain authoritative", () => {
+  assert.deepEqual(adaptiveBudgets({ mode: "repair", risk: "low" }), { maxFiles: 8, maxCommands: 14 });
+  assert.deepEqual(adaptiveBudgets({ mode: "repair", risk: "high" }), { maxFiles: 12, maxCommands: 20 });
+  assert.deepEqual(adaptiveBudgets({ mode: "analyze", risk: "moderate" }), { maxFiles: 8, maxCommands: 14 });
+  assert.deepEqual(adaptiveBudgets({ mode: "repair", risk: "high", maxFiles: 18, maxCommands: 31 }), { maxFiles: 18, maxCommands: 31 });
+  assert.deepEqual(adaptiveBudgets({ mode: "repair", risk: "high", maxFiles: 99, maxCommands: 99 }), { maxFiles: 30, maxCommands: 50 });
+});
+
 test("compact start_task expands deterministically into four meaningful workers", () => {
   const workstreams = defaultParallelWorkstreams({
     lane: "core",
@@ -41,6 +50,8 @@ test("compact start_task expands deterministically into four meaningful workers"
   assert.match(workstreams[1].objective, /contract/i);
   assert.match(workstreams[2].objective, /edge cases/i);
   assert.match(workstreams[3].objective, /Independently/);
+  assert.ok(workstreams.slice(1).every(({ objective }) => /base snapshot/.test(objective)));
+  assert.ok(workstreams.slice(1).every(({ objective }) => /Do not judge/.test(objective)));
 });
 
 test("speed-first accepts unique Sol-defined workstreams and isolates narrow writes", () => {
@@ -89,6 +100,27 @@ test("burst prompt preserves Sol planning and reserved decisions", () => {
   assert.match(prompt, /Sol-defined read-only workstream/);
   assert.match(prompt, /decide architecture/);
   assert.match(prompt, /reservedBoundary/);
+  assert.match(prompt, /full acceptance suite/);
+});
+
+test("contract guard prompt blocks only literal reserved decisions", () => {
+  const prompt = compactBurstTask({
+    id: "contract", lane: "core", mode: "analyze",
+    objective: "Check the supplied contract", acceptance: ["Tests pass"], scope: ["src", "tests"],
+  }, { maxFiles: 8, maxCommands: 14 });
+  assert.match(prompt, /concurrent contract guard/);
+  assert.match(prompt, /ordinary ambiguity/);
+  assert.match(prompt, /status=blocked/);
+});
+
+test("mutating burst prompts reserve verification after the last edit", () => {
+  const prompt = compactBurstTask({
+    id: "owner", lane: "core", mode: "implement",
+    objective: "Implement the parser", acceptance: ["Tests pass"], scope: ["src"],
+  }, { maxFiles: 8, maxCommands: 14 });
+  assert.match(prompt, /after the last edit/);
+  assert.match(prompt, /cannot verify again/);
+  assert.match(prompt, /hidden tests belong in risks/);
 });
 
 test("shared batch Leader manages every active slot without taking over planning", () => {

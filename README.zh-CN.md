@@ -6,7 +6,7 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 自动展开为带 detached-worktree 写隔离的 4 路 Luna/max worker。
 
-> 当前发布版本：**`0.6.2`**。1.0 之前公共接口仍可能调整。
+> 当前发布版本：**`0.6.3`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -32,19 +32,22 @@ Sol review and final acceptance
 ## 当前能力
 
 - 一个紧凑 `start_task` 自动生成精确 scope owner，以及 contract、边界/测试、正确性风险三路审查。
+- 不调用模型的 `runtime_info` 在付费工作前验证实际加载版本、默认并行度、ephemeral worker、隐藏 app-server 与状态界面；旧串行 MCP 会失败关闭。
 - speed-first 默认启动 4 路 Luna/max worker；自定义 2–8 路 batch 属于高级入口，token-first 仅作显式安全回退。
 - worker 使用 Luna/max；共享 Operations Leader 默认使用 Luna/high，可选 xhigh。
 - session 使用 `ephemeral=true`，通常不会出现在 Codex Desktop 普通任务列表中。
+- standalone Codex app-server 强制隐藏；Windows 自动可见的 worker 界面只有 WPF Leader 悬浮窗。
 - 同一功能持续复用固定 lane，提高 prompt/cache 命中率。
 - 一次异步启动加一次阻塞等待替代 Sol 轮询；终态返回前 Sol 停止生成。
 - owner/verifier 使用受限 JSON schema，返回 evidence、changes、checks、risks 与 `needsSol`。
-- 60 秒以上任务默认在原硬截止内预留 40–90 秒；活跃 turn 通过 app-server `turn/steer` 原位停止探索并输出结构化结果。
+- 60 秒以上任务默认在原硬截止内预留 40–60 秒；原 turn 在 steer 后有 10–20 秒比例化 schema 收尾宽限。
 - 自动报告路由：小型低风险结果直接返回；大结果、verifier、高风险、保留边界或 `needsSol` 才唤醒 Leader 压缩。
 - 未唤醒 Leader 的小任务只追加有上限的 lifecycle digest；Leader 下次运行时批量接收 backlog。
 - Windows 只使用一个原生 WPF 悬浮窗，动态显示所有持久或 4/8 路 burst lane、Luna 自然语言 reasoning summary，以及历史 benchmark 校准的 Sol-only 费用与节省预测，不产生额外 Sol token。
 - speed-first 长任务到达各自 90 秒规模检查点时，由一个共享 Luna/high Leader session 合并管理当前活跃 worker；后续排队批次仍复用该 warm session，终态也由它压缩。90 秒不是硬上限。
 - 并行实现和修复使用 fresh Luna session 与 detached Git worktree；只有 clean HEAD、全部完成、scope、路径重叠和 Git apply gate 全部通过，patch 才进入主工作树。
 - 精确统计 Luna 输入、缓存输入、输出、推理输出、墙钟时间；提供费用估算与 `cost_dashboard`。
+- 通过 shell environment policy 优先使用 Codex bundled Python、Node 与 Git，避免失效虚拟环境 shim，同时保留 host PATH 回退。
 - 无第三方 npm 依赖，不复制 Codex 可执行文件，不上传 telemetry 或 worker transcript。
 
 ## 信任边界
@@ -65,12 +68,13 @@ Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能
 
 | 工具 | 用途 |
 |---|---|
+| `runtime_info` | 不调用模型，预检版本、默认并行度、ephemeral worker、隐藏 app-server 和状态界面。 |
 | `start_task` | 默认快速入口：把一份 Sol 紧凑任务自动展开为 4 路 Luna/max；`profile=token-first` 为安全回退。 |
 | `start_batch` | 高级自定义入口：用 4 或 8 个 Luna/max worker 运行 2–8 个 Sol 定义的 workstream。 |
 | `await_task`（`luna-await`） | 对已启动任务阻塞等待一次，返回紧凑终态结果。 |
 | `cost_dashboard` | 不调用模型，返回累计成本、历史校准的 Sol-only 预测、缓存与分 lane 统计。 |
 
-默认插件只启用上述三个 pool 工具；低频 `initialize_pool` 与 `pool_status` 诊断 API 仍保留在 server 内，但不注入模型工具面，以降低每个 Sol turn 的固定前缀。
+默认 pool server 启用 `runtime_info`、`start_task`、`start_batch` 与 `cost_dashboard`；低频 `initialize_pool` 与 `pool_status` 仍保留但不注入模型工具面。`await_task` 由独立 blocking server 暴露。Sol 先调用一次 `runtime_info`，启动一次任务，再且仅再调用一次 await。
 
 ## Codex 中可见的工作状态
 
@@ -137,7 +141,7 @@ await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff�
 - `verifier`：独立只读验证，不作为实现 owner。
 - `supervisor`：兼容 lane 名；实际职责为 Operations Leader。
 
-公开接口保留 `verification=auto`，finalization 与报告路由则由 0.6 内部自动管理。活跃 worker 超过工作预算时，MCP 在同一 turn 内发送 `FINALIZE_NOW`，不延长硬截止；worker 可以诚实返回 `partial`。若已完成 turn 只是不符合 JSON，才启用同一 warm thread 的一次 no-tools fallback turn。
+verification、finalization 与报告路由由内部自动管理。活跃 worker 超过工作预算时，MCP 在同一 turn 内发送 `FINALIZE_NOW`，不延长硬截止；最后一次修改后必须重新取得决定性检查。已提供且可运行的 acceptance 全部通过即可 `completed`，不可见 hidden tests 只记为 Sol 风险。无法完成时仍应诚实返回 `partial`。
 
 默认使用 4 路 speed-first，小任务或单文件任务也不例外。`start_task` 自动生成一个精确 scope owner，以及只读 contract、边界/测试、正确性风险审查，Sol 不再为固定角色重复消耗提示 token。只有 mutating 仓库 dirty/非 Git、写 scope 无法安全隔离，或严格依赖使并行结果不可用时，才显式回退 token-first；dirty 仓库里的只读工作仍保持并行。显式自定义 4/8 路 batch 继续由 `start_batch` 提供。
 
@@ -150,6 +154,8 @@ mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓�
 0.6.2 确定性代码测试中，Sol-only 与 Heliolune 均达到隐藏测试 12/12；墙钟分别为 123.532 秒与 127.451 秒，Luna worker 实测费用 0.457633 单位。controller 费用边界与启动工具面数据见 [0.6.2 快速启动 benchmark](docs/0.6.2-FAST-START-BENCHMARK.zh-CN.md)。
 
 更大的单臂前端应用测试以 0.450291 Luna worker 费用单位生成了可信的响应式仪表盘，但 writer 完成通知超时，需要确定性恢复补丁。[0.6.2 前端应用 benchmark](docs/0.6.2-FRONTEND-APPLICATION-BENCHMARK.zh-CN.md) 完整记录了视觉/交互验收、旧测试与 lint 失败及可靠性边界，没有把恢复后的结果包装成自动成功。
+
+0.6.3 后端诊断复现了旧串行运行时，修复运行时身份与隐藏窗口 gate，并通过默认 4 路路由安全集成两个 Python 文件。最终运行用时 337.050 秒、Luna worker 费用 0.584154，公开测试 12/12、仓库外隐藏测试 8/8。详见 [0.6.3 运行时诊断](docs/0.6.3-RUNTIME-DIAGNOSTIC.zh-CN.md)；该结果说明费用优先的应用价值，不是与 Sol-only 的速度对照。
 
 默认费率为用户提供的每百万 token 价格单位：
 

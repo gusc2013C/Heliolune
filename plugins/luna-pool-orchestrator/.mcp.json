@@ -7,7 +7,7 @@
       "startup_timeout_sec": 30,
       "tool_timeout_sec": 3600,
       "default_tools_approval_mode": "approve",
-      "enabled_tools": ["start_task", "start_batch", "cost_dashboard"]
+      "enabled_tools": ["runtime_info", "start_task", "start_batch", "cost_dashboard"]
     },
     "luna-await": {
       "command": "node",

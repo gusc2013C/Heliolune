@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createProgressReporter, workerProgress } from "../plugins/luna-pool-orchestrator/scripts/progress.mjs";
+import { createProgressReporter, weightedWorkstreamProgress, workerProgress } from "../plugins/luna-pool-orchestrator/scripts/progress.mjs";
 
 test("progress reporter emits only for a supplied token and increases monotonically", () => {
   const sent = [];
@@ -48,4 +48,19 @@ test("worker progress includes lane, elapsed time, events, cache, and last activ
   assert.match(update.message, /17 events/);
   assert.match(update.message, /90% cached/);
   assert.ok(update.progress > 8 && update.progress < 62);
+});
+
+test("parallel progress is dominated by the critical writer", () => {
+  const workstreams = [
+    { id: "owner", mode: "repair" },
+    { id: "contract", mode: "analyze" },
+    { id: "edges", mode: "analyze" },
+    { id: "verify", mode: "analyze" },
+  ];
+  const progress = new Map([["owner", 15], ["contract", 100], ["edges", 100], ["verify", 100]]);
+  const statuses = new Map([["owner", "working"], ["contract", "completed"], ["edges", "completed"], ["verify", "completed"]]);
+  assert.ok(weightedWorkstreamProgress(workstreams, progress, statuses) < 55);
+  progress.set("owner", 100);
+  statuses.set("owner", "completed");
+  assert.equal(weightedWorkstreamProgress(workstreams, progress, statuses), 100);
 });

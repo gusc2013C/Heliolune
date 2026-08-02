@@ -31,11 +31,12 @@ try {
   await request("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
   const listed = await request("tools/list");
   const tools = listed.result.tools;
-  const installedNames = new Set(["start_task", "start_batch", "cost_dashboard"]);
+  const installedNames = new Set(["runtime_info", "start_task", "start_batch", "cost_dashboard"]);
+  const fastPathNames = new Set(["runtime_info", "start_task"]);
   process.stdout.write(`${JSON.stringify({
     all: measure(tools),
     installedSurface: measure(tools.filter((tool) => installedNames.has(tool.name))),
-    normalFastPath: measure(tools.filter((tool) => tool.name === "start_task")),
+    normalFastPath: measure(tools.filter((tool) => fastPathNames.has(tool.name))),
     advancedBatchSchema: measure(tools.filter((tool) => tool.name === "start_batch")),
   }, null, 2)}\n`);
 } finally {

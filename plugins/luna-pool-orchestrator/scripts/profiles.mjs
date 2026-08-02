@@ -16,6 +16,26 @@ export const SPEED_FIRST = Object.freeze({
 
 export const DEFAULT_PROFILE = SPEED_FIRST;
 
+const MAX_FILES = 30;
+const MAX_COMMANDS = 50;
+
+function bounded(value, fallback, maximum) {
+  const parsed = Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : fallback;
+  return Math.min(maximum, Math.max(3, parsed));
+}
+
+export function adaptiveBudgets({ mode = "analyze", risk = "moderate", maxFiles, maxCommands } = {}) {
+  const mutating = mode !== "analyze";
+  const elevated = risk === "moderate" || risk === "high";
+  const defaults = mutating
+    ? (elevated ? { maxFiles: 12, maxCommands: 20 } : { maxFiles: 8, maxCommands: 14 })
+    : (elevated ? { maxFiles: 8, maxCommands: 14 } : { maxFiles: 6, maxCommands: 10 });
+  return {
+    maxFiles: bounded(maxFiles, defaults.maxFiles, MAX_FILES),
+    maxCommands: bounded(maxCommands, defaults.maxCommands, MAX_COMMANDS),
+  };
+}
+
 function compactAcceptance(acceptance) {
   return (Array.isArray(acceptance) ? acceptance : [])
     .map((item) => String(item).trim())
@@ -33,10 +53,6 @@ export function defaultParallelWorkstreams(args) {
     risk: args.risk ?? "moderate",
     reservedBoundary: Boolean(args.reservedBoundary),
   };
-  const reviewAcceptance = acceptance.length
-    ? acceptance
-    : ["Return decisive repository evidence for the assigned review question."];
-
   return [
     {
       ...shared,
@@ -51,24 +67,24 @@ export function defaultParallelWorkstreams(args) {
       id: "contract",
       lane: "core",
       mode: "analyze",
-      objective: `Check contract and acceptance mismatches for: ${objective}`,
-      acceptance: reviewAcceptance,
+      objective: `Analyze the base snapshot contract and exact constraints the concurrent owner must satisfy for: ${objective}. Do not judge or claim to observe the concurrent owner's result.`,
+      acceptance: ["Return only literal contract blockers, constraints, and useful implementation risks from the base snapshot."],
     },
     {
       ...shared,
       id: "edges",
       lane: "tests",
       mode: "analyze",
-      objective: `Find edge cases, regressions, and decisive tests for: ${objective}`,
-      acceptance: reviewAcceptance,
+      objective: `Derive edge cases, regressions, and decisive tests from the base snapshot for: ${objective}. Do not judge or claim to observe the concurrent owner's result.`,
+      acceptance: ["Return compact edge cases and decisive tests that Sol can use to review the later owner patch."],
     },
     {
       ...shared,
       id: "verify",
       lane: "verifier",
       mode: "analyze",
-      objective: `Independently derive the correct result and highest-risk failure for: ${objective}`,
-      acceptance: reviewAcceptance,
+      objective: `Independently derive expected behavior and the highest-risk failure from the base snapshot for: ${objective}. Do not judge or claim to observe the concurrent owner's result.`,
+      acceptance: ["Return an independent expected-behavior checklist and highest-risk failure for later Sol review."],
     },
   ];
 }
@@ -167,6 +183,13 @@ export function compactBurstTask(workstream, budget) {
     mode === "analyze"
       ? "This is one Sol-defined read-only workstream in a parallel batch. Inspect only its scope and never modify files."
       : "This workstream runs in a detached Git worktree. Modify only its exact scope, preserve unrelated state, and do not commit, branch, merge, or inspect other worktrees.",
+    workstream.id === "contract"
+      ? "You are the concurrent contract guard. Use status=blocked with a non-empty needsSol only when the writer literally cannot proceed without choosing a Sol-owned architecture, security, public API, irreversible migration, or contradictory scope/acceptance decision. Put ordinary ambiguity, possible hidden expectations, message wording, and implementation choices in risks with needsSol=[]; never block for them."
+      : "Set needsSol=[] unless the supplied contract literally prevents bounded work without a reserved Sol decision.",
+    mode === "analyze"
+      ? "Stop after decisive review evidence; do not run the full acceptance suite merely to rediscover failures in the base snapshot."
+      : "Reserve the final portion of the work window for decisive checks after the last edit. Once acceptance passes, do not add cleanup or hardening that you cannot verify again before returning.",
+    "Completion means the scoped work is done and every supplied, runnable acceptance check has decisive current evidence. Unknown or unavailable hidden tests belong in risks and do not make status partial. Use status=partial only when supplied work remains unfinished or a supplied check is missing, stale, failed, or not run.",
     "Prefer finishing within 90 seconds, but continue bounded work until the supplied hard deadline when decisive evidence legitimately needs longer. Never coordinate with other workers or decide architecture, security, public APIs, or migrations. Stop when acceptance has decisive evidence. Return status=partial rather than broadening scope or exhausting the deadline. Return the schema only.",
   ].join("\n");
 }
@@ -180,7 +203,7 @@ export function compactBatchLeaderPrompt({ batchId, workstreams, outcomes, integ
       integration,
       timing,
     })}`,
-    "Act only as the shared operations leader and reporting compressor. Account for every workstream, preserve decisive evidence, failures, risks, and needsSol decisions, and produce one compact handoff. Do not inspect the repository, call tools, plan or assign work, resolve disagreements, decide reserved boundaries, or perform final acceptance. Return the schema only.",
+    "Act only as the shared operations leader and reporting compressor. Read-only review workstreams inspected independent base snapshots in parallel and cannot observe or verify a concurrent writer's patch; report their findings as review guidance, never as evidence that the writer's later files are missing or contradictory. Treat actualChangePaths and integration as authoritative for artifact state. Account for every workstream, preserve decisive evidence, failures, risks, and needsSol decisions, and produce one compact handoff. Do not inspect the repository, call tools, plan or assign work, resolve disagreements, decide reserved boundaries, or perform final acceptance. Return the schema only.",
   ].join("\n");
 }
 

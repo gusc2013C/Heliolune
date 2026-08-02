@@ -8,7 +8,7 @@ Heliolune is an alpha-stage orchestration project for pairing a capable controll
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current release: **`0.6.2`**. Public contracts may change before 1.0.
+> Current release: **`0.6.3`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
@@ -35,9 +35,11 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 ## Current capabilities
 
 - One compact `start_task` fast path deterministically creates an exact-scope owner plus contract, edge/test, and correctness-risk reviews.
+- A no-model `runtime_info` preflight fails closed before paid work when the loaded MCP is stale, serial, visible, or otherwise mismatched with the installed skill.
 - Four-way speed-first is the default profile; custom 2–8 stream batches are advanced, and token-first remains an explicit safety fallback.
 - Luna workers use `max` reasoning effort.
 - Worker sessions are ephemeral and normally stay out of the Codex Desktop task list.
+- The standalone Codex app-server is launched hidden; on Windows the WPF Leader panel is the only automatic visible worker surface.
 - Read-only burst sessions are reused while the MCP process lives; mutating worktrees receive fresh isolated sessions.
 - One asynchronous start plus one blocking await replaces controller-side polling; Sol stops generating until the terminal result returns.
 - Adaptive Leader reporting compresses large or risky owner/verifier bundles while small tasks defer a compact digest and avoid another model turn.
@@ -49,6 +51,7 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 - Timed-out turns are interrupted before an error is returned.
 - A bounded soft timeout uses app-server activity to distinguish a live worker from sustained silence; only ambiguous stale turns wake the Luna supervisor.
 - A reserved finalization window steers an active over-budget work turn to stop tools and emit structured output without extending the hard deadline.
+- Codex bundled Python, Node, and Git paths are preferred through the shell environment policy, avoiding stale virtual-environment shims while retaining host PATH fallbacks.
 - Exact input, cached-input, output, reasoning-output, cache-rate, and wall-time reporting.
 - Built-in price estimates, history-calibrated Sol-only projections, raw same-token sensitivity data, cumulative savings, and a compact per-lane cost dashboard.
 - No bundled Codex executable, copied runtime, third-party npm dependency, telemetry service, or remote control plane.
@@ -71,12 +74,13 @@ Workers may inspect or modify only the scope granted by the host and task contra
 
 | Tool | Purpose |
 |---|---|
+| `runtime_info` | No-model identity preflight for version, default parallelism, ephemeral workers, hidden app-server, and status surface. |
 | `start_task` | Default fast path: expand one compact Sol brief into four Luna/max workstreams; `profile=token-first` is the safety fallback. |
 | `start_batch` | Advanced custom route for 2–8 Sol-defined workstreams on four or eight Luna/max workers. |
 | `await_task` (`luna-await`) | Block once on a started job and return the compact terminal bundle. |
 | `cost_dashboard` | Return cumulative cost, history-calibrated Sol-only projections, cache, timing, and per-lane totals without invoking a model. |
 
-The default plugin intentionally enables only these three pool tools; low-frequency `initialize_pool` and `pool_status` diagnostics remain server APIs but are excluded from the model tool surface to reduce every Sol turn's prefix. On Codex Desktop, Sol normally calls `start_task`, then `luna-await.await_task` exactly once and remains blocked there. It must never poll status or local job records.
+The default pool server enables `runtime_info`, `start_task`, `start_batch`, and `cost_dashboard`; low-frequency `initialize_pool` and `pool_status` diagnostics remain server APIs but are excluded from the model tool surface. `await_task` is exposed by the separate blocking server. On Codex Desktop, Sol calls `runtime_info` once, starts one task, then calls `luna-await.await_task` exactly once and remains blocked there. It must never poll status or local job records.
 
 Heliolune launches one native WPF panel on Windows. The panel auto-detects English or Simplified Chinese, dynamically shows token-first or four/eight-worker burst lanes plus the shared Leader, and adds actual Luna estimated cost, a historical-profile Sol-only projection, and projected savings when terminal usage arrives. It closes 15 seconds after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Heliolune does not also render an inline task panel. A host progress token may still receive standard `notifications/progress` from the start call.
 
@@ -100,7 +104,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.6.2` |
+| Plugin version | `0.6.3` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -160,13 +164,13 @@ Prefer each speed-first workstream to finish within 90 seconds, but allow a boun
 
 Mutating batches require `cwd` to be the clean Git repository root. Scopes must be narrow, repository-relative, non-overlapping paths without globs or parent traversal. Every write worker starts in a fresh detached worktree at the verified `HEAD`. Heliolune captures tracked, deleted, renamed, binary, and untracked changes, validates actual paths, applies all patches only when every gate passes, leaves the index unstaged, and removes its temporary worktrees. If a gate fails, the main checkout remains untouched and the result returns local patch artifacts for Sol; do not apply them blindly.
 
-Use `verification=auto` by default. Use `always` for security-sensitive work or decisive correctness claims, and `never` only for low-risk, easily reversible tasks.
+Verification routing is internal. Sol still inspects the integrated diff and runs decisive acceptance checks; Heliolune never treats a worker report as final acceptance.
 
 Reporting is automatic in the public 0.6 contract. Small low-risk token-first bundles return directly and add a tiny lifecycle digest to the Leader backlog. Large bundles, verifier results, high-risk work, reserved boundaries, and actual Sol decisions wake the shared Leader, which receives deferred digests and returns a smaller controller-facing report. Speed-first always uses one terminal Leader aggregate.
 
 For token-first tasks, a bounded internal soft check distinguishes recent activity from sustained silence and wakes the shared Leader only when needed. The original hard deadline remains absolute.
 
-Finalization is also automatic. Tasks of at least 60 seconds reserve 40–90 seconds inside that same deadline for final structured synthesis. If the work turn is still active when its budget ends, Heliolune uses app-server `turn/steer` to tell that same Luna/max turn to stop tools and emit the schema from information and changes already present. If a completed turn instead emits invalid JSON, one same-thread fallback turn uses `high` effort because new repository reasoning is forbidden. Either path may return `partial` rather than inventing evidence.
+Finalization is also automatic. Tasks of at least 60 seconds reserve 40–60 seconds inside that same deadline for final structured synthesis. The original Luna/max turn receives a proportional 10–20 second grace after `turn/steer` before Heliolune considers a same-thread no-tools fallback. Mutating workers must rerun decisive checks after their last edit; supplied, runnable acceptance may yield `completed`, while unavailable hidden tests remain risks for Sol. Either path may still return `partial` rather than inventing evidence.
 
 At the hard deadline, Heliolune reports `hard_timeout_active` when recent events show the worker was still running, or `hard_timeout_stalled` after sustained silence. The latest classification, event, silence duration, supervisor decision, and finalization outcome are retained in the cost dashboard without storing the worker transcript.
 
@@ -189,6 +193,8 @@ Price-weighted figures are estimates unless billed credits are available. Reposi
 The 0.6.2 deterministic coding check reached 12/12 in both arms: Sol-only took 123.532s and the Heliolune engine took 127.451s, with measured Luna worker cost of 0.457633 units. See the [0.6.2 fast-start benchmark](docs/0.6.2-FAST-START-BENCHMARK.md) for the controller-cost caveat and startup-surface measurements.
 
 A larger single-arm frontend application test produced a credible responsive dashboard for 0.450291 Luna worker units, but the writer's completion notification timed out and required deterministic artifact recovery. The [0.6.2 frontend application benchmark](docs/0.6.2-FRONTEND-APPLICATION-BENCHMARK.md) records the visual/interaction acceptance, stale-test and lint failures, and the resulting reliability limits without presenting the recovered run as an automatic success.
+
+The 0.6.3 backend diagnostic reproduced a stale serial runtime, fixed the runtime identity and hidden-window gate, then safely integrated a two-file Python implementation through the default four-way route. The final run took 337.050s for 0.584154 Luna worker price units and passed 12/12 public plus 8/8 repository-external hidden tests. See the [0.6.3 runtime diagnostic](docs/0.6.3-RUNTIME-DIAGNOSTIC.md); it is evidence of cost-first application value, not a Sol-only speed comparison.
 
 ### Default price table
 

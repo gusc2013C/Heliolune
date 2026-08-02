@@ -5,17 +5,21 @@ description: Delegate bounded engineering work from a GPT-5.6 Sol controller thr
 
 # Heliolune fast path
 
-Heliolune is a blocking delegation boundary. Sol plans once, sends one compact delta, waits without generating tokens, then reviews the integrated result.
+Sol plans once, sends one compact delta, blocks without generating, then reviews the integrated result.
 
-## Availability gate
+## Gate
 
-Before doing repository exploration, confirm that both `luna-pool.start_task` and `luna-await.await_task` are exposed in the current task. If either is absent, stop and tell the user to restart Codex or open a new task so the installed plugin can load. Never search plugin caches, read manifests, inspect job files, manually launch MCP scripts, or emulate Heliolune with Sol agents. Those paths waste tokens and do not preserve the blocking runtime.
+Before repository exploration, require `luna-pool.runtime_info`, `luna-pool.start_task`, and `luna-await.await_task`. Call `runtime_info` once and require:
 
-The runtime requires an official standalone Codex CLI supporting `app-server` and `gpt-5.6-luna`, resolved from `CODEX_APP_SERVER_EXECUTABLE`, `CODEX_EXECUTABLE`, or `codex` on `PATH`. Do not copy or bundle a Codex executable.
+- `version=0.6.3`, `defaultProfile=speed-first`, `defaultParallelism=4`;
+- `burstThreadsEphemeral=true`, `appServerWindowHidden=true`;
+- on Windows, `statusSurface=native-window`.
 
-## Sol boundary
+If anything is absent or mismatched, stop before paid work and request a new Codex task or app restart. Never inspect plugin caches, manifests, or job files; never manually launch the MCP or emulate it with Sol agents. Do not copy or bundle Codex.
 
-Sol alone owns requirement interpretation, architecture, security and trust boundaries, public APIs and compatibility, irreversible migrations, cross-component tradeoffs, residual-risk acceptance, integration review, and the final user response. Luna and the Leader may report `needsSol`; they must never resolve those decisions.
+## Authority
+
+Sol alone owns requirement interpretation, architecture, security/trust boundaries, public APIs and compatibility, irreversible migrations, cross-component tradeoffs, residual-risk acceptance, integration review, final acceptance, and the user response. Luna and the Leader may report `needsSol`; they never resolve those decisions.
 
 ## Start once
 
@@ -26,23 +30,25 @@ Call `luna-pool.start_task` with only:
 - `mode`: `analyze`, `implement`, or `repair`;
 - one outcome-oriented `objective`;
 - 1–8 testable `acceptance` items;
-- exact files or the narrowest relevant directories in `scope`;
-- optional volatile `repoState`, `risk`, `reservedBoundary`, and `timeoutSeconds`.
+- exact files or narrowest relevant directories in `scope`;
+- only useful volatile `repoState`, `risk`, `reservedBoundary`, or `timeoutSeconds`.
 
-Do not paste repository files, transcripts, stable role text, or generic project background. Luna inspects the repository. Keep the role and scope stable; send only incremental task state.
+Do not paste files, transcripts, stable role text, or generic project history. Keep roles stable and send only incremental task state; workers inspect the repository.
 
-`start_task` defaults to `profile="speed-first"`. The MCP deterministically creates four active Luna/max workstreams: one exact-scope owner plus read-only contract, edge/test, and correctness-risk reviews. For writes, only the owner may mutate; it runs in a detached worktree and Heliolune applies its patch only after clean-state, scope, overlap, and `git apply --check --index` gates pass. The shared Luna/high Leader tracks liveness and compresses outcomes but does not plan, assign, inspect the repository, or accept work.
+The default `speed-first` route immediately runs four Luna/max workstreams: one exact-scope owner plus contract, edge/test, and correctness-risk reviews. The contract lane is concurrent, never a serial preflight; it may interrupt the writer only with `status=blocked` and a real reserved `needsSol` decision. Review lanes inspect independent base snapshots and cannot verify the concurrent writer.
 
-Use `profile="token-first"` only when a mutating checkout is dirty or not Git-backed, safe write isolation is impossible, or a strict sequential dependency makes parallel evidence unusable. Read-only tasks stay parallel. `start_batch` remains an advanced API for explicitly designed 2–8 workstreams; do not use it on the normal path.
+Only the owner writes, in a detached ephemeral worktree. Heliolune applies its patch only after clean-state, completion, scope, overlap, and `git apply --check --index` gates pass. Partial/failed patches are not applied; non-empty in-scope artifacts are reported as quarantined recovery candidates. The Luna/high Leader manages liveness and compression only—never planning, assignment, repository inspection, or acceptance.
 
-Prefer work sized near 90 seconds, but bounded tasks may use up to 600 seconds. Narrow scope and acceptance before increasing the timeout.
+Burst threads are ephemeral and the standalone app-server is hidden. On Windows, the `Heliolune Leader` WPF window is the only automatic visible worker surface; no Codex Desktop worker task or console window should appear.
 
-## Wait once
+Use `profile=token-first` only for a dirty/non-Git mutating checkout, impossible write isolation, or a strict sequential dependency. Read-only work stays parallel. `start_batch` is advanced-only for explicitly designed 2–8 streams. Prefer scope near 90 seconds; narrow scope before raising a bounded deadline, which may reach 600 seconds.
 
-Immediately call `luna-await.await_task` exactly once with the returned `jobId`. While it blocks, stop generating: do not poll, read job records, send progress commentary, or open another model session. The native `Heliolune Leader` window provides token-free bilingual worker status, natural-language progress, timing, cache, and projected savings. Set `HELIOLUNE_STATUS_WINDOW=off` only when the user requests it.
+## Await once
+
+Immediately call `luna-await.await_task` exactly once with the returned `jobId`. While blocked, stop generating: do not poll, read job files, send progress commentary, or open another model session. The native window provides token-free bilingual status, natural-language activity, timing, cache, and projected savings. Disable it only at the user's request.
 
 ## Accept
 
-After await returns, inspect the compact evidence and `integration` result. For mutations, review actual changed paths in the main checkout and run the smallest decisive acceptance check. If integration was held, do not blindly apply retained patches. Re-open files only for contradictions, reserved boundaries, failed checks, or unresolved risk; never replay Luna exploration.
+Inspect compact evidence and `integration`. For mutations, review actual main-checkout paths and run the smallest decisive acceptance check. Never blindly apply held patches or replay Luna exploration; reopen files only for contradictions, reserved decisions, failed checks, or unresolved risk.
 
-Report result, checks, risks, wall time, and exact Luna usage/cost when present. Reasoning tokens are already included in output and must not be charged twice. Treat projected Sol-only savings as a benchmark-based estimate, not billed cost. Use `cost_dashboard` only when the user asks for cumulative statistics.
+Report result, checks, risks, wall time, and exact Luna usage/cost when available. Reasoning tokens are already included in output. Sol-only savings are benchmark projections, not billed cost. Call `cost_dashboard` only for requested cumulative statistics.

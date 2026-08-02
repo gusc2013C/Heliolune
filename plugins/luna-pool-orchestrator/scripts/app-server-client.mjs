@@ -4,8 +4,43 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.6.2";
+const APP_VERSION = "0.6.3";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
+
+export const APP_SERVER_WINDOWS_HIDDEN = true;
+export const BURST_THREADS_EPHEMERAL = true;
+
+function uniquePathEntries(entries) {
+  const seen = new Set();
+  return entries.filter((entry) => {
+    if (!entry) return false;
+    const key = process.platform === "win32" ? entry.toLowerCase() : entry;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function workerShellPath(inheritedPath = process.env.PATH ?? "") {
+  const inherited = inheritedPath.split(path.delimiter).filter(Boolean);
+  const overrideBin = inherited.find((entry) => entry.replaceAll("/", "\\").toLowerCase().endsWith("\\dependencies\\bin\\override"));
+  const dependencies = overrideBin ? path.dirname(path.dirname(overrideBin)) : null;
+  const bundled = dependencies ? [
+    path.join(dependencies, "python"),
+    path.join(dependencies, "node", "bin"),
+    path.join(dependencies, "bin", "override"),
+    path.join(dependencies, "bin", "fallback"),
+    path.join(dependencies, "native", "git", "cmd"),
+  ] : [];
+  const platformTools = process.platform === "win32"
+    ? ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0"]
+    : [];
+  return uniquePathEntries([
+    ...platformTools,
+    ...bundled,
+    ...inherited.filter((entry) => !entry.toLowerCase().includes("windowsapps")),
+  ]).join(path.delimiter);
+}
 
 export function compactStatusExplanation(value, maxLength = 360) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -55,20 +90,17 @@ export class AppServerClient {
 
   async start() {
     if (this.child) return;
-    const inheritedPath = process.env.PATH ?? "";
-    const safePath = [
-      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0",
-      ...inheritedPath.split(path.delimiter).filter((entry) => entry && !entry.toLowerCase().includes("windowsapps")),
-    ].join(path.delimiter);
+    const safePath = workerShellPath();
     this.child = spawn(this.executable, [
       ...this.executableArgs,
+      "-c", `shell_environment_policy.set.PATH=${JSON.stringify(safePath)}`,
       "-c", "mcp_servers.node_repl.enabled=false",
       "-c", "mcp_servers.serena.enabled=false",
       "-c", "mcp_servers.context7.enabled=false",
       "app-server", "--listen", "stdio://",
     ], {
       stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
+      windowsHide: APP_SERVER_WINDOWS_HIDDEN,
       env: { ...process.env, PATH: safePath },
     });
     this.child.on("error", (error) => {
@@ -204,7 +236,7 @@ export class AppServerClient {
     };
   }
 
-  async startThread({ cwd, sandbox, developerInstructions, model = "gpt-5.6-luna", ephemeral = true }) {
+  async startThread({ cwd, sandbox, developerInstructions, model = "gpt-5.6-luna", ephemeral = BURST_THREADS_EPHEMERAL }) {
     const response = await this.request("thread/start", {
       model,
       ephemeral,
@@ -238,7 +270,13 @@ export class AppServerClient {
     return response.thread.id;
   }
 
-  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, steer = null, onActivity = null }) {
+  async interruptTurn({ threadId, turnId }) {
+    if (!threadId || !turnId) return false;
+    await this.request("turn/interrupt", { threadId, turnId }, 10_000);
+    return true;
+  }
+
+  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, steer = null, onActivity = null, onStarted = null }) {
     const startedAt = Date.now();
     const response = await this.request("turn/start", {
       threadId,
@@ -267,6 +305,8 @@ export class AppServerClient {
       explanation: null,
       onActivity,
     });
+    try { onStarted?.({ threadId, turnId }); }
+    catch (error) { this.log(`turn start callback failed: ${error.message}`); }
     let completed;
     let supervision = null;
     let completionOutcome = null;
@@ -407,8 +447,12 @@ export class AppServerClient {
       clearTimeout(steerTimer);
       clearTimeout(forceTimer);
       await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
-      if (error.message === "Timed out waiting for app-server notification") error.code = "TURN_HARD_TIMEOUT";
+      if (error.message === "Timed out waiting for app-server notification") {
+        error.code = "TURN_HARD_TIMEOUT";
+        error.missingCompletion = !this.completedTurns.has(turnId);
+      }
       error.activity = this.turnSnapshot(turnId);
+      error.usage ??= this.latestUsage.get(turnId) ?? error.activity?.usage ?? null;
       error.supervision ??= supervision;
       error.steering = steering;
       this.latestUsage.delete(turnId);

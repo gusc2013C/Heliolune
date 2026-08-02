@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { AppServerClient, compactStatusExplanation, notificationTurnId } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
+import {
+  APP_SERVER_WINDOWS_HIDDEN,
+  AppServerClient,
+  BURST_THREADS_EPHEMERAL,
+  compactStatusExplanation,
+  notificationTurnId,
+  workerShellPath,
+} from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-app-server.mjs");
 const schema = { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } };
@@ -17,6 +24,22 @@ test("worker status explanations are compact natural-language summaries", () => 
 test("turn completion IDs support both app-server notification shapes", () => {
   assert.equal(notificationTurnId({ params: { turn: { id: "nested" } } }), "nested");
   assert.equal(notificationTurnId({ params: { turnId: "top-level", turn: {} } }), "top-level");
+});
+
+test("standalone app-server stays hidden and burst threads stay ephemeral", () => {
+  assert.equal(APP_SERVER_WINDOWS_HIDDEN, true);
+  assert.equal(BURST_THREADS_EPHEMERAL, true);
+});
+
+test("worker PATH prefers the bundled Codex runtime over stale environment shims", () => {
+  const inherited = [
+    "C:\\Users\\person\\.gaia\\venv\\Scripts",
+    "C:\\Users\\person\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\bin\\override",
+    "C:\\Program Files\\Git\\cmd",
+  ].join(path.delimiter);
+  const entries = workerShellPath(inherited).split(path.delimiter);
+  assert.equal(entries[1], "C:\\Users\\person\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python");
+  assert.ok(entries.indexOf("C:\\Users\\person\\.gaia\\venv\\Scripts") > entries.indexOf("C:\\Users\\person\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python"));
 });
 
 async function clientForTest(t) {
@@ -92,7 +115,9 @@ test("hard timeout is classified when no supervisor is configured", async (t) =>
       threadId: "fake-thread", text: "STALL", cwd: process.cwd(),
       sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 50,
     }),
-    (error) => error.code === "TURN_HARD_TIMEOUT" && error.activity.eventCount === 0,
+    (error) => error.code === "TURN_HARD_TIMEOUT"
+      && error.missingCompletion === true
+      && error.activity.eventCount === 0,
   );
 });
 
@@ -106,7 +131,10 @@ test("active work can be interrupted and followed by synthesis on the same threa
     }),
     (error) => {
       firstUsage = error.activity.usage;
-      return error.code === "TURN_HARD_TIMEOUT" && error.activity.eventCount > 0;
+      return error.code === "TURN_HARD_TIMEOUT"
+        && error.missingCompletion === true
+        && error.activity.eventCount > 0
+        && error.usage.last.inputTokens === 100;
     },
   );
   const synthesis = await client.runTurn({

@@ -3,7 +3,13 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { AppServerClient, compactStatusExplanation, resolveCodexExecutable } from "./app-server-client.mjs";
+import {
+  APP_SERVER_WINDOWS_HIDDEN,
+  AppServerClient,
+  BURST_THREADS_EPHEMERAL,
+  compactStatusExplanation,
+  resolveCodexExecutable,
+} from "./app-server-client.mjs";
 import {
   compareModelCost,
   dashboardData,
@@ -16,9 +22,9 @@ import {
   sumUsage,
 } from "./pricing.mjs";
 import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
-import { compactSteerPrompt, compactSynthesisPrompt, finalizationSchedule, shouldAttemptSynthesis } from "./finalization.mjs";
+import { activityAwareGraceMs, compactSteerPrompt, compactSynthesisPrompt, finalizationSchedule, shouldAttemptSynthesis } from "./finalization.mjs";
 import { buildControllerResult, compactCost, compactLeaderPrompt, compactUsage, shouldUseLeader } from "./leader.mjs";
-import { createProgressReporter, workerProgress } from "./progress.mjs";
+import { createProgressReporter, weightedWorkstreamProgress, workerProgress } from "./progress.mjs";
 import { JobStore } from "./jobs.mjs";
 import { jobDirectory, writeJobRecord } from "./job-files.mjs";
 import { detectSystemLanguage, launchStatusWindow } from "./status-window.mjs";
@@ -26,6 +32,7 @@ import {
   SPEED_FIRST,
   TOKEN_FIRST,
   DEFAULT_PROFILE,
+  adaptiveBudgets,
   batchSupervisionSchedule,
   burstLanes,
   compactBatchLeaderPrompt,
@@ -36,6 +43,7 @@ import {
   speedParallelism,
   validateSpeedWorkstreams,
 } from "./profiles.mjs";
+import { contractGuardEscalations, withRecoveryMetadata } from "./orchestration-policy.mjs";
 import {
   batchNeedsWorktrees,
   cleanupParallelWriteBatch,
@@ -45,8 +53,8 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-const VERSION = "0.6.2";
-const PROMPT_VERSION = "mcp-v10-fast-start";
+const VERSION = "0.6.3";
+const PROMPT_VERSION = "mcp-v12-final-verification";
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
 const STATUS_LANGUAGE = detectSystemLanguage() === "zh-CN"
@@ -66,7 +74,11 @@ const RESULT_SCHEMA = {
   additionalProperties: false,
   required: ["status", "summary", "evidence", "changes", "checks", "risks", "needsVerifier", "needsSol"],
   properties: {
-    status: { type: "string", enum: ["completed", "partial", "blocked"] },
+    status: {
+      type: "string",
+      enum: ["completed", "partial", "blocked"],
+      description: "Use completed when scoped work is finished and every supplied, runnable acceptance check passes after the last edit. Unknown hidden tests are risks, not missing work. Use partial only for unfinished supplied work or a supplied check that is missing, stale, or not run.",
+    },
     summary: { type: "string", maxLength: 1200 },
     evidence: {
       type: "array", maxItems: 8,
@@ -265,6 +277,8 @@ const RUN_INPUT_SCHEMA = {
     reservedBoundary: { type: "boolean", default: false, description: "True for architecture, security boundary, public API, or irreversible migration." },
     profile: { type: "string", enum: ["speed-first", "token-first"], default: "speed-first", description: "Default auto-generates four parallel Luna workstreams. Use token-first only when isolated writes are unsafe." },
     timeoutSeconds: { type: "integer", minimum: 30, maximum: 600, default: 120 },
+    maxFiles: { type: "integer", minimum: 3, maximum: 30, description: "Optional override; defaults adapt to task mode and risk." },
+    maxCommands: { type: "integer", minimum: 3, maximum: 50, description: "Optional override; defaults adapt to task mode and risk." },
   },
 };
 
@@ -294,6 +308,8 @@ const BATCH_INPUT_SCHEMA = {
       },
     },
     timeoutSeconds: { type: "integer", minimum: 30, maximum: 600, default: 120, description: "Independent hard deadline per workstream. This may exceed the recommended 90-second target; one shared Leader manages active sessions at the checkpoint." },
+    maxFiles: { type: "integer", minimum: 3, maximum: 30, description: "Optional override; defaults adapt to the mutating workstream and highest risk." },
+    maxCommands: { type: "integer", minimum: 3, maximum: 50, description: "Optional override; defaults adapt to the mutating workstream and highest risk." },
   },
 };
 
@@ -324,6 +340,13 @@ const READ_ONLY_ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, open
 const LOCAL_WORK_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false };
 
 const TOOLS = [
+  {
+    name: "runtime_info",
+    title: "Read Heliolune runtime identity",
+    description: "Return loaded version, routing defaults, worker visibility, and status surface without invoking a model.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+    annotations: READ_ONLY_ANNOTATIONS,
+  },
   {
     name: "initialize_pool",
     title: "Initialize Heliolune pool",
@@ -625,7 +648,7 @@ async function runTask(args, context = {}) {
         },
         steer: finalizationPlan.enabled ? {
           afterMs: finalizationPlan.workMs,
-          forceAfterMs: 10_000,
+          forceAfterMs: finalizationPlan.steerGraceMs,
           text: compactSteerPrompt({ objective: args.objective, acceptance: args.acceptance }),
           shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < (schedule.staleMs ?? 45_000),
           onStatus: ({ phase }) => {
@@ -710,10 +733,14 @@ async function runTask(args, context = {}) {
         finalization = {
           ...finalization,
           attempted: true,
-        trigger: error.code === "INVALID_STRUCTURED_OUTPUT" ? "invalid_structured_output" : "finalization_reserve_exhausted",
+          trigger: error.code === "INVALID_STRUCTURED_OUTPUT" ? "invalid_structured_output" : "finalization_reserve_exhausted",
         };
         const remainingMs = deadlineAt - Date.now();
-        if (remainingMs >= 10_000) {
+        const graceMs = error.code === "TURN_HARD_TIMEOUT" && error.missingCompletion
+          ? activityAwareGraceMs({ timeoutSeconds, snapshot: error.activity })
+          : 0;
+        const synthesisBudgetMs = Math.max(remainingMs, graceMs);
+        if (synthesisBudgetMs >= 10_000) {
           try {
             const synthesisRun = await instance.runTurn({
               threadId: ownerLane.threadId,
@@ -727,7 +754,7 @@ async function runTask(args, context = {}) {
               cwd,
               sandboxPolicy: { type: "readOnly", networkAccess: false },
               outputSchema: RESULT_SCHEMA,
-              timeoutMs: remainingMs,
+              timeoutMs: synthesisBudgetMs,
               effort: args.synthesisEffort ?? "high",
             });
             ownerRun = {
@@ -1011,9 +1038,27 @@ async function runBatch(args, context = {}) {
     finalization: "auto",
   });
   const batchSchedule = batchSupervisionSchedule(timeoutSeconds);
-  const maxFiles = args.maxFiles ?? 6;
-  const maxCommands = args.maxCommands ?? 10;
+  const budgetOwner = workstreams.find((workstream) => workstream.mode !== "analyze") ?? workstreams[0];
+  const riskRank = { low: 0, moderate: 1, high: 2 };
+  const highestRisk = workstreams.reduce((highest, workstream) => (
+    riskRank[workstream.risk ?? "moderate"] > riskRank[highest] ? (workstream.risk ?? "moderate") : highest
+  ), "low");
+  const budgets = adaptiveBudgets({
+    mode: budgetOwner?.mode ?? "analyze",
+    risk: highestRisk,
+    maxFiles: args.maxFiles,
+    maxCommands: args.maxCommands,
+  });
+  const { maxFiles, maxCommands } = budgets;
   let completedCount = 0;
+  const progressById = new Map(workstreams.map((workstream) => [workstream.id, 0]));
+  const statusById = new Map(workstreams.map((workstream) => [workstream.id, "idle"]));
+  const activeTurns = new Map();
+  const ownerId = workstreams.find((workstream) => workstream.id === "owner" && workstream.mode !== "analyze")?.id
+    ?? workstreams.find((workstream) => workstream.mode !== "analyze")?.id
+    ?? null;
+  let contractEscalation = [];
+  const workerPhaseProgress = () => 4 + weightedWorkstreamProgress(workstreams, progressById, statusById) * 0.76;
   const liveSnapshots = new Map();
   let managerPromise = null;
   const managerDecisions = new Map();
@@ -1033,7 +1078,7 @@ async function runBatch(args, context = {}) {
         lastEvent: entry.snapshot.lastMethod,
       }));
       managerChecks += 1;
-      context.progress?.report(82, `Heliolune Leader · managing ${snapshots.length} long-running parallel Luna sessions`, {
+      context.progress?.report(workerPhaseProgress(), `Heliolune Leader · managing ${snapshots.length} long-running parallel Luna sessions`, {
         force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
       });
       try {
@@ -1047,7 +1092,7 @@ async function runBatch(args, context = {}) {
           effort: "high",
           onActivity: (snapshot) => {
             const update = workerProgress({ lane: "supervisor", snapshot, hardMs: batchSchedule.leaderTimeoutMs });
-            context.progress?.report(83, update.message, {
+            context.progress?.report(workerPhaseProgress(), update.message, {
               workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
               explanation: update.explanation,
             });
@@ -1062,7 +1107,7 @@ async function runBatch(args, context = {}) {
           const snapshot = snapshots.find((item) => item.slot === decision.slot);
           if (snapshot) managerDecisions.set(`${decision.slot}:${snapshot.workstreamId}`, decision);
         }
-        context.progress?.report(84, "Heliolune Leader · parallel liveness decisions returned", {
+        context.progress?.report(workerPhaseProgress(), "Heliolune Leader · parallel liveness decisions returned", {
           force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
           explanation: managerRun.output.summary,
         });
@@ -1072,7 +1117,7 @@ async function runBatch(args, context = {}) {
         managerErrors.push(managerError);
         const failureUsage = error.usage ?? error.activity?.usage ?? null;
         if (failureUsage) managerFailureUsages.push(failureUsage);
-        context.progress?.report(84, "Heliolune Leader · management check unavailable · workers retain their hard deadlines", {
+        context.progress?.report(workerPhaseProgress(), "Heliolune Leader · management check unavailable · workers retain their hard deadlines", {
           force: true, workerLane: "supervisor", workerStatus: "failed", workerProgress: 100,
           explanation: managerError,
         });
@@ -1096,7 +1141,9 @@ async function runBatch(args, context = {}) {
       const laneState = worktreeSession
         ? await startEphemeralLane(instance, slot, workerCwd, workerSandbox.legacy)
         : slotStates[slot];
-      context.progress?.report(4 + completedCount / workstreams.length * 78, `Heliolune Leader · ${slot} starting ${workstream.id}`, {
+      statusById.set(workstream.id, "working");
+      progressById.set(workstream.id, 2);
+      context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} starting ${workstream.id}`, {
         force: true, workerLane: slot, workerStatus: "working", workerProgress: 2,
       });
       try {
@@ -1111,24 +1158,32 @@ async function runBatch(args, context = {}) {
             outputSchema,
             timeoutMs,
             effort: "max",
+            onStarted: (handle) => {
+              activeTurns.set(workstream.id, handle);
+              if (workstream.id === ownerId && contractEscalation.length) {
+                void instance.interruptTurn(handle).catch(() => {});
+              }
+            },
             onActivity: (snapshot) => {
               liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
               const update = workerProgress({ lane: slot, snapshot, hardMs: timeoutMs });
-              const perStreamShare = 78 / workstreams.length;
-              const overall = 4 + completedCount / workstreams.length * 78 + update.progress / 100 * perStreamShare;
-              context.progress?.report(overall, `Heliolune Leader · ${slot} · ${workstream.id} · ${update.message}`, {
+              progressById.set(workstream.id, update.progress);
+              context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} · ${update.message}`, {
                 workerLane: slot, workerStatus: "working", workerProgress: update.progress,
                 explanation: update.explanation,
               });
             },
             steer: finalizationPlan.enabled ? {
               afterMs: finalizationPlan.workMs,
-              forceAfterMs: 10_000,
+              forceAfterMs: finalizationPlan.steerGraceMs,
               text: compactSteerPrompt({ objective: workstream.objective, acceptance: workstream.acceptance }),
               shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < 45_000,
-              onStatus: ({ phase }) => context.progress?.report(80, `Heliolune Leader · ${slot} · ${workstream.id} finalization ${phase}`, {
-                force: true, workerLane: slot, workerStatus: "working", workerProgress: 90,
-              }),
+              onStatus: ({ phase }) => {
+                progressById.set(workstream.id, 90);
+                context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} finalization ${phase}`, {
+                  force: true, workerLane: slot, workerStatus: "working", workerProgress: 90,
+                });
+              },
             } : null,
             watchdog: batchSchedule.enabled ? {
               afterMs: batchSchedule.checkpointMs,
@@ -1148,9 +1203,14 @@ async function runBatch(args, context = {}) {
           });
         } catch (workError) {
           const remainingMs = streamStartedAt + timeoutMs - Date.now();
-          if (!shouldAttemptSynthesis(workError, finalizationPlan, 45_000) || remainingMs < 10_000) throw workError;
+          const graceMs = workError.code === "TURN_HARD_TIMEOUT" && workError.missingCompletion
+            ? activityAwareGraceMs({ timeoutSeconds, snapshot: workError.activity })
+            : 0;
+          const synthesisBudgetMs = Math.max(remainingMs, graceMs);
+          if (!shouldAttemptSynthesis(workError, finalizationPlan, 45_000) || synthesisBudgetMs < 10_000) throw workError;
           const priorUsage = workError.usage ?? workError.activity?.usage ?? null;
-          context.progress?.report(81, `Heliolune Leader · ${slot} · ${workstream.id} using bounded Luna/high schema synthesis`, {
+          progressById.set(workstream.id, 94);
+          context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} · ${workstream.id} using bounded Luna/high schema synthesis`, {
             force: true, workerLane: slot, workerStatus: "working", workerProgress: 94,
           });
           try {
@@ -1166,7 +1226,7 @@ async function runBatch(args, context = {}) {
               cwd: workerCwd,
               sandboxPolicy: { type: "readOnly", networkAccess: false },
               outputSchema,
-              timeoutMs: remainingMs,
+              timeoutMs: synthesisBudgetMs,
               effort: "high",
             });
             run = {
@@ -1185,13 +1245,31 @@ async function runBatch(args, context = {}) {
           needsVerifier: false,
           ...run.output,
         };
+        const escalations = contractGuardEscalations(workstream.id, run.output);
+        if (escalations.length) {
+          contractEscalation = escalations;
+          const ownerHandle = ownerId ? activeTurns.get(ownerId) : null;
+          if (ownerHandle && workstream.id !== ownerId) {
+            await instance.interruptTurn(ownerHandle).catch(() => {});
+          }
+          context.progress?.report(workerPhaseProgress(), `Heliolune Leader · concurrent contract guard requires Sol · writer integration will be held`, {
+            force: true,
+            workerLane: slot,
+            workerStatus: "completed",
+            workerProgress: 100,
+            explanation: escalations[0].reason,
+          });
+        }
         laneState.turns += 1;
         laneState.lastUsedAt = new Date().toISOString();
         laneState.lastUsage = usageBreakdown(run);
         laneState.uncachedInputTokens += laneState.lastUsage.uncachedInputTokens;
         liveSnapshots.delete(slot);
+        activeTurns.delete(workstream.id);
         completedCount += 1;
-        context.progress?.report(4 + completedCount / workstreams.length * 78, `Heliolune Leader · ${slot} completed ${workstream.id} · ${completedCount}/${workstreams.length}`, {
+        progressById.set(workstream.id, 100);
+        statusById.set(workstream.id, "completed");
+        context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} completed ${workstream.id} · ${completedCount}/${workstreams.length}`, {
           force: true, workerLane: slot, workerStatus: "completed", workerProgress: 100,
           explanation: run.output.summary,
         });
@@ -1204,8 +1282,11 @@ async function runBatch(args, context = {}) {
         laneState.lastUsage = failureUsage;
         laneState.uncachedInputTokens += failureUsage.uncachedInputTokens;
         liveSnapshots.delete(slot);
+        activeTurns.delete(workstream.id);
         completedCount += 1;
-        context.progress?.report(4 + completedCount / workstreams.length * 78, `Heliolune Leader · ${slot} failed ${workstream.id} · continuing batch`, {
+        progressById.set(workstream.id, 100);
+        statusById.set(workstream.id, "failed");
+        context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} failed ${workstream.id} · continuing batch`, {
           force: true, workerLane: slot, workerStatus: "failed", workerProgress: 100,
           explanation: compactStatusExplanation(error.message),
         });
@@ -1224,7 +1305,10 @@ async function runBatch(args, context = {}) {
     if (worktreeSession) {
       context.progress?.report(84, "Heliolune Leader · validating isolated patches before main-worktree integration", { force: true });
       patchRecords = await Promise.all(workstreams.map((workstream) => collectWorktreePatch(worktreeSession, workstream)));
-      integration = await integrateParallelWriteBatch(worktreeSession, patchRecords, executions);
+      integration = contractEscalation.length
+        ? { applied: false, reason: "needs-sol", escalations: contractEscalation, changedPaths: [] }
+        : await integrateParallelWriteBatch(worktreeSession, patchRecords, executions);
+      integration = withRecoveryMetadata(integration, patchRecords);
       context.progress?.report(85, integration.applied
         ? `Heliolune Leader · safely applied ${integration.changedPaths.length} disjoint paths`
         : `Heliolune Leader · integration held for Sol · ${integration.reason}`, { force: true });
@@ -1364,6 +1448,12 @@ async function runBatch(args, context = {}) {
       leaderManagementChecks: managerChecks,
       leaderManagementErrors: managerErrors,
       leaderError,
+      contractGuard: {
+        mode: "parallel",
+        triggered: contractEscalation.length > 0,
+        escalations: contractEscalation,
+      },
+      budgets,
     },
     integration: integration.applied || !mutatingBatch
       ? integration
@@ -1385,6 +1475,20 @@ async function runBatch(args, context = {}) {
       leaderMs,
       wallMs: Date.now() - startedAt,
     },
+  };
+}
+
+function runtimeInfo() {
+  return {
+    status: "ok",
+    version: VERSION,
+    runtimeId: RUNTIME_ID,
+    promptVersion: PROMPT_VERSION,
+    defaultProfile: SPEED_FIRST.id,
+    defaultParallelism: SPEED_FIRST.defaultParallelism,
+    burstThreadsEphemeral: BURST_THREADS_EPHEMERAL,
+    appServerWindowHidden: APP_SERVER_WINDOWS_HIDDEN,
+    statusSurface: process.platform === "win32" ? "native-window" : "host-progress",
   };
 }
 
@@ -1515,13 +1619,14 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, maximumRuntimeM
 
 async function startTask(args) {
   if ((args.profile ?? DEFAULT_PROFILE.id) === SPEED_FIRST.id) {
+    const budgets = adaptiveBudgets(args);
     return startBatch({
       cwd: args.cwd,
       parallelism: SPEED_FIRST.defaultParallelism,
       workstreams: defaultParallelWorkstreams(args),
       timeoutSeconds: args.timeoutSeconds,
-      maxFiles: 3,
-      maxCommands: 6,
+      maxFiles: budgets.maxFiles,
+      maxCommands: budgets.maxCommands,
     });
   }
   return startVisibleJob({
@@ -1551,6 +1656,7 @@ async function startBatch(args) {
 }
 
 async function callTool(name, args, context = {}) {
+  if (name === "runtime_info") return runtimeInfo();
   if (name === "initialize_pool") return initializePool(args, context);
   if (name === "start_task") return startTask(args, context);
   if (name === "start_batch") return startBatch(args, context);
