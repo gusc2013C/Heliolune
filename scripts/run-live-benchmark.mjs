@@ -25,9 +25,17 @@ const child = spawn(process.execPath, [serverPath], {
 let nextId = 1;
 let stderr = "";
 const pending = new Map();
+const progressByToken = new Map();
 child.stderr.on("data", (chunk) => { stderr += String(chunk); });
 readline.createInterface({ input: child.stdout }).on("line", (line) => {
   const message = JSON.parse(line);
+  if (message.method === "notifications/progress") {
+    const token = message.params?.progressToken;
+    const updates = progressByToken.get(token) ?? [];
+    updates.push(message.params);
+    progressByToken.set(token, updates);
+    return;
+  }
   const waiter = pending.get(message.id);
   if (!waiter) return;
   pending.delete(message.id);
@@ -54,11 +62,17 @@ try {
   const runs = [];
   for (const { taskFile, task } of tasks) {
     const runStartedAt = Date.now();
-    const response = await request("tools/call", { name: "run_task", arguments: task }, (task.timeoutSeconds + 180) * 1000);
+    const progressToken = `benchmark-${runs.length + 1}`;
+    const response = await request("tools/call", {
+      name: "run_task",
+      arguments: task,
+      _meta: { progressToken },
+    }, (task.timeoutSeconds + 180) * 1000);
     runs.push({
       taskFile,
       wallMs: Date.now() - runStartedAt,
       isError: response.result.isError,
+      progress: progressByToken.get(progressToken) ?? [],
       payload: JSON.parse(response.result.content[0].text),
     });
   }

@@ -1,0 +1,84 @@
+{
+  "en": {
+    "strings": {
+      "Subtitle": "Live Luna pool operations",
+      "Overall": "Overall progress",
+      "Workers": "Worker lanes",
+      "Waiting": "Waiting for Luna's first natural-language update…",
+      "Complete": "Luna work is complete and ready for Sol review.",
+      "Failed": "The Luna task ended with an error. Review the worker card for details.",
+      "LocalOnly": "Local status panel · no Sol polling · no model tokens",
+      "CostPending": "A history-calibrated savings estimate will appear when usage is available.",
+      "CostSummary": "Projected savings {0:N6} ({1}%)  ·  Luna {2:N6}  ·  projected Sol-only {3:N6}",
+      "Close": "Close",
+      "Minimize": "Minimize",
+      "Input": "input",
+      "Cached": "cached",
+      "Output": "output",
+      "AutoClose": "Task complete · closing in {0}s",
+      "Idle": "Waiting for an assigned task",
+      "NoExplanation": "Starting up and waiting for Luna to explain its current work…",
+      "Elapsed": "elapsed",
+      "ActiveCount": "{0} active"
+    },
+    "lanes": {
+      "core": "Core",
+      "tests": "Tests",
+      "integration": "Integration",
+      "verifier": "Verifier",
+      "supervisor": "Leader"
+    },
+    "statuses": {
+      "idle": "Idle",
+      "queued": "Queued",
+      "working": "Working",
+      "verifying": "Verifying",
+      "supervising": "Supervising",
+      "reporting": "Reporting",
+      "completed": "Completed",
+      "failed": "Failed",
+      "running": "Running"
+    }
+  },
+  "zh-CN": {
+    "strings": {
+      "Subtitle": "Luna 工作池实时状态",
+      "Overall": "总体进度",
+      "Workers": "工作单元",
+      "Waiting": "正在等待 Luna 的第一条自然语言说明…",
+      "Complete": "Luna 工作已完成，等待 Sol 审查。",
+      "Failed": "Luna 任务发生错误，请查看对应工作单元。",
+      "LocalOnly": "本地状态面板 · 不轮询 Sol · 不产生模型 token",
+      "CostPending": "获得 token 用量后将显示历史基准校准的节省估算。",
+      "CostSummary": "预估节省 {0:N6}（{1}%） ·  Luna {2:N6}  ·  预计 Sol-only {3:N6}",
+      "Close": "关闭",
+      "Minimize": "最小化",
+      "Input": "输入",
+      "Cached": "缓存",
+      "Output": "输出",
+      "AutoClose": "任务完成，窗口将在 {0} 秒后关闭",
+      "Idle": "等待分配任务",
+      "NoExplanation": "正在启动，等待 Luna 汇报当前工作…",
+      "Elapsed": "已用时",
+      "ActiveCount": "{0} 个活动"
+    },
+    "lanes": {
+      "core": "核心实现",
+      "tests": "测试验证",
+      "integration": "集成工程",
+      "verifier": "独立审查",
+      "supervisor": "Leader 监督"
+    },
+    "statuses": {
+      "idle": "空闲",
+      "queued": "排队",
+      "working": "工作中",
+      "verifying": "验证中",
+      "supervising": "监督中",
+      "reporting": "汇总中",
+      "completed": "已完成",
+      "failed": "失败",
+      "running": "运行中"
+    }
+  }
+}

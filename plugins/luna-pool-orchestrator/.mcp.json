@@ -6,7 +6,17 @@
       "cwd": ".",
       "startup_timeout_sec": 30,
       "tool_timeout_sec": 3600,
-      "enabled_tools": ["initialize_pool", "run_task", "pool_status", "cost_dashboard"]
+      "default_tools_approval_mode": "approve",
+      "enabled_tools": ["initialize_pool", "run_task", "start_task", "job_status", "pool_status", "cost_dashboard"]
+    },
+    "luna-await": {
+      "command": "node",
+      "args": ["./scripts/await-server.mjs"],
+      "cwd": ".",
+      "startup_timeout_sec": 30,
+      "tool_timeout_sec": 4500,
+      "default_tools_approval_mode": "approve",
+      "enabled_tools": ["await_task"]
     }
   }
 }

@@ -6,6 +6,7 @@ import {
   DEFAULT_PRICING,
   normalizeUsage,
   pricingCatalog,
+  projectHistoricalSavings,
   recordMetrics,
   renderDashboard,
   sumUsage,
@@ -37,6 +38,16 @@ test("prices cached input separately and never double-charges reasoning output",
   assert.equal(comparison.sameTokenBaseline.amount, 171.875);
   assert.equal(comparison.estimatedSavings, 165);
   assert.equal(comparison.estimatedSavingsRate, 0.96);
+  assert.equal(comparison.historicalProjection.profileId, "alpha-0.5.0-matched");
+  assert.equal(comparison.historicalProjection.estimatedSavingsRate, 0.756261);
+});
+
+test("projects Sol-only consumption from the matched historical benchmark instead of repricing the same tokens", () => {
+  const projection = projectHistoricalSavings(0.046915);
+  assert.equal(projection.estimatedSolOnlyCost, 0.19248086);
+  assert.equal(projection.estimatedSavings, 0.14556586);
+  assert.equal(projection.reference.solOnlyUnits, 3702);
+  assert.equal(projection.reference.helioluneUnits, 902.32);
 });
 
 test("accepts provider-neutral pricing overrides", () => {
@@ -74,5 +85,5 @@ test("records raw metrics and renders a compact dashboard", () => {
   assert.equal(data.counts.leaderReports, 1);
   assert.equal(data.lastFailure.classification, "hard_timeout_stalled");
   assert.equal(data.lanes.core.runs, 1);
-  assert.match(renderDashboard(data), /Estimated worker-boundary savings/);
+  assert.match(renderDashboard(data), /Historical-profile projected savings/);
 });

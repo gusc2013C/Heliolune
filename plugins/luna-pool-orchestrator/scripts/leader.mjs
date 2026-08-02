@@ -37,6 +37,7 @@ function compactCost(cost) {
     sameTokenBaseline: { model: cost.sameTokenBaseline.model, amount: cost.sameTokenBaseline.amount },
     estimatedSavings: cost.estimatedSavings,
     estimatedSavingsRate: cost.estimatedSavingsRate,
+    historicalProjection: cost.historicalProjection,
   };
 }
 

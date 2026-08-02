@@ -1,6 +1,13 @@
 export const PRICE_UNIT = "price_units_per_million_tokens";
 export const DEFAULT_ACTUAL_MODEL = "gpt-5.6-luna";
 export const DEFAULT_BASELINE_MODEL = "gpt-5.6-sol";
+export const DEFAULT_BENCHMARK_PROFILE = Object.freeze({
+  id: "alpha-0.5.0-matched",
+  solOnlyUnits: 3702,
+  helioluneUnits: 902.32,
+  solOnlyQuality: 10,
+  helioluneQuality: 10,
+});
 
 export const DEFAULT_PRICING = Object.freeze({
   "gpt-5.6-sol": Object.freeze({ displayName: "GPT-5.6 Sol", input: 125, cachedInput: 12.5, output: 750 }),
@@ -100,6 +107,32 @@ export function estimateModelCost(usageValue, model, catalog = DEFAULT_PRICING) 
   };
 }
 
+export function projectHistoricalSavings(actualCostValue, profile = DEFAULT_BENCHMARK_PROFILE) {
+  const actualAmount = nonNegativeNumber(actualCostValue?.amount ?? actualCostValue);
+  const solOnlyUnits = nonNegativeNumber(profile.solOnlyUnits);
+  const helioluneUnits = nonNegativeNumber(profile.helioluneUnits);
+  if (!solOnlyUnits || !helioluneUnits) throw new Error("Historical benchmark units must be positive numbers");
+  const scaleFactor = solOnlyUnits / helioluneUnits;
+  const estimatedSolOnlyCost = rounded(actualAmount * scaleFactor);
+  const estimatedSavings = rounded(Math.max(0, estimatedSolOnlyCost - actualAmount));
+  const estimatedSavingsRate = estimatedSolOnlyCost ? rounded(estimatedSavings / estimatedSolOnlyCost, 6) : 0;
+  return {
+    profileId: String(profile.id),
+    observedWorkerCost: actualAmount,
+    estimatedSolOnlyCost,
+    estimatedSavings,
+    estimatedSavingsRate,
+    scaleFactor: rounded(scaleFactor),
+    reference: {
+      solOnlyUnits,
+      helioluneUnits,
+      solOnlyQuality: Number(profile.solOnlyQuality ?? 0),
+      helioluneQuality: Number(profile.helioluneQuality ?? 0),
+    },
+    confidence: "directional",
+  };
+}
+
 export function compareModelCost(usageValue, options = {}) {
   const catalog = options.catalog ?? DEFAULT_PRICING;
   const actualModel = options.actualModel ?? DEFAULT_ACTUAL_MODEL;
@@ -114,12 +147,14 @@ export function compareModelCost(usageValue, options = {}) {
     sameTokenBaseline: baseline,
     estimatedSavings,
     estimatedSavingsRate,
+    historicalProjection: projectHistoricalSavings(actual),
     assumptions: [
       "Rates are price units per one million tokens.",
       "inputTokens includes cachedInputTokens; uncached input is input minus cached input.",
       "reasoningOutputTokens is reported for visibility but is already included in outputTokens and is not charged twice.",
-      "The baseline prices the same worker token counts at the selected baseline model; it is not a measured baseline run.",
-      "Controller-model planning and acceptance usage is outside the MCP worker boundary and is not included.",
+      "Visible savings scale observed Luna worker cost by the alpha-0.5.0 matched-quality benchmark ratio (3702 / 902.32); the projection is directional, not billed usage.",
+      "Current controller planning and acceptance usage is outside the MCP boundary and cannot be measured here.",
+      "sameTokenBaseline reprices identical worker tokens only for raw pricing sensitivity; it is not the visible savings estimate.",
     ],
   };
 }
@@ -227,7 +262,8 @@ export function dashboardData({ cwd, metrics: existing, actualModel = DEFAULT_AC
 }
 
 export function renderDashboard(data) {
-  const percent = (data.cost.estimatedSavingsRate * 100).toFixed(2);
+  const projection = data.cost.historicalProjection;
+  const percent = (projection.estimatedSavingsRate * 100).toFixed(2);
   const lines = [
     "# Heliolune cost dashboard",
     "",
@@ -242,8 +278,9 @@ export function renderDashboard(data) {
     `- Input / cached / output tokens: ${data.usage.inputTokens} / ${data.usage.cachedInputTokens} / ${data.usage.outputTokens}`,
     `- Cache rate: ${(data.usage.cacheRate * 100).toFixed(2)}%`,
     `- ${data.cost.actual.displayName} estimated cost: ${data.cost.actual.amount}`,
-    `- Same-token ${data.cost.sameTokenBaseline.displayName} baseline: ${data.cost.sameTokenBaseline.amount}`,
-    `- Estimated worker-boundary savings: ${data.cost.estimatedSavings} (${percent}%)`,
+    `- Historical-profile projected Sol-only cost: ${projection.estimatedSolOnlyCost}`,
+    `- Historical-profile projected savings: ${projection.estimatedSavings} (${percent}%)`,
+    `- Calibration: ${projection.profileId}; matched quality ${projection.reference.solOnlyQuality}/10 vs ${projection.reference.helioluneQuality}/10; normalized units ${projection.reference.solOnlyUnits} vs ${projection.reference.helioluneUnits}`,
     "",
     "| Lane | Runs | Input | Cached | Output | Estimated cost |",
     "|---|---:|---:|---:|---:|---:|",
@@ -251,7 +288,7 @@ export function renderDashboard(data) {
   for (const [lane, laneData] of Object.entries(data.lanes)) {
     lines.push(`| ${lane} | ${laneData.runs} | ${laneData.usage.inputTokens} | ${laneData.usage.cachedInputTokens} | ${laneData.usage.outputTokens} | ${laneData.cost.actual.amount} |`);
   }
-  lines.push("", "_Estimate only: same-token baseline; controller planning/acceptance usage and billed credits are excluded._");
+  lines.push("", "_Directional estimate only: current observed Luna worker cost is scaled by the historical matched benchmark ratio; current Sol controller usage and billed credits are not observable at the MCP boundary._");
   if (data.lastFailure) {
     lines.push(
       "",

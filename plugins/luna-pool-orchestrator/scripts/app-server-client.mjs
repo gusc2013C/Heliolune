@@ -4,8 +4,15 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.5.1";
+const APP_VERSION = "0.5.2";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
+
+export function compactStatusExplanation(value, maxLength = 360) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}
 
 function exists(file) {
   return fs.access(file).then(() => true, () => false);
@@ -114,10 +121,24 @@ export class AppServerClient {
     const activityTurnId = message.params?.turnId ?? message.params?.turn?.id;
     if (activityTurnId && this.turnActivity.has(activityTurnId)) {
       const activity = this.turnActivity.get(activityTurnId);
+      if (message.method === "item/reasoning/summaryPartAdded") {
+        activity.summaryIndex = message.params?.summaryIndex ?? 0;
+        activity.summaryText = "";
+      } else if (message.method === "item/reasoning/summaryTextDelta") {
+        const summaryIndex = message.params?.summaryIndex ?? 0;
+        if (activity.summaryIndex !== summaryIndex) {
+          activity.summaryIndex = summaryIndex;
+          activity.summaryText = "";
+        }
+        activity.summaryText = `${activity.summaryText}${message.params?.delta ?? ""}`.slice(-2_000);
+        activity.explanation = compactStatusExplanation(activity.summaryText);
+      }
       activity.lastEventAt = Date.now();
       activity.lastMethod = message.method;
       activity.eventCount += 1;
       activity.usage = this.latestUsage.get(activityTurnId) ?? activity.usage;
+      try { activity.onActivity?.(this.turnSnapshot(activityTurnId)); }
+      catch (error) { this.log(`activity callback failed: ${error.message}`); }
     }
     for (const waiter of [...this.waiters]) {
       if (!waiter.predicate(message)) continue;
@@ -169,6 +190,7 @@ export class AppServerClient {
       silentMs: now - activity.lastEventAt,
       eventCount: activity.eventCount,
       lastMethod: activity.lastMethod,
+      explanation: activity.explanation ?? null,
       usage: this.latestUsage.get(turnId) ?? activity.usage ?? null,
     };
   }
@@ -207,7 +229,7 @@ export class AppServerClient {
     return response.thread.id;
   }
 
-  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, steer = null }) {
+  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, steer = null, onActivity = null }) {
     const startedAt = Date.now();
     const response = await this.request("turn/start", {
       threadId,
@@ -230,6 +252,10 @@ export class AppServerClient {
       lastMethod: "turn/start",
       eventCount: 0,
       usage: null,
+      summaryIndex: null,
+      summaryText: "",
+      explanation: null,
+      onActivity,
     });
     let completed;
     let supervision = null;
@@ -255,9 +281,13 @@ export class AppServerClient {
           if (completionOutcome) return;
           if (steer.shouldSteer && !steer.shouldSteer(this.turnSnapshot(turnId))) {
             steering.skippedReason = "worker_not_active";
+            try { steer.onStatus?.({ phase: "skipped", steering, snapshot: this.turnSnapshot(turnId) }); }
+            catch (error) { this.log(`steering status callback failed: ${error.message}`); }
             return;
           }
           steering.attempted = true;
+          try { steer.onStatus?.({ phase: "attempted", steering, snapshot: this.turnSnapshot(turnId) }); }
+          catch (error) { this.log(`steering status callback failed: ${error.message}`); }
           try {
             await this.request("turn/steer", {
               threadId,
@@ -266,8 +296,12 @@ export class AppServerClient {
               responsesapiClientMetadata: { orchestrator: APP_NAME, phase: "reserved-finalization" },
             }, 5_000);
             steering.accepted = true;
+            try { steer.onStatus?.({ phase: "accepted", steering, snapshot: this.turnSnapshot(turnId) }); }
+            catch (error) { this.log(`steering status callback failed: ${error.message}`); }
           } catch (error) {
             steering.error = error.message;
+            try { steer.onStatus?.({ phase: "failed", steering, snapshot: this.turnSnapshot(turnId) }); }
+            catch (callbackError) { this.log(`steering status callback failed: ${callbackError.message}`); }
           }
         }, steer.afterMs);
         steerTimer.unref?.();

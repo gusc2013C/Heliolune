@@ -11,28 +11,51 @@ $pluginRoot = Join-Path $repoRoot 'plugins\luna-pool-orchestrator'
 $manifestPath = Join-Path $pluginRoot '.codex-plugin\plugin.json'
 $marketplacePath = Join-Path $repoRoot '.agents\plugins\marketplace.json'
 $skillPath = Join-Path $pluginRoot 'skills\luna-pool-orchestrator\SKILL.md'
+$mcpPath = Join-Path $pluginRoot '.mcp.json'
 
 $required = @(
     $manifestPath,
     $marketplacePath,
-    (Join-Path $pluginRoot '.mcp.json'),
+    $mcpPath,
     (Join-Path $pluginRoot 'scripts\server.mjs'),
     (Join-Path $pluginRoot 'scripts\app-server-client.mjs'),
     (Join-Path $pluginRoot 'scripts\pricing.mjs'),
     (Join-Path $pluginRoot 'scripts\supervision.mjs'),
     (Join-Path $pluginRoot 'scripts\finalization.mjs'),
     (Join-Path $pluginRoot 'scripts\leader.mjs'),
+    (Join-Path $pluginRoot 'scripts\progress.mjs'),
+    (Join-Path $pluginRoot 'scripts\jobs.mjs'),
+    (Join-Path $pluginRoot 'scripts\job-files.mjs'),
+    (Join-Path $pluginRoot 'scripts\await-server.mjs'),
+    (Join-Path $pluginRoot 'scripts\status-window.mjs'),
+    (Join-Path $pluginRoot 'scripts\status-window.ps1'),
+    (Join-Path $pluginRoot 'scripts\status-window-launcher.vbs'),
+    (Join-Path $pluginRoot 'assets\status.html'),
+    (Join-Path $pluginRoot 'assets\status-locales.json'),
     $skillPath,
     (Join-Path $repoRoot 'README.md'),
+    (Join-Path $repoRoot 'README.zh-CN.md'),
     (Join-Path $repoRoot 'LICENSE'),
+    (Join-Path $repoRoot 'CHANGELOG.zh-CN.md'),
+    (Join-Path $repoRoot 'CONTRIBUTING.zh-CN.md'),
+    (Join-Path $repoRoot 'SECURITY.zh-CN.md'),
+    (Join-Path $repoRoot 'RELEASE_CHECKLIST.zh-CN.md'),
+    (Join-Path $repoRoot 'docs\ARCHITECTURE.zh-CN.md'),
+    (Join-Path $repoRoot 'docs\BENCHMARKS.zh-CN.md'),
     (Join-Path $repoRoot 'tests\pricing.test.mjs'),
     (Join-Path $repoRoot 'tests\supervision.test.mjs'),
     (Join-Path $repoRoot 'tests\finalization.test.mjs'),
     (Join-Path $repoRoot 'tests\leader.test.mjs'),
+    (Join-Path $repoRoot 'tests\progress.test.mjs'),
+    (Join-Path $repoRoot 'tests\jobs.test.mjs'),
+    (Join-Path $repoRoot 'tests\job-files.test.mjs'),
+    (Join-Path $repoRoot 'tests\await-server.test.mjs'),
+    (Join-Path $repoRoot 'tests\status-window.test.mjs'),
     (Join-Path $repoRoot 'tests\mcp-smoke.test.mjs'),
     (Join-Path $repoRoot 'tests\app-server-client-watchdog.test.mjs'),
     (Join-Path $repoRoot 'tests\fixtures\fake-app-server.mjs'),
     (Join-Path $repoRoot 'scripts\run-live-benchmark.mjs'),
+    (Join-Path $repoRoot 'scripts\run-codex-host-smoke.mjs'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis-direct.json'),
     (Join-Path $repoRoot 'benchmarks\forced-finalization.json')
@@ -44,18 +67,18 @@ foreach ($path in $required) {
     }
 }
 
-$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.name -ne 'luna-pool-orchestrator') {
     throw "Unexpected plugin name: $($manifest.name)"
 }
-if ($manifest.version -notmatch '^0\.5\.[01](?:-alpha\.[0-9]+)?(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.5\.[0-2](?:-alpha\.[0-9]+)?(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected alpha version: $($manifest.version)"
 }
 if ($manifest.author.name -ne 'Sicheng Gu' -or $manifest.interface.developerName -ne 'Sicheng Gu') {
     throw 'Plugin author and developerName must be Sicheng Gu.'
 }
 
-$marketplace = Get-Content -LiteralPath $marketplacePath -Raw | ConvertFrom-Json
+$marketplace = Get-Content -LiteralPath $marketplacePath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($marketplace.name -ne 'heliolune') {
     throw "Unexpected marketplace name: $($marketplace.name)"
 }
@@ -67,16 +90,42 @@ if ($entry[0].policy.installation -ne 'AVAILABLE' -or $entry[0].policy.authentic
     throw 'Marketplace policy must remain AVAILABLE / ON_INSTALL.'
 }
 
-$skill = Get-Content -LiteralPath $skillPath -Raw
+$mcp = Get-Content -LiteralPath $mcpPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if (-not $mcp.mcpServers.'luna-pool' -or -not $mcp.mcpServers.'luna-await') {
+    throw 'Plugin must expose separate luna-pool and luna-await MCP servers.'
+}
+if ($mcp.mcpServers.'luna-pool'.default_tools_approval_mode -ne 'approve' -or $mcp.mcpServers.'luna-await'.default_tools_approval_mode -ne 'approve') {
+    throw 'Installed Heliolune MCP tools must avoid redundant blocking approval prompts.'
+}
+if (@($mcp.mcpServers.'luna-pool'.enabled_tools) -notcontains 'start_task' -or @($mcp.mcpServers.'luna-await'.enabled_tools) -notcontains 'await_task') {
+    throw 'Visible status requires start_task on luna-pool and await_task on luna-await.'
+}
+
+$skill = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
 if ($skill -notmatch '(?s)^---\s+name:\s*luna-pool-orchestrator\s+description:.+?\s+---') {
     throw 'SKILL.md frontmatter is invalid.'
 }
 
-foreach ($script in @('server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs', 'leader.mjs')) {
+$readmeEnglish = Get-Content -LiteralPath (Join-Path $repoRoot 'README.md') -Raw -Encoding UTF8
+$readmeChinese = Get-Content -LiteralPath (Join-Path $repoRoot 'README.zh-CN.md') -Raw -Encoding UTF8
+if (($readmeEnglish -notmatch '\(README\.zh-CN\.md\)') -or ($readmeChinese -notmatch '\[English\]\(README\.md\)')) {
+    throw 'README language switch links are missing.'
+}
+$readmeVersionPattern = [regex]::Escape("**``$($manifest.version)``**")
+if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmatch $readmeVersionPattern)) {
+    throw 'README versions do not match the plugin manifest.'
+}
+
+foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs', 'leader.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'status-window.mjs')) {
     & node --check (Join-Path $pluginRoot "scripts\$script")
     if ($LASTEXITCODE -ne 0) {
         throw "Node syntax validation failed: $script"
     }
+}
+
+& node --check (Join-Path $repoRoot 'scripts\run-codex-host-smoke.mjs')
+if ($LASTEXITCODE -ne 0) {
+    throw 'Node syntax validation failed: run-codex-host-smoke.mjs'
 }
 
 $nodeTests = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Filter '*.test.mjs' -File | Select-Object -ExpandProperty FullName)
@@ -85,8 +134,8 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Node regression tests failed.'
 }
 
-$serverText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\server.mjs') -Raw
-$clientText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\app-server-client.mjs') -Raw
+$serverText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\server.mjs') -Raw -Encoding UTF8
+$clientText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\app-server-client.mjs') -Raw -Encoding UTF8
 $escapedVersion = [regex]::Escape(($manifest.version -replace '\+.*$', ''))
 $serverVersionPattern = 'const VERSION = ["'']' + $escapedVersion + '["'']'
 $clientVersionPattern = 'const APP_VERSION = ["'']' + $escapedVersion + '["'']'
@@ -112,6 +161,15 @@ foreach ($powerShellScript in Get-ChildItem -LiteralPath (Join-Path $repoRoot 's
 }
 if ($parseFailures) {
     throw "PowerShell parse failures: $($parseFailures -join ' | ')"
+}
+
+$statusWindowScript = Join-Path $pluginRoot 'scripts\status-window.ps1'
+if ([System.IO.File]::ReadAllBytes($statusWindowScript) | Where-Object { $_ -gt 127 }) {
+    throw 'status-window.ps1 must remain ASCII so Windows PowerShell 5.1 parses it on every legacy code page; localized text belongs in status-locales.json.'
+}
+$statusLocales = Get-Content -LiteralPath (Join-Path $pluginRoot 'assets\status-locales.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if (-not $statusLocales.en -or -not $statusLocales.'zh-CN') {
+    throw 'The status window must ship English and Simplified Chinese locales.'
 }
 
 $forbidden = Get-ChildItem -LiteralPath $repoRoot -Recurse -Force -File | Where-Object {

@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { AppServerClient } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
+import { AppServerClient, compactStatusExplanation } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-app-server.mjs");
 const schema = { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } };
+
+test("worker status explanations are compact natural-language summaries", () => {
+  assert.equal(compactStatusExplanation("  Inspecting   the repository now.  "), "Inspecting the repository now.");
+  const bounded = compactStatusExplanation("x".repeat(500), 80);
+  assert.equal(bounded.length, 80);
+  assert.match(bounded, /…$/);
+});
 
 async function clientForTest(t) {
   const client = new AppServerClient({ executable: process.execPath, executableArgs: [fixture] });

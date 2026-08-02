@@ -1,24 +1,26 @@
 # Heliolune
 
+English · [简体中文](README.zh-CN.md)
+
 **High-intelligence supervision, low-cost execution.**
 
 Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models behind a compact, blocking MCP boundary. Its first adapter is a Codex plugin in which GPT-5.6 Sol governs four hidden GPT-5.6 Luna workers running at `max` reasoning effort.
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current release: **`0.5.1`**. Public contracts may change before 1.0.
+> Current release: **`0.5.2`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
 ## What problem it solves
 
-Cheap workers stop being cheap when the expensive controller repeatedly polls them, rereads their exploration, starts cold acceptance sessions, or receives oversized transcripts. Heliolune places worker execution behind one blocking MCP call:
+Cheap workers stop being cheap when the expensive controller repeatedly polls them, rereads their exploration, starts cold acceptance sessions, or receives oversized transcripts. Heliolune places worker execution behind a start-once / await-once MCP boundary:
 
 ```text
 controller / governor
   |  compact objective, acceptance criteria, scope and budget
   v
-blocking Heliolune MCP boundary
+Heliolune MCP boundary (start once, await once, never poll from Sol)
   |-- function-affine owner lane
   |-- optional independent verifier
   v
@@ -36,15 +38,16 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 - Luna workers use `max` reasoning effort.
 - Worker sessions are ephemeral and normally stay out of the Codex Desktop task list.
 - Related tasks reuse the same function-affine lane while the MCP process lives, improving cache locality.
-- One blocking call replaces controller-side polling.
+- One asynchronous start plus one blocking await replaces controller-side polling; Sol stops generating until the terminal result returns.
 - Adaptive Leader reporting compresses large or risky owner/verifier bundles while small tasks defer a compact digest and avoid another model turn.
+- Token-free live status uses an inline MCP App when the host advertises support, otherwise an automatic Windows WPF panel. The panel shows all five lanes, per-lane progress, compact natural-language Luna reasoning summaries, and a history-calibrated Sol-only cost / savings projection while Sol is blocked.
 - Owner and verifier results use compact, structured contracts.
 - Conditional independent verification based on risk, reserved boundaries, incomplete work, or unresolved high-severity findings.
 - Timed-out turns are interrupted before an error is returned.
 - A bounded soft timeout uses app-server activity to distinguish a live worker from sustained silence; only ambiguous stale turns wake the Luna supervisor.
 - A reserved finalization window steers an active over-budget work turn to stop tools and emit structured output without extending the hard deadline.
 - Exact input, cached-input, output, reasoning-output, cache-rate, and wall-time reporting.
-- Built-in price estimates, same-token baselines, cumulative savings, and a compact per-lane cost dashboard.
+- Built-in price estimates, history-calibrated Sol-only projections, raw same-token sensitivity data, cumulative savings, and a compact per-lane cost dashboard.
 - No bundled Codex executable, copied runtime, third-party npm dependency, telemetry service, or remote control plane.
 
 ## Trust boundary
@@ -66,11 +69,18 @@ Workers may inspect or modify only the scope granted by the host and task contra
 | Tool | Purpose |
 |---|---|
 | `initialize_pool` | Validate the local app-server and initialize four worker lanes plus the shared supervisor. A paid health turn is optional. |
-| `run_task` | Route one bounded task to an owner and, when justified, an independent verifier. |
+| `start_task` | Start one bounded task and select the inline or native live-status surface. |
+| `await_task` (`luna-await`) | Block once on a started job and return the compact terminal bundle. |
+| `run_task` | Single-call compatibility path for hosts that provide standard MCP progress tokens. |
+| `job_status` | App-only, transcript-free status read used by the UI; it is hidden from the model. |
 | `pool_status` | Return compact runtime, lane, model, and reuse metadata. |
-| `cost_dashboard` | Return cumulative cost, same-token savings, cache, timing, and per-lane totals without invoking a model. |
+| `cost_dashboard` | Return cumulative cost, history-calibrated Sol-only projections, cache, timing, and per-lane totals without invoking a model. |
 
-The orchestration call is intentionally blocking. Sol should wait for the terminal result instead of polling `pool_status` while a worker is running.
+On Codex Desktop, Sol calls `start_task`, then `luna-await.await_task`, and remains blocked there. It must never poll `job_status` or `pool_status`. The independent await server keeps the main status server responsive without creating another model session or controller turn.
+
+Codex CLI `0.146.0` does not attach `_meta.progressToken` to model-initiated MCP calls and does not advertise the MCP Apps UI extension. Heliolune therefore launches a native WPF panel on Windows for that host. The panel auto-detects English or Simplified Chinese, shows `core`, `tests`, `integration`, `verifier`, and `supervisor`, then adds actual Luna estimated cost, a historical-profile Sol-only projection, and their projected savings when terminal usage arrives. It closes 15 seconds after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Hosts that advertise `io.modelcontextprotocol/ui` use the inline panel and never launch the native fallback; hosts that supply a progress token may use blocking `run_task` with standard `notifications/progress`.
+
+Natural-language activity text comes from official Codex `reasoning/summaryTextDelta` events already produced by the active Luna turn. Heliolune never forwards raw reasoning content, command output, or a worker transcript, and it does not wake another model merely to narrate status.
 
 ## Requirements
 
@@ -80,7 +90,7 @@ The orchestration call is intentionally blocking. Sol should wait for the termin
 - Node.js 20 or newer. Node.js 22 is used in CI.
 - Git for release packaging.
 
-The MCP runtime itself is Node-based. PowerShell is used only by repository validation and packaging scripts.
+The MCP runtime is Node-based. On Windows hosts without inline MCP Apps support, the optional native panel uses the inbox Windows PowerShell 5.1 WPF runtime; repository validation and packaging also support PowerShell 7.
 
 ### Tested compatibility
 
@@ -90,7 +100,7 @@ The MCP runtime itself is Node-based. PowerShell is used only by repository vali
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.5.1` |
+| Plugin version | `0.5.2` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -183,7 +193,7 @@ estimated_cost = uncached_input / 1M * input_rate
                + output_tokens / 1M * output_rate
 ```
 
-`reasoning_output_tokens` is a subset of output tokens and is displayed but not added a second time. The default savings comparison prices the same worker token counts as GPT-5.6 Sol; it does not include controller planning/acceptance usage.
+`reasoning_output_tokens` is a subset of output tokens and is displayed but not added a second time. The visible savings estimate does **not** reprice identical Luna tokens as Sol. It scales the observed Luna worker cost by the retained matched-quality alpha benchmark (`3,702` Sol-only versus `902.32` Heliolune normalized units), currently a `4.102757x` Sol-only projection and `75.63%` directional savings estimate. Current Sol controller usage is not visible at the MCP boundary, so this is a history-calibrated workload projection rather than billed or end-to-end measured cost. The raw JSON retains the same-token comparison only as a pricing-sensitivity field.
 
 Ask Codex to call `cost_dashboard` with `format=markdown` for a compact report, or `format=json` for machine-readable totals. Metrics persist in the local Heliolune registry across MCP restarts. Successful tasks, classified failures, soft checks, supervisor actions, and hard timeouts are counted; failed-turn usage is included only when app-server reported it before interruption.
 
@@ -251,6 +261,10 @@ Confirm the standalone Codex CLI selected by `CODEX_APP_SERVER_EXECUTABLE`, `COD
 
 Confirm you are running this alpha or newer and that the adapter starts sessions with `ephemeral=true`. A restarted MCP process creates a fresh hidden pool.
 
+### The Leader status is not visible while Sol waits
+
+Start a new Codex task after installing 0.5.2 so the new MCP process is loaded. On Codex CLI 0.146.0, `start_task` should report `display.mode=native-window`; the window publishes a local `*.window.json` ready marker only after it is actually rendered. If it does not render, check the adjacent `*.window-error.log`. `HELIOLUNE_STATUS_WINDOW=off` disables the fallback. A future host that advertises MCP Apps uses the inline panel instead.
+
 ### Plugin removal reports that a file is in use
 
 Close or restart the Codex task currently using Heliolune, then rerun the removal command. Windows prevents deletion while the MCP Node process has its installed script open.
@@ -268,7 +282,7 @@ Check that both arms use matched warmups and identical response schemas. Accept 
 - Add reproducible multi-repository benchmark fixtures.
 - Stabilize the MCP contract before 1.0.
 
-See [Architecture](docs/ARCHITECTURE.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), and the [Release checklist](RELEASE_CHECKLIST.md).
+See [Architecture](docs/ARCHITECTURE.md), [Benchmark methodology](docs/BENCHMARKS.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), [Changelog](CHANGELOG.md), and the [Release checklist](RELEASE_CHECKLIST.md). Chinese versions are linked from [简体中文 README](README.zh-CN.md).
 
 ## License
 

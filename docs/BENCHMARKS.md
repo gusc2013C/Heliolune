@@ -1,5 +1,7 @@
 # Benchmark methodology
 
+English · [简体中文](BENCHMARKS.zh-CN.md)
+
 Heliolune optimizes for controller-model cost without surrendering acceptance quality. A valid comparison therefore measures quality, paid-token estimates, cache behavior, and wall time together.
 
 ## Rules
@@ -30,7 +32,7 @@ Results depend on repository size, task shape, model pricing, host prefix size, 
 
 Rates are price units per one million tokens: Sol `125 / 12.5 / 750`, Terra `50 / 5 / 300`, Luna `5 / 0.5 / 30`, GPT-5.5 `125 / 12.5 / 750`, GPT-5.4 `62.5 / 6.25 / 375`, GPT-5.4 Mini `18.75 / 1.875 / 113`, and GPT-5.3-Codex `43.75 / 4.375 / 350` for ordinary input, cached input, and output respectively.
 
-Dashboard savings use a same-token counterfactual by default. A release benchmark must still run matched arms when claiming end-to-end quality, speed, or savings.
+The visible dashboard and status-window projection use the retained matched-quality alpha ratio: `3,702 / 902.32 = 4.102757x`. They scale current observed Luna worker cost to a projected Sol-only workload cost and report `75.63%` directional savings. This is not a current matched arm because the MCP cannot observe current controller tokens. Raw JSON retains same-token repricing for price sensitivity only. A release benchmark must still run matched arms when claiming end-to-end quality, speed, or savings.
 
 ## Live supervisor regression
 
@@ -55,3 +57,17 @@ A cold forced-Leader run reduced the Sol-visible JSON payload from the alpha.2 b
 A matched persistent-process experiment then ran Leader warmup → Leader measured on `core` and direct warmup → direct measured on `integration`, with warmups excluded. The measured Leader result contained the same four evidence / one risk / zero escalation shape and reduced payload from 3,375 to 2,412 characters (28.5%). It cost `0.081124` versus `0.044911` and took 36.968s versus 14.127s. This confirms useful controller-context compression but also confirms that a Leader turn is not economical for a small result.
 
 Version 0.5.1 therefore ships adaptive reporting rather than unconditional reporting. Small low-risk tasks take the alpha.2 direct path and append a bounded digest to the Leader backlog. Large outputs, verifier use, high risk, reserved boundaries, or actual Sol escalations wake the Leader. The threshold is configurable and the forced mode remains available for reproducible benchmarks. Claims here concern MCP payload size and worker-boundary price estimates; exact Sol tool-result tokenization is not exposed by the current harness.
+
+## 0.5.2 visible-progress regression
+
+The live harness now supplies an MCP progress token and passively records `notifications/progress` from the same blocking `run_task` request. It does not poll Heliolune, create a second controller turn, or copy worker transcript content into progress messages.
+
+The low-risk direct run completed in 74.622 seconds and emitted nine strictly increasing updates from 2 to 100. The updates exposed routing, Luna/max activity, elapsed time, event count, cache rate, last app-server event class, owner completion, and terminal handoff. Usage was 31,830 input / 28,416 cached / 1,808 output tokens. Estimated Luna boundary cost was `0.085518`, versus `2.137950` for the same tokens at Sol rates: 96.0% estimated savings.
+
+The forced-Leader run completed in 122.338 seconds and emitted 15 strictly increasing updates. It additionally exposed the reserved-finalization boundary, accepted in-turn steering, an honest `partial` owner result, Leader/high compression, and compact handoff readiness. Aggregate owner-plus-Leader usage was 51,763 input / 33,536 cached / 959 output tokens, estimated at `0.136673` for Luna versus `3.416825` at same-token Sol rates. This run confirms visibility through the slow path; its extra wall time and lower aggregate cache rate reinforce the 0.5.1 decision to keep Leader reporting adaptive.
+
+Unit coverage also verifies silent operation without a progress token, strict monotonicity, rate limiting, non-finite-value rejection, and transcript-free message construction.
+
+Codex CLI 0.146.0 does not attach a progress token to model-initiated MCP calls or advertise the MCP Apps capability. The installed-plugin host smoke therefore exercised the 0.5.2 fallback path: `start_task` returned immediately, a separate `luna-await` server blocked without consuming Sol turns, and a Windows-native status window rendered in Simplified Chinese. The window showed all five fixed lanes (`core`, `tests`, `integration`, `verifier`, and `supervisor`) while the main MCP server remained responsive to status reads.
+
+The final integration-lane regression completed worker execution in 27.558 seconds (29.244 seconds host wall time). It used 14,886 input / 13,056 cached / 634 output tokens, including 444 reasoning tokens, for an 87.71% input-cache rate. Estimated Luna cost was `0.034698`; the visible historical-profile projection was Sol-only `0.142357`, with projected savings `0.107659` (75.6261%). The active worker supplied a bounded natural-language status in Chinese explaining the token gate, finite-value validation, throttling, 0–100 bounds, monotonicity, and terminal close. The regression additionally requires exactly five worker records, a terminal active-worker state, a Chinese Luna-authored explanation when the UI locale is Chinese, and a non-empty `alpha-0.5.0-matched` cost projection.

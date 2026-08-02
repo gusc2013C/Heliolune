@@ -18,6 +18,7 @@ const cost = {
   sameTokenBaseline: { model: "gpt-5.6-sol", amount: 2.5, breakdown: {}, rate: {} },
   estimatedSavings: 2.4,
   estimatedSavingsRate: 0.96,
+  historicalProjection: { profileId: "alpha-0.5.0-matched", estimatedSolOnlyCost: 0.41, estimatedSavings: 0.31, estimatedSavingsRate: 0.756261 },
   assumptions: ["long controller-irrelevant explanation"],
 };
 const routing = { ownerLane: "core", verifierUsed: false, ownerThreadId: "hidden", leaderEffort: "high", model: "gpt-5.6-luna", effort: "max", promptVersion: "test" };
@@ -44,6 +45,7 @@ test("leader result hides raw worker bundles and controller-irrelevant cost deta
   assert.equal("owner" in summarized, false);
   assert.equal("audit" in summarized, false);
   assert.equal("assumptions" in summarized.cost, false);
+  assert.equal(summarized.cost.historicalProjection.profileId, "alpha-0.5.0-matched");
   assert.ok(JSON.stringify(summarized).length < JSON.stringify(direct).length);
 });
 

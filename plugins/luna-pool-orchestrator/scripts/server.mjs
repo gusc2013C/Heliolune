@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import { AppServerClient, resolveCodexExecutable } from "./app-server-client.mjs";
 import {
   compareModelCost,
@@ -18,10 +19,22 @@ import {
 import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
 import { compactSteerPrompt, compactSynthesisPrompt, finalizationSchedule, shouldAttemptSynthesis } from "./finalization.mjs";
 import { buildControllerResult, compactLeaderPrompt, shouldUseLeader } from "./leader.mjs";
+import { createProgressReporter, workerProgress } from "./progress.mjs";
+import { JobStore } from "./jobs.mjs";
+import { jobDirectory, writeJobRecord } from "./job-files.mjs";
+import { detectSystemLanguage, launchStatusWindow, supportsInlineStatus } from "./status-window.mjs";
 
-const VERSION = "0.5.1";
-const PROMPT_VERSION = "mcp-v5-leader-reporting";
+const VERSION = "0.5.2";
+const PROMPT_VERSION = "mcp-v7-natural-status";
 const RUNTIME_ID = randomUUID();
+const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
+const STATUS_TEMPLATE_URI = "ui://heliolune/leader-status.html";
+const STATUS_TEMPLATE_PATH = path.join(SCRIPT_DIRECTORY, "..", "assets", "status.html");
+const jobs = new JobStore();
+let clientSupportsInlineStatus = false;
+const STATUS_LANGUAGE = detectSystemLanguage() === "zh-CN"
+  ? "Simplified Chinese"
+  : "English";
 const LANES = ["core", "tests", "integration", "verifier", "supervisor"];
 const LANE_FOCUS = {
   core: "Own bounded production-code analysis and implementation across the core domain.",
@@ -171,7 +184,7 @@ const RUN_INPUT_SCHEMA = {
     timeoutSeconds: { type: "integer", minimum: 30, maximum: 3600, default: 900 },
     maxFiles: { type: "integer", minimum: 3, maximum: 30, default: 12, description: "Soft cap on distinct files inspected before Luna must synthesize." },
     maxCommands: { type: "integer", minimum: 3, maximum: 50, default: 20, description: "Soft cap on repository tool calls before Luna must synthesize." },
-    baselineModel: { type: "string", default: DEFAULT_BASELINE_MODEL, description: "Model used for the same-token counterfactual cost estimate." },
+    baselineModel: { type: "string", default: DEFAULT_BASELINE_MODEL, description: "Model used only for the raw same-token pricing-sensitivity field; visible savings use the historical benchmark profile." },
     supervision: { type: "string", enum: ["auto", "always", "off"], default: "auto", description: "Use the shared Luna supervisor at soft timeout only when stale, always, or never." },
     softTimeoutSeconds: { type: "integer", minimum: 30, maximum: 3300, description: "Optional supervisor checkpoint before the hard timeout." },
     staleAfterSeconds: { type: "integer", minimum: 15, maximum: 600, default: 45, description: "Silence required before auto supervision consults Luna." },
@@ -192,7 +205,7 @@ const DASHBOARD_INPUT_SCHEMA = {
   required: ["cwd"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
-    baselineModel: { type: "string", default: DEFAULT_BASELINE_MODEL, description: "Model used for the same-token counterfactual cost estimate." },
+    baselineModel: { type: "string", default: DEFAULT_BASELINE_MODEL, description: "Model used only for the raw same-token pricing-sensitivity field; visible savings use the historical benchmark profile." },
     format: { type: "string", enum: ["markdown", "json"], default: "markdown" },
     includePricing: { type: "boolean", default: false, description: "Include the full pricing catalog in JSON output." },
   },
@@ -208,26 +221,69 @@ const INIT_INPUT_SCHEMA = {
   },
 };
 
+const JOB_INPUT_SCHEMA = {
+  type: "object", additionalProperties: false,
+  required: ["jobId"],
+  properties: { jobId: { type: "string", minLength: 1, maxLength: 100 } },
+};
+
+const READ_ONLY_ANNOTATIONS = { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true };
+const LOCAL_WORK_ANNOTATIONS = { readOnlyHint: false, destructiveHint: false, openWorldHint: false, idempotentHint: false };
+
 const TOOLS = [
   {
     name: "initialize_pool",
+    title: "Initialize Heliolune pool",
     description: "Create or resume four Luna/max worker lanes plus one shared Luna/high operations-leader session for one repository and perform a health check without changing code.",
     inputSchema: INIT_INPUT_SCHEMA,
+    annotations: LOCAL_WORK_ANNOTATIONS,
   },
   {
     name: "run_task",
+    title: "Run Heliolune task (blocking)",
     description: "Run one bounded repository task on a persistent Luna/max owner lane, reserve time for structured finalization, conditionally verify it, and adaptively compress large or risky handoffs through the shared Luna leader.",
     inputSchema: RUN_INPUT_SCHEMA,
+    annotations: LOCAL_WORK_ANNOTATIONS,
+  },
+  {
+    name: "start_task",
+    title: "Start Heliolune task with live status",
+    description: "Start one bounded Luna task and immediately render the host-supported inline Leader panel or automatic Windows fallback. Always call luna-await.await_task once with the returned jobId; do not poll job_status from the model.",
+    inputSchema: RUN_INPUT_SCHEMA,
+    annotations: LOCAL_WORK_ANNOTATIONS,
+    _meta: {
+      ui: { resourceUri: STATUS_TEMPLATE_URI, visibility: ["model", "app"] },
+      "ui/resourceUri": STATUS_TEMPLATE_URI,
+      "openai/outputTemplate": STATUS_TEMPLATE_URI,
+      "openai/widgetAccessible": true,
+      "openai/toolInvocation/invoking": "Starting Luna work…",
+      "openai/toolInvocation/invoked": "Leader status is live",
+    },
+  },
+  {
+    name: "job_status",
+    title: "Read Heliolune job status",
+    description: "Return one transcript-free operational snapshot for the inline Heliolune status panel. This tool is app-only; the model must not poll it.",
+    inputSchema: JOB_INPUT_SCHEMA,
+    annotations: READ_ONLY_ANNOTATIONS,
+    _meta: {
+      ui: { visibility: ["app"] },
+      "openai/visibility": "private",
+    },
   },
   {
     name: "pool_status",
+    title: "Read Heliolune pool status",
     description: "Return persistent Luna lane IDs, prompt versions, reuse counts, context-debt metrics, and last usage without invoking a model.",
     inputSchema: { type: "object", additionalProperties: false, properties: { cwd: { type: "string" } } },
+    annotations: READ_ONLY_ANNOTATIONS,
   },
   {
     name: "cost_dashboard",
-    description: "Return cumulative worker usage, estimated cost, same-token baseline, savings, cache rate, timing, and per-lane totals for one repository without invoking a model.",
+    title: "Read Heliolune cost dashboard",
+    description: "Return cumulative worker usage, estimated cost, history-calibrated Sol-only projection and savings, cache rate, timing, and per-lane totals without invoking a model.",
     inputSchema: DASHBOARD_INPUT_SCHEMA,
+    annotations: READ_ONLY_ANNOTATIONS,
   },
 ];
 
@@ -238,7 +294,7 @@ function baseInstructions(lane) {
   const workBoundary = lane === "supervisor"
     ? "Never inspect or modify the repository, call tools, plan or assign work, or perform final acceptance. Report and compress only the task/liveness data supplied by the MCP."
     : "Inspect the repository directly instead of requesting broad context from Sol. Prefer rg/rg --files and shell reads. Never use apply_patch or view_image merely to read or enumerate text files. Stop exploring as soon as acceptance has enough evidence. You may choose bounded implementation details inside the assigned objective.";
-  return `You are the persistent GPT-5.6 Luna worker for lane '${lane}' under a GPT-5.6 Sol controller.\n${LANE_FOCUS[lane]}\n${effortGuidance} ${workBoundary} Keep findings evidence-based and outputs compact. You MUST NOT independently decide architecture, security boundaries, public API contracts, or irreversible migrations; report supplied escalation needs without resolving them. Never broaden scope. Never claim a check passed unless the supplied record or a worker-run check supports it. Preserve unrelated user changes. Return only the requested JSON schema.\nPrompt contract: ${PROMPT_VERSION}. This stable role prompt must not be reinterpreted by incremental task text.`;
+  return `You are the persistent GPT-5.6 Luna worker for lane '${lane}' under a GPT-5.6 Sol controller.\n${LANE_FOCUS[lane]}\n${effortGuidance} ${workBoundary} Keep findings evidence-based and outputs compact. Write concise reasoning summaries in ${STATUS_LANGUAGE} so the local operations panel can explain your current work naturally. You MUST NOT independently decide architecture, security boundaries, public API contracts, or irreversible migrations; report supplied escalation needs without resolving them. Never broaden scope. Never claim a check passed unless the supplied record or a worker-run check supports it. Preserve unrelated user changes. Return only the requested JSON schema.\nPrompt contract: ${PROMPT_VERSION}. This stable role prompt must not be reinterpreted by incremental task text.`;
 }
 
 function projectKey(cwd) {
@@ -374,8 +430,9 @@ async function ensureLane(instance, registry, project, lane, cwd, sandbox) {
   return laneState;
 }
 
-async function initializePool(args) {
+async function initializePool(args, context = {}) {
   const startedAt = Date.now();
+  context.progress?.report(2, "Heliolune Leader · validating Luna availability and hidden lane sessions", { force: true });
   const cwd = path.resolve(args.cwd);
   const stat = await fs.stat(cwd);
   if (!stat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
@@ -386,6 +443,7 @@ async function initializePool(args) {
   const timeoutMs = (args.timeoutSeconds ?? 300) * 1000;
   const health = [];
   for (const lane of LANES) {
+    context.progress?.report(8 + health.length * 15, `Heliolune Leader · initializing ${lane} lane`, { force: true });
     const sandbox = sandboxFor("analyze", cwd);
     const state = await ensureLane(instance, registry, project, lane, cwd, sandbox.legacy);
     let run = null;
@@ -411,10 +469,11 @@ async function initializePool(args) {
     });
   }
   await writeRegistry(registry);
+  context.progress?.report(100, "Heliolune Leader · pool health check complete", { force: true });
   return { status: "healthy", model: "gpt-5.6-luna", workerEffort: "max", supervisorEffort: "high", promptVersion: PROMPT_VERSION, healthTurn: Boolean(args.healthTurn), lanes: health };
 }
 
-async function runTask(args) {
+async function runTask(args, context = {}) {
   const cwd = path.resolve(args.cwd);
   const stat = await fs.stat(cwd);
   if (!stat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
@@ -435,6 +494,9 @@ async function runTask(args) {
       timeoutSeconds,
       synthesisReserveSeconds: args.synthesisReserveSeconds,
       finalization: args.finalization,
+    });
+    context.progress?.report(2, `Heliolune Leader · routed to ${args.lane} Luna/max · ${args.scope?.length ?? 0} scope entries · execution starting`, {
+      force: true, workerLane: args.lane, workerStatus: "working", workerProgress: 2,
     });
     const schedule = supervisionSchedule({
       timeoutSeconds,
@@ -461,10 +523,28 @@ async function runTask(args) {
       ownerRun = await instance.runTurn({
         threadId: ownerLane.threadId, text: compactTask(args), cwd,
         sandboxPolicy: sandbox.policy, outputSchema: RESULT_SCHEMA, timeoutMs,
+        onActivity: (snapshot) => {
+          const update = workerProgress({ lane: args.lane, snapshot, hardMs: timeoutMs });
+          context.progress?.report(update.progress, update.message, {
+            workerLane: args.lane,
+            workerStatus: "working",
+            workerProgress: update.progress,
+            explanation: update.explanation,
+          });
+        },
         steer: finalizationPlan.enabled ? {
           afterMs: finalizationPlan.workMs,
           text: compactSteerPrompt({ objective: args.objective, acceptance: args.acceptance }),
           shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < (schedule.staleMs ?? 45_000),
+          onStatus: ({ phase }) => {
+            const messages = {
+              attempted: `Heliolune Leader · ${args.lane} work budget reached · requesting in-turn structured finalization`,
+              accepted: `Heliolune Leader · ${args.lane} accepted finalization steering · waiting for its compact result`,
+              skipped: `Heliolune Leader · ${args.lane} is stale · finalization steering skipped`,
+              failed: `Heliolune Leader · ${args.lane} finalization steering was not accepted · hard deadline remains active`,
+            };
+            context.progress?.report(66, messages[phase] ?? `Heliolune Leader · ${args.lane} finalization status: ${phase}`, { force: true });
+          },
         } : null,
         watchdog: schedule.enabled ? {
           afterMs: schedule.softMs,
@@ -479,7 +559,10 @@ async function runTask(args) {
             }
             supervisorAttempted = true;
             try {
-              return await withLaneLock(`${key}:supervisor`, async () => {
+              context.progress?.report(64, `Heliolune Leader · supervisor checking ${args.lane} liveness`, {
+                force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
+              });
+              const supervisorResult = await withLaneLock(`${key}:supervisor`, async () => {
                 const supervisorLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
                 supervisorRun = await instance.runTurn({
                   threadId: supervisorLane.threadId,
@@ -489,6 +572,13 @@ async function runTask(args) {
                   outputSchema: SUPERVISOR_SCHEMA,
                   timeoutMs: schedule.supervisorTimeoutMs,
                   effort: args.supervisorEffort ?? "high",
+                  onActivity: (activity) => {
+                    const update = workerProgress({ lane: "supervisor", snapshot: activity, hardMs: schedule.supervisorTimeoutMs });
+                    context.progress?.report(64.5, update.message, {
+                      workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
+                      explanation: update.explanation,
+                    });
+                  },
                 });
                 supervisorLane.turns += 1;
                 supervisorLane.lastUsedAt = new Date().toISOString();
@@ -496,6 +586,11 @@ async function runTask(args) {
                 supervisorLane.uncachedInputTokens += supervisorLane.lastUsage.uncachedInputTokens;
                 return { ...supervisorRun.output, source: "luna-supervisor", snapshot };
               });
+              context.progress?.report(65, "Heliolune Leader · supervisor liveness report received", {
+                force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
+                explanation: supervisorResult.reason,
+              });
+              return supervisorResult;
             } catch (error) {
               supervisorError = error.message;
               supervisorFailureUsage = error.activity?.usage ?? null;
@@ -598,6 +693,9 @@ async function runTask(args) {
           ],
         });
         await writeRegistry(registry);
+        context.progress?.report(100, `Heliolune Leader · ${args.lane} failed · ${classification}`, {
+          force: true, workerLane: args.lane, workerStatus: "failed", workerProgress: 100,
+        });
         if (error.code === "TURN_HARD_TIMEOUT") {
           error.message = `${error.message}; classification=${classification}; lastEvent=${diagnostic.lastEvent ?? "unknown"}; silentMs=${diagnostic.silentMs ?? "unknown"}; supervisor=${diagnostic.supervision?.action ?? "not-used"}; finalization=${finalization.attempted ? "failed" : "not-attempted"}`;
         }
@@ -619,20 +717,39 @@ async function runTask(args) {
     ownerLane.lastUsedAt = new Date().toISOString();
     ownerLane.lastUsage = usageBreakdown(ownerRun);
     ownerLane.uncachedInputTokens += Math.max(0, ownerLane.lastUsage.inputTokens - ownerLane.lastUsage.cachedInputTokens);
+    context.progress?.report(72, `Heliolune Leader · ${args.lane} owner result received · status ${ownerRun.output.status}`, {
+      force: true, workerLane: args.lane, workerStatus: "completed", workerProgress: 100,
+      explanation: ownerRun.output.summary,
+    });
 
     let verifierRun = null;
     if (shouldVerify(args, ownerRun.output)) {
+      context.progress?.report(76, "Heliolune Leader · independent verifier Luna/max starting", {
+        force: true, workerLane: "verifier", workerStatus: "verifying", workerProgress: 8,
+      });
       verifierRun = await withLaneLock(`${key}:verifier`, async () => {
         const verifierLane = await ensureLane(instance, registry, project, "verifier", cwd, "read-only");
         const run = await instance.runTurn({
           threadId: verifierLane.threadId, text: compactVerification(args, ownerRun.output), cwd,
           sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: VERIFY_SCHEMA, timeoutMs,
+          onActivity: (activity) => {
+            const update = workerProgress({ lane: "verifier", snapshot: activity, hardMs: timeoutMs });
+            const overall = 76 + Math.max(0, update.progress - 8) / 54 * 9;
+            context.progress?.report(overall, update.message, {
+              workerLane: "verifier", workerStatus: "verifying", workerProgress: update.progress,
+              explanation: update.explanation,
+            });
+          },
         });
         verifierLane.turns += 1;
         verifierLane.lastUsedAt = new Date().toISOString();
         verifierLane.lastUsage = usageBreakdown(run);
         verifierLane.uncachedInputTokens += Math.max(0, verifierLane.lastUsage.inputTokens - verifierLane.lastUsage.cachedInputTokens);
         return run;
+      });
+      context.progress?.report(86, `Heliolune Leader · verifier result received · verdict ${verifierRun.output.verdict}`, {
+        force: true, workerLane: "verifier", workerStatus: "completed", workerProgress: 100,
+        explanation: verifierRun.output.summary,
       });
     }
     const status = verifierRun?.output.verdict === "fail" ? "verification_failed" : ownerRun.output.status;
@@ -643,6 +760,9 @@ async function runTask(args) {
     let leaderError = null;
     let leaderFailureUsage = null;
     if (useLeader) {
+      context.progress?.report(90, `Heliolune Leader · compressing ${leaderBacklog.length} deferred digests plus current worker bundle`, {
+        force: true, workerLane: "supervisor", workerStatus: "reporting", workerProgress: 20,
+      });
       try {
         leaderRun = await withLaneLock(`${key}:supervisor`, async () => {
           const leaderLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
@@ -664,6 +784,15 @@ async function runTask(args) {
             outputSchema: LEADER_SCHEMA,
             timeoutMs: (args.leaderTimeoutSeconds ?? 60) * 1000,
             effort: args.leaderEffort ?? "high",
+            onActivity: (activity) => {
+              const leaderTimeoutMs = (args.leaderTimeoutSeconds ?? 60) * 1000;
+              const update = workerProgress({ lane: "supervisor", snapshot: activity, hardMs: leaderTimeoutMs });
+              const overall = 90 + Math.max(0, update.progress - 8) / 54 * 7;
+              context.progress?.report(overall, update.message, {
+                workerLane: "supervisor", workerStatus: "reporting", workerProgress: update.progress,
+                explanation: update.explanation,
+              });
+            },
           });
           leaderLane.turns += 1;
           leaderLane.lastUsedAt = new Date().toISOString();
@@ -675,6 +804,12 @@ async function runTask(args) {
         leaderError = error.message;
         leaderFailureUsage = error.usage ?? error.activity?.usage ?? null;
       }
+      context.progress?.report(97, leaderRun
+        ? "Heliolune Leader · compact handoff ready for Sol review"
+        : "Heliolune Leader · compression unavailable · returning direct audited bundle", {
+        force: true, workerLane: "supervisor", workerStatus: leaderRun ? "completed" : "failed", workerProgress: 100,
+        explanation: leaderRun?.output?.brief ?? leaderError,
+      });
     }
     if (leaderRun) project.leaderBacklog = [];
     else project.leaderBacklog = [...leaderBacklog, currentDigest].slice(-12);
@@ -716,7 +851,7 @@ async function runTask(args) {
     });
     project.lastUsedAt = new Date().toISOString();
     await writeRegistry(registry);
-    return buildControllerResult({
+    const controllerResult = buildControllerResult({
       status,
       owner: ownerRun.output,
       verifier: verifierRun?.output ?? null,
@@ -740,6 +875,8 @@ async function runTask(args) {
       cost,
       timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0, leaderMs: leaderRun?.durationMs ?? 0, wallMs: Date.now() - startedAt },
     });
+    context.progress?.report(100, `Heliolune Leader · task complete · ${status} · handing off to Sol`, { force: true });
+    return controllerResult;
   });
 }
 
@@ -772,12 +909,127 @@ async function poolStatus(args) {
   return project ?? { cwd: path.resolve(args.cwd), lanes: {}, initialized: false };
 }
 
-async function callTool(name, args) {
-  if (name === "initialize_pool") return initializePool(args);
-  if (name === "run_task") return runTask(args);
+async function startTask(args) {
+  let jobId;
+  let latestSnapshot = null;
+  let persistence = Promise.resolve();
+  const persist = (record) => {
+    persistence = persistence.catch(() => {}).then(() => writeJobRecord(record.snapshot?.jobId ?? jobId, record));
+    return persistence;
+  };
+  const started = jobs.start({
+    lane: args.lane,
+    effort: "max",
+    workerLanes: LANES,
+    onSnapshot: (snapshot) => {
+      latestSnapshot = snapshot;
+      if (snapshot.status === "running") {
+        void persist({ status: "running", startedAt: snapshot.startedAt, lane: snapshot.lane, snapshot });
+      }
+    },
+    run: async (progress) => {
+      try {
+        const result = await runTask(args, { progress });
+        await persistence;
+        const completedAt = new Date().toISOString();
+        await writeJobRecord(jobId, {
+          status: "completed",
+          completedAt,
+          lane: args.lane,
+          snapshot: {
+            ...latestSnapshot,
+            status: "completed",
+            progress: 100,
+            message: `Heliolune Leader · task complete · ${result?.status ?? "completed"} · ready for Sol`,
+            updatedAt: completedAt,
+            elapsedMs: Date.now() - new Date(latestSnapshot?.startedAt ?? completedAt).getTime(),
+            usage: result?.usage ?? null,
+            cost: result?.cost ? {
+              actual: result.cost.actual?.amount ?? result.cost.actualLunaCost ?? null,
+              projectedSolOnly: result.cost.historicalProjection?.estimatedSolOnlyCost ?? null,
+              estimatedSavings: result.cost.historicalProjection?.estimatedSavings ?? null,
+              savingsPercent: result.cost.historicalProjection?.estimatedSavingsRate == null ? null : result.cost.historicalProjection.estimatedSavingsRate * 100,
+              profile: result.cost.historicalProjection?.profileId ?? null,
+            } : null,
+            workers: latestSnapshot?.workers?.map((worker) => worker.lane === args.lane
+              ? { ...worker, status: "completed", progress: 100, updatedAt: completedAt }
+              : worker) ?? [],
+          },
+          result,
+        });
+        return result;
+      } catch (error) {
+        await persistence.catch(() => {});
+        const completedAt = new Date().toISOString();
+        await writeJobRecord(jobId, {
+          status: "failed",
+          completedAt,
+          lane: args.lane,
+          snapshot: {
+            ...latestSnapshot,
+            status: "failed",
+            progress: 100,
+            message: `Heliolune Leader · task failed · ${error.message}`,
+            updatedAt: completedAt,
+            elapsedMs: Date.now() - new Date(latestSnapshot?.startedAt ?? completedAt).getTime(),
+            error: error.message,
+            workers: latestSnapshot?.workers?.map((worker) => worker.lane === args.lane
+              ? { ...worker, status: "failed", progress: 100, updatedAt: completedAt }
+              : worker) ?? [],
+          },
+          error: error.message,
+        });
+        throw error;
+      }
+    },
+  });
+  jobId = started.jobId;
+  await persistence;
+  const display = launchStatusWindow({
+    jobId,
+    jobRoot: jobDirectory(),
+    inlineUiSupported: clientSupportsInlineStatus,
+  });
+  return {
+    ...started,
+    display: {
+      mode: clientSupportsInlineStatus ? "inline-mcp-app" : display.launched ? "native-window" : "silent",
+      fallbackLaunched: display.launched,
+    },
+  };
+}
+
+function jobStatus(args) {
+  return jobs.status(args.jobId);
+}
+
+async function callTool(name, args, context = {}) {
+  if (name === "initialize_pool") return initializePool(args, context);
+  if (name === "run_task") return runTask(args, context);
+  if (name === "start_task") return startTask(args, context);
+  if (name === "job_status") return jobStatus(args);
   if (name === "pool_status") return poolStatus(args);
   if (name === "cost_dashboard") return costDashboard(args);
   throw new Error(`Unknown tool: ${name}`);
+}
+
+function toolResult(name, result) {
+  if (name === "start_task") {
+    const displayText = result.display?.mode === "inline-mcp-app"
+      ? "The inline Leader panel is live"
+      : result.display?.mode === "native-window"
+        ? "A native Leader status window is live because this host did not advertise inline MCP Apps"
+        : "This host did not expose a visible status surface";
+    return {
+      structuredContent: result,
+      content: [{ type: "text", text: `Heliolune job ${result.jobId} started on ${result.lane}/max. ${displayText}; call luna-await.await_task once with this jobId.` }],
+      isError: false,
+    };
+  }
+  if (name === "job_status") {
+    return { structuredContent: result, content: [], isError: false };
+  }
+  return { content: [{ type: "text", text: JSON.stringify(result) }], isError: false };
 }
 
 function send(message) {
@@ -788,9 +1040,10 @@ async function handle(message) {
   if (message.id == null) return;
   try {
     if (message.method === "initialize") {
+      clientSupportsInlineStatus = supportsInlineStatus(message.params?.capabilities);
       send({ jsonrpc: "2.0", id: message.id, result: {
         protocolVersion: message.params?.protocolVersion ?? "2025-06-18",
-        capabilities: { tools: { listChanged: false } },
+        capabilities: { tools: { listChanged: false }, resources: { listChanged: false } },
         serverInfo: { name: "luna-pool-orchestrator", version: VERSION },
       } });
       return;
@@ -803,10 +1056,38 @@ async function handle(message) {
       send({ jsonrpc: "2.0", id: message.id, result: { tools: TOOLS } });
       return;
     }
+    if (message.method === "resources/list") {
+      send({ jsonrpc: "2.0", id: message.id, result: { resources: [{
+        uri: STATUS_TEMPLATE_URI,
+        name: "heliolune-leader-status",
+        title: "Heliolune Leader status",
+        description: "Live transcript-free Luna worker status for the active Heliolune job.",
+        mimeType: "text/html;profile=mcp-app",
+      }] } });
+      return;
+    }
+    if (message.method === "resources/read") {
+      if (message.params?.uri !== STATUS_TEMPLATE_URI) {
+        send({ jsonrpc: "2.0", id: message.id, error: { code: -32002, message: `Unknown resource: ${message.params?.uri}` } });
+        return;
+      }
+      const template = await fs.readFile(STATUS_TEMPLATE_PATH, "utf8");
+      send({ jsonrpc: "2.0", id: message.id, result: { contents: [{
+        uri: STATUS_TEMPLATE_URI,
+        mimeType: "text/html;profile=mcp-app",
+        text: template,
+        _meta: {
+          ui: { prefersBorder: true, csp: { connectDomains: [], resourceDomains: [] } },
+          "openai/widgetDescription": "Shows live Heliolune Leader and Luna worker state without controller polling.",
+          "openai/widgetPrefersBorder": true,
+        },
+      }] } });
+      return;
+    }
     if (message.method === "tools/call") {
-      const result = await callTool(message.params.name, message.params.arguments ?? {});
-      const compact = JSON.stringify(result);
-      send({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text: compact }], isError: false } });
+      const progress = createProgressReporter({ token: message.params?._meta?.progressToken, send });
+      const result = await callTool(message.params.name, message.params.arguments ?? {}, { progress });
+      send({ jsonrpc: "2.0", id: message.id, result: toolResult(message.params.name, result) });
       return;
     }
     send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } });

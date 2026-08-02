@@ -3,6 +3,7 @@ node_modules/
 coverage/
 .cache/
 .plugin-eval/
+.serena/
 app-server-schema/
 .codex/
 .env

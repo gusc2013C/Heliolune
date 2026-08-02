@@ -1,5 +1,7 @@
 # Contributing
 
+English · [简体中文](CONTRIBUTING.zh-CN.md)
+
 Heliolune is currently alpha software. Keep changes small, evidence-backed, and compatible with the controller/worker trust boundary.
 
 1. Create a branch from `main`.

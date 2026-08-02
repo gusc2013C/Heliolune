@@ -1,6 +1,6 @@
 ---
 name: luna-pool-orchestrator
-description: Delegate bounded engineering analysis, implementation, repair, and verification from a GPT-5.6 Sol controller to four function-affine GPT-5.6 Luna workers plus one shared Luna operations leader through the luna-pool-orchestrator MCP, adaptively compress large handoffs, and report cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, review, and final acceptance.
+description: Delegate bounded engineering analysis, implementation, repair, and verification from a GPT-5.6 Sol controller to four function-affine GPT-5.6 Luna workers plus one shared Luna operations leader through the luna-pool-orchestrator MCP, show token-free live status through an inline or native fallback surface, adaptively compress large handoffs, and report cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, review, and final acceptance.
 ---
 
 # Luna Pool Orchestrator
@@ -29,7 +29,7 @@ Workers use Luna with `max` effort for repository work. Schema-only finalization
 
 ## Delegate
 
-Before calling `run_task`, Sol must understand the request and decide the lane, scope, risk, acceptance criteria, and whether a reserved boundary is involved.
+Before calling `start_task` or `run_task`, Sol must understand the request and decide the lane, scope, risk, acceptance criteria, and whether a reserved boundary is involved.
 
 Send only incremental task state:
 
@@ -60,7 +60,13 @@ If Luna returns `needsSol`, stop delegation for that decision. Do not ask Luna t
 
 ## Wait and accept
 
-Make one MCP call and wait for its terminal result. Do not perform periodic status reads. The MCP returns one compact result containing evidence, changes, checks, risks, routing, timing, finalization status, and exact Luna token usage.
+On Codex Desktop, call `luna-pool.start_task` once, then immediately call `luna-await.await_task` exactly once with the returned `jobId`. Stop generating while `await_task` is blocked and resume only when it returns the compact terminal bundle. Never call `job_status` from the model and never add commentary or polling turns while waiting.
+
+`start_task` selects one token-free visibility surface. A host that advertises the standard MCP Apps extension gets the inline Leader panel. Current Windows Codex builds that do not advertise it get the small native `Heliolune Leader` window; it reads transcript-free local status records, stays topmost while work runs, and closes shortly after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. The fallback is never launched when inline MCP Apps support is advertised.
+
+Other MCP hosts that supply `_meta.progressToken` may use the single blocking `run_task` call instead. Heliolune then emits rate-limited standard `notifications/progress` within that call. Both visibility paths identify the lane and Luna effort, elapsed time, observed events, cache rate, last activity, finalization steering, verification, and Leader compression without worker transcripts or repository content.
+
+The terminal result contains evidence, changes, checks, risks, routing, timing, finalization status, and exact Luna token usage. The two-server Desktop path exists because a blocking request serializes calls to one MCP server; `luna-await` waits on the result file while `luna-pool` remains available to the status surface. This does not create another model session or add model tokens.
 
 Keep `finalization=auto` and `synthesisEffort=high`. Heliolune reserves part of the existing hard deadline for structured output. If a live work turn consumes its work budget, the MCP steers that active turn to stop tools and emit the schema from evidence already gathered. If a completed turn instead returns invalid JSON, one synthesis-only fallback turn may reuse the same warm thread at `synthesisEffort`. Both paths may report honest `partial` status and neither extends the hard deadline. Use `finalization=off` only for watchdog diagnostics. Narrow `scope`, acceptance criteria, files, and commands before increasing `timeoutSeconds`, `synthesisReserveSeconds`, or finalization effort.
 
@@ -74,7 +80,7 @@ Perform acceptance inside the current warm Sol main session. Never create a fres
 
 ## Cost reporting
 
-Report exact input, cached input, output, reasoning output, cache rate, wall time, and the MCP-provided cost estimate. Reasoning output is already included in output tokens and must not be charged twice. The same-token baseline is a counterfactual worker-boundary estimate; it excludes Sol planning/acceptance usage and is not a measured Sol-only run or billed-credit total.
+Report exact input, cached input, output, reasoning output, cache rate, wall time, and the MCP-provided cost estimate. Reasoning output is already included in output tokens and must not be charged twice. The visible Sol-only projection scales observed Luna worker cost with the retained matched-quality benchmark ratio; it is directional because current Sol planning/acceptance usage is not observable at the MCP boundary. Do not describe it as billed cost or a measured current Sol-only run. The raw same-token field is for pricing sensitivity only and is not the visible savings estimate.
 
 Use `cost_dashboard` when the user asks for cumulative cost, savings, cache, timing, or per-lane statistics. Prefer Markdown for a compact human report and JSON for machine processing. Request the full pricing catalog only when needed because it expands the controller transcript.
 

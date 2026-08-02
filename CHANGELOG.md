@@ -2,6 +2,28 @@
 
 All notable changes to Heliolune are documented here. The project follows Semantic Versioning.
 
+English · [简体中文](CHANGELOG.zh-CN.md)
+
+## [0.5.2] - 2026-08-02
+
+### Added
+
+- Emit standard MCP `notifications/progress` updates when the Codex host supplies a progress token.
+- Add `start_task` plus the independent `luna-await.await_task` server so Sol blocks once without preventing token-free status reads.
+- Add a modern Windows WPF fallback panel for hosts without MCP Apps: five lane cards, per-worker progress, Luna-provided natural-language reasoning summaries, history-calibrated Sol-only cost and savings projections, English/简体中文 auto-detection, a rendered-window handshake, and bounded auto-close.
+- Add an inline MCP App with the same transcript-free five-lane status contract for hosts that advertise `io.modelcontextprotocol/ui`; the native fallback is suppressed on those hosts.
+- Keep rate-limited standard progress for compatible single-call hosts, covering routing, live activity, cache state, finalization, verification, report compression, and terminal handoff.
+- Add an English/简体中文 documentation switch and translated project, architecture, benchmark, contribution, security, and release-checklist documents.
+- Extend the repository changelog back to the pre-Git `0.4.0` prototype.
+
+### Compatibility
+
+- Progress is optional under MCP. Codex CLI 0.146.0 omits `_meta.progressToken` for model-initiated MCP calls and does not advertise the MCP Apps extension, so Windows uses the native panel automatically.
+- Restore `windir` from `SystemRoot` only inside the panel process because Codex's sanitized MCP environment omits it and legacy WPF font initialization requires an absolute Windows Fonts URI.
+- Read the Windows user locale from the registry when Codex sanitizes Node locale variables, keeping Luna-authored status explanations aligned with the panel language.
+- A new Codex task is required after plugin installation to load the updated MCP process.
+- Default installed Heliolune MCP tools to `approve` so non-interactive and Desktop hosts can enter the blocking call without a redundant MCP prompt; Codex sandbox boundaries and user overrides remain in force.
+
 ## [0.5.1] - 2026-08-02
 
 ### Added
@@ -57,3 +79,20 @@ All notable changes to Heliolune are documented here. The project follows Semant
 - The first adapter currently targets Codex and the Sol/Luna model pairing.
 - Worker sessions last only for the lifetime of the MCP process.
 - Price-weighted savings are estimates unless actual billed credits are available.
+
+## [0.4.0] - Pre-Git prototype
+
+### Added
+
+- A prompt/Skill-based Sol controller with four function-affine Luna worker roles and stable role prompts intended for session reuse and cache locality.
+- Cost-first delegation rules that reserved architecture, security boundaries, public APIs, irreversible migrations, review, and final acceptance for Sol.
+- Early paired Sol-only versus Sol+Luna benchmark prompts and price-weighted token accounting.
+
+### Limitations discovered
+
+- Luna was not consistently available as a native subagent model, which motivated the later local MCP/app-server adapter.
+- Controller polling and repeated transcript transfer could make Sol input larger than the work it delegated.
+- Broad Luna/max turns could remain active for 90–180 seconds without emitting a final structured result.
+- Worker lifecycle, visibility, timeout classification, packaging, and marketplace installation were not yet production-shaped.
+
+This entry reconstructs the last pre-Git prototype from the project's retained benchmark notes and migration history; `0.5.0-alpha.1` is the first version preserved by the current Git repository.

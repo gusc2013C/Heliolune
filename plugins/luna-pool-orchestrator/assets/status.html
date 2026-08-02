@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Heliolune Leader status</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 12px; background: transparent; color: light-dark(#172033, #edf2ff); }
+    .card { border: 1px solid light-dark(#dbe3f0, #354159); border-radius: 16px; padding: 16px; background: light-dark(#fbfdff, #151b28); box-shadow: 0 10px 28px #16213a14; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: #151b28; background: linear-gradient(135deg, #ffcf5a 0 50%, #9cb8ff 50%); font-weight: 800; }
+    h1 { margin: 0; font-size: 15px; line-height: 1.2; }
+    .sub { margin-top: 2px; color: light-dark(#667189, #aab6cd); font-size: 12px; }
+    .badge { flex: none; border-radius: 999px; padding: 5px 9px; font-size: 11px; font-weight: 700; background: light-dark(#edf3ff, #26334c); color: light-dark(#315fae, #b9ceff); }
+    .badge.completed { background: light-dark(#e8f8ef, #163c2b); color: light-dark(#18764a, #8de5b8); }
+    .badge.failed { background: light-dark(#fff0f0, #482127); color: light-dark(#ad343e, #ffadb3); }
+    .track { height: 8px; margin: 16px 0 12px; overflow: hidden; border-radius: 999px; background: light-dark(#e8edf5, #2a3345); }
+    .bar { width: 1%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #f4b840, #7c9fff); transition: width .35s ease; }
+    .message { min-height: 40px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+    .meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .metric { padding: 8px; border-radius: 10px; background: light-dark(#f2f5fa, #202839); }
+    .metric span { display: block; color: light-dark(#718098, #9eabc2); font-size: 10px; }
+    .metric strong { display: block; margin-top: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .section-title { margin-top: 14px; color: light-dark(#667189, #aab6cd); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    .workers { display: grid; gap: 7px; margin-top: 8px; }
+    .worker { padding: 9px 10px; border: 1px solid light-dark(#e4e9f1, #30394b); border-radius: 11px; background: light-dark(#f7f9fc, #1c2433); }
+    .worker-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 700; }
+    .worker-state { color: light-dark(#315fae, #b9ceff); }
+    .worker-explanation { margin-top: 5px; color: light-dark(#667189, #aab6cd); font-size: 10px; line-height: 1.4; }
+    .worker-track { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 3px; background: light-dark(#e8edf5, #30394b); }
+    .worker-fill { height: 100%; border-radius: inherit; background: #8faeff; }
+    ul { margin: 12px 0 0; padding: 0; list-style: none; border-top: 1px solid light-dark(#e4e9f1, #30394b); }
+    li { padding: 7px 0; color: light-dark(#59657c, #b2bdd1); font-size: 11px; line-height: 1.35; border-bottom: 1px solid light-dark(#edf0f5, #262f40); }
+    .foot { margin-top: 10px; color: light-dark(#7a8599, #8f9bb1); font-size: 10px; }
+    .savings { margin-top: 10px; padding: 8px 10px; border: 1px solid light-dark(#bde7d0, #31594d); border-radius: 10px; background: light-dark(#effaf4, #1d3a35); color: light-dark(#18764a, #8de0b7); font-size: 11px; font-weight: 700; }
+    @media (max-width: 520px) { .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  </style>
+</head>
+<body>
+  <main class="card" aria-live="polite">
+    <header>
+      <div class="brand"><div class="mark" aria-hidden="true">HL</div><div><h1>Heliolune Leader</h1><div id="subtitle" class="sub">Live Luna operations status · no Sol polling</div></div></div>
+      <div id="badge" class="badge">starting</div>
+    </header>
+    <div class="track" role="progressbar" aria-label="Task progress" aria-valuemin="0" aria-valuemax="100"><div id="bar" class="bar"></div></div>
+    <div id="message" class="message">Waiting for the first worker update…</div>
+    <section class="meta">
+      <div class="metric"><span id="lane-label">Lane</span><strong id="lane">—</strong></div>
+      <div class="metric"><span id="effort-label">Effort</span><strong id="effort">—</strong></div>
+      <div class="metric"><span id="elapsed-label">Elapsed</span><strong id="elapsed">0s</strong></div>
+      <div class="metric"><span id="progress-label">Progress</span><strong id="percent">1%</strong></div>
+    </section>
+    <div id="workers-title" class="section-title">Worker lanes</div>
+    <section id="workers" class="workers"></section>
+    <ul id="updates"></ul>
+    <div id="savings" class="savings">A history-calibrated savings estimate will appear when usage is available.</div>
+    <div id="foot" class="foot">The widget polls a local read-only MCP status tool; it does not create controller turns or model tokens.</div>
+  </main>
+  <script>
+    const elements = Object.fromEntries(["badge", "bar", "message", "lane", "effort", "elapsed", "percent", "updates", "foot", "savings", "subtitle", "workers", "workers-title", "lane-label", "effort-label", "elapsed-label", "progress-label"].map((id) => [id, document.getElementById(id)]));
+    const chinese = (navigator.language || "en").toLowerCase().startsWith("zh");
+    const copy = chinese ? {
+      subtitle: "Luna 工作池实时状态 · 不轮询 Sol", workers: "工作单元", lane: "通道", effort: "思考", elapsed: "用时", progress: "进度", idle: "等待分配任务", waiting: "正在等待 Luna 汇报当前工作…", complete: "Luna 工作已完成，等待 Sol 审查。", failed: "Luna 任务发生错误，请查看对应工作单元。", refreshDelayed: "状态刷新暂时延迟", costPending: "获得 token 用量后将显示历史基准校准的节省估算。", costSummary: (saved, percent, actual, projected) => `预估节省 ${saved}（${percent}%） · Luna ${actual} · 预计 Sol-only ${projected}`,
+    } : {
+      subtitle: "Live Luna pool operations · no Sol polling", workers: "Worker lanes", lane: "Lane", effort: "Effort", elapsed: "Elapsed", progress: "Progress", idle: "Waiting for an assigned task", waiting: "Waiting for Luna to explain its current work…", complete: "Luna work is complete and ready for Sol review.", failed: "The Luna task ended with an error. Review the worker card for details.", refreshDelayed: "Status refresh delayed", costPending: "A history-calibrated savings estimate will appear when usage is available.", costSummary: (saved, percent, actual, projected) => `Projected savings ${saved} (${percent}%) · Luna ${actual} · projected Sol-only ${projected}`,
+    };
+    elements.subtitle.textContent = copy.subtitle;
+    elements["workers-title"].textContent = copy.workers;
+    elements["lane-label"].textContent = copy.lane;
+    elements["effort-label"].textContent = copy.effort;
+    elements["elapsed-label"].textContent = copy.elapsed;
+    elements["progress-label"].textContent = copy.progress;
+    elements.savings.textContent = copy.costPending;
+    const pending = new Map();
+    let nextId = 1;
+    let jobId = window.openai?.toolOutput?.jobId ?? null;
+    let timer = null;
+    let stopped = false;
+
+    function request(method, params) {
+      const id = nextId++;
+      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    }
+
+    function toolCall(name, args) {
+      if (window.openai?.callTool) return window.openai.callTool(name, args);
+      return request("tools/call", { name, arguments: args });
+    }
+
+    function seconds(ms) { return `${Math.max(0, Math.round((ms ?? 0) / 1000))}s`; }
+
+    function render(snapshot) {
+      if (!snapshot) return;
+      jobId = snapshot.jobId ?? jobId;
+      const progress = Math.max(0, Math.min(100, Number(snapshot.progress) || 0));
+      elements.bar.style.width = `${progress}%`;
+      elements.bar.parentElement.setAttribute("aria-valuenow", String(progress));
+      elements.lane.textContent = snapshot.lane ?? "—";
+      elements.effort.textContent = snapshot.effort ?? "—";
+      elements.elapsed.textContent = seconds(snapshot.elapsedMs);
+      elements.percent.textContent = `${Math.round(progress)}%`;
+      const laneNames = chinese
+        ? { core: "核心实现", tests: "测试验证", integration: "集成工程", verifier: "独立审查", supervisor: "Leader 监督" }
+        : { core: "Core", tests: "Tests", integration: "Integration", verifier: "Verifier", supervisor: "Leader" };
+      const states = chinese
+        ? { idle: "空闲", queued: "排队", working: "工作中", verifying: "验证中", supervising: "监督中", reporting: "汇总中", completed: "已完成", failed: "失败" }
+        : { idle: "Idle", queued: "Queued", working: "Working", verifying: "Verifying", supervising: "Supervising", reporting: "Reporting", completed: "Completed", failed: "Failed" };
+      const overallStatus = snapshot.status ?? "running";
+      elements.badge.textContent = states[overallStatus] ?? (chinese && overallStatus === "running" ? "运行中" : overallStatus);
+      elements.badge.className = `badge ${overallStatus}`;
+      const workerMap = Object.fromEntries((snapshot.workers ?? []).map((worker) => [worker.lane, worker]));
+      const workers = ["core", "tests", "integration", "verifier", "supervisor"].map((lane) => workerMap[lane] ?? { lane, status: "idle", progress: 0, explanation: null });
+      const primaryExplanation = [...workers].reverse().find((worker) => worker.status !== "idle" && worker.explanation)?.explanation;
+      elements.message.textContent = primaryExplanation || (overallStatus === "completed" ? copy.complete : overallStatus === "failed" ? copy.failed : copy.waiting);
+      elements.workers.replaceChildren(...workers.map((worker) => {
+        const lane = worker.lane;
+        const card = document.createElement("div"); card.className = "worker";
+        const head = document.createElement("div"); head.className = "worker-head";
+        const name = document.createElement("span"); name.textContent = laneNames[lane];
+        const state = document.createElement("span"); state.className = "worker-state"; state.textContent = states[worker.status] ?? worker.status;
+        head.append(name, state);
+        const explanation = document.createElement("div"); explanation.className = "worker-explanation"; explanation.textContent = worker.explanation || copy.idle;
+        const track = document.createElement("div"); track.className = "worker-track";
+        const fill = document.createElement("div"); fill.className = "worker-fill"; fill.style.width = `${Math.max(0, Math.min(100, Number(worker.progress) || 0))}%`;
+        track.append(fill); card.append(head, explanation, track); return card;
+      }));
+      elements.updates.replaceChildren(...(snapshot.updates ?? []).slice(-5).reverse().map((update) => {
+        const item = document.createElement("li");
+        item.textContent = update.message;
+        return item;
+      }));
+      if (snapshot.usage) {
+        const cache = snapshot.usage.inputTokens ? Math.round(snapshot.usage.cachedInputTokens / snapshot.usage.inputTokens * 100) : 0;
+        elements.foot.textContent = `${snapshot.usage.inputTokens.toLocaleString()} input · ${cache}% cached · ${snapshot.usage.outputTokens.toLocaleString()} output`;
+      }
+      if (snapshot.cost?.savingsPercent != null) {
+        const percent = Number(snapshot.cost.savingsPercent).toFixed(2).replace(/\.00$/, "");
+        const saved = Number(snapshot.cost.estimatedSavings).toFixed(6);
+        const actual = Number(snapshot.cost.actual).toFixed(6);
+        const projected = Number(snapshot.cost.projectedSolOnly).toFixed(6);
+        elements.savings.textContent = copy.costSummary(saved, percent, actual, projected);
+      }
+      stopped = snapshot.status === "completed" || snapshot.status === "failed";
+      window.openai?.notifyIntrinsicHeight?.();
+    }
+
+    async function refresh() {
+      if (!jobId || stopped) return;
+      try {
+        const result = await toolCall("job_status", { jobId });
+        render(result?.structuredContent ?? result);
+      } catch (error) {
+        elements.foot.textContent = `${copy.refreshDelayed}: ${error?.message ?? String(error)}`;
+      } finally {
+        if (!stopped) timer = setTimeout(refresh, document.hidden ? 8000 : 2000);
+      }
+    }
+
+    window.addEventListener("message", (event) => {
+      if (event.source !== window.parent || !event.data || event.data.jsonrpc !== "2.0") return;
+      const message = event.data;
+      if (message.id !== undefined && pending.has(message.id)) {
+        const waiter = pending.get(message.id);
+        pending.delete(message.id);
+        if (message.error) waiter.reject(message.error); else waiter.resolve(message.result);
+        return;
+      }
+      if (message.method === "ui/notifications/tool-result") {
+        render(message.params?.structuredContent);
+        if (jobId && !timer && !stopped) refresh();
+      }
+    }, { passive: true });
+
+    if (jobId) { render(window.openai.toolOutput); refresh(); }
+  </script>
+</body>
+</html>

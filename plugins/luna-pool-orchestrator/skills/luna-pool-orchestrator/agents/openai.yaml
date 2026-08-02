@@ -1,4 +1,4 @@
 interface:
   display_name: "Heliolune"
-  short_description: "Track Luna workers and compress reports"
-  default_prompt: "Use $luna-pool-orchestrator to delegate a bounded task, track Luna execution, and return an adaptive compact report to Sol."
+  short_description: "Track Luna work without Sol polling"
+  default_prompt: "Use $luna-pool-orchestrator for one bounded task: start it with visible Leader status, await it once without polling, and return a compact result to Sol."
