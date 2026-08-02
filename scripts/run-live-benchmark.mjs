@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
+import { waitForJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "..");
@@ -64,16 +65,23 @@ try {
     const runStartedAt = Date.now();
     const progressToken = `benchmark-${runs.length + 1}`;
     const response = await request("tools/call", {
-      name: "run_task",
+      name: "start_task",
       arguments: task,
       _meta: { progressToken },
-    }, (task.timeoutSeconds + 180) * 1000);
+    }, 30_000);
+    if (response.result?.isError) throw new Error(response.result.content?.[0]?.text ?? "start_task failed");
+    const started = response.result.structuredContent;
+    const payload = await waitForJobRecord(started.jobId, {
+      root: localAppData,
+      timeoutMs: ((task.timeoutSeconds ?? 900) + 180) * 1000,
+    });
     runs.push({
       taskFile,
       wallMs: Date.now() - runStartedAt,
-      isError: response.result.isError,
+      jobId: started.jobId,
+      isError: false,
       progress: progressByToken.get(progressToken) ?? [],
-      payload: JSON.parse(response.result.content[0].text),
+      payload,
     });
   }
   const result = {

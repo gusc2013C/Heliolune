@@ -58,4 +58,18 @@ Codex CLI 0.146.0 不会给模型发起的 MCP 调用附加 progress token，也
 
 最终 integration lane regression 的 worker 执行耗时为 27.558 秒（host 总墙钟 29.244 秒）；用量为 14,886 input / 13,056 cached / 634 output，其中 reasoning 444，input cache rate 87.71%。Luna 估算费用为 `0.034698`；界面的历史 profile 预测为 Sol-only `0.142357`、预计节省 `0.107659`（75.6261%）。活动 worker 用中文概括了 token gate、有限数值校验、限频、0–100 边界、单调性与终态关闭。该 regression 还必须验证：恰好存在五个 worker、活动 worker 到达终态、中文 UI 下 Luna 说明也是中文，并且 `alpha-0.5.0-matched` 费用预测非空。
 
+## 0.6 并行档位
+
+同一组 8 个独立只读审计任务在全新 Luna/max thread 上以 1、4、8 并发运行；每组同样支付一次全新 Luna/high Leader 汇总。为避免依赖 Luna 缓存命中，`cacheIgnoredColdEquivalent` 将全部输入 token 按未缓存 Luna 费率计价。
+
+| 并发 | 样本 | 墙钟 | 相对 1 路 | 质量 | 冷等价费用 |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 200.769s | 1.00x | 100% | 0.890920 |
+| 4 | 2 | 均值 52.846s | 3.80x | 90–95% | 均值 0.816648 |
+| 8 | 2 | 36.488–73.225s | 均值 3.66x | 95% | 均值 0.821255 |
+
+4 路运行稳定，冷等价费用与串行相当，因此在 Sol 能定义独立 workstream 时成为条件默认。8 路有一次全场最快，也有一次明显长尾，继续保持 opt-in。三次完整 4 路只读 MCP smoke（含共享 Leader 汇总）分别为 44.137s、49.607s 和 43.843s；最后一次精简 schema smoke 的 workstream 全部完成，Luna 估算费用为 0.225093。workstream 以 90 秒为尺寸目标，但有界硬截止最长可到 600 秒；共享 Leader session 在各自检查点统一管理仍活跃的 worker。
+
+独立的真实写入 smoke 使用两个 detached Git worktree 内的 Luna/max worker。Heliolune 安全应用了 `alpha.txt` 与 `beta.txt` 的非重叠修改，使主 index 保持 unstaged，清理全部临时 worktree，并以 0.116710 Luna 估算费用在 35.541 秒内完成。单元测试覆盖 dirty main、`HEAD` 变化、scope 越界和 patch 证据保留等失败路径。详见[完整 0.6 工程报告](0.6-RESEARCH.zh-CN.md)与原始 JSON。
+
 所有数字都依赖仓库、任务、缓存、host prefix 和价格，不能视为普适性能保证。

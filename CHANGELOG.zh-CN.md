@@ -4,6 +4,31 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.6.0] - 2026-08-02
+
+### 新增
+
+- 增加由 Sol 选择的 `token-first` 档位，以及 4 路稳定默认 / 8 路实验并发的 `speed-first` Luna/max 档位。
+- 增加 `start_batch`：接收 2–8 个由 Sol 定义的独立 workstream，各自拥有硬截止与失败隔离。
+- 由一个共享 Luna/high Leader 在 90 秒规模检查点统一管理所有仍活跃的并行 session，随后复用同一 warm Leader 汇总终态。90 秒不是硬上限；有界 workstream 最长可运行 600 秒。
+- 原生悬浮窗动态显示 4/8 个 burst worker 与共享 Leader。
+- 增加 detached-HEAD Git worktree 隔离，支持并行实现与修复。只有 clean HEAD、精确 scope、全部完成、实际路径无重叠以及 `git apply --check --index` 全部通过，patch 才安全应用到主工作树。
+- 确定性集成被阻止时不修改主工作树，并保留本地 patch artifact 交给 Sol 审查。
+- 增加基于官方 Codex subagent/worktree 文档的 Heliolune 与原生 subagent 中英文对比。
+
+### 优化
+
+- 只读冷等价费用与串行 benchmark 相当、平均墙钟约加速 3.8 倍，因此对可拆分 workstream 条件默认 4 路并行；8 路因长尾方差保持 opt-in。
+- 删除内联 MCP App、仅供 App 的 `job_status`、重复公开的 `run_task` 和低频公开调试字段。按序列化字符估算，包含两档位的完整 0.6 工具面比旧 token-first 工具面缩小约 38.2%。
+- 同时接受嵌套 `params.turn.id` 与顶层 `params.turnId` 完成通知，避免 worker 已完成后仍误报 active timeout。
+- 在返回 Sol 前压缩 batch usage、费用投影与输出字符串；完整价格假设仍由 `cost_dashboard` 提供。
+- mutating worktree 使用 fresh ephemeral Luna session，避免其他 workstream 的 checkout context 从缓存历史泄漏。
+
+### 安全与验证
+
+- 只有 Sol 可以拆分 batch，并决定架构、安全、公共 API、不可逆迁移、风险接受、审查与最终验收；Leader 只管理存活和压缩。
+- 真实双 worker 写入 smoke 在 35.541 秒总时间内安全合并两个非重叠文件，Git index 保持干净且临时 worktree 全部移除；Git 安全测试覆盖正常合并、越界拒绝、dirty main 拒绝和 HEAD 变化拒绝。
+
 ## [0.5.2] - 2026-08-02
 
 ### 新增

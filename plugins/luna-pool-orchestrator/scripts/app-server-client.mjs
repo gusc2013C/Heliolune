@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.5.2";
+const APP_VERSION = "0.6.0";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
 
 export function compactStatusExplanation(value, maxLength = 360) {
@@ -12,6 +12,10 @@ export function compactStatusExplanation(value, maxLength = 360) {
   if (!text) return null;
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}
+
+export function notificationTurnId(message) {
+  return message?.params?.turn?.id ?? message?.params?.turnId ?? null;
 }
 
 function exists(file) {
@@ -45,6 +49,7 @@ export class AppServerClient {
     this.waiters = new Set();
     this.latestUsage = new Map();
     this.turnActivity = new Map();
+    this.completedTurns = new Map();
     this.child = null;
   }
 
@@ -118,7 +123,11 @@ export class AppServerClient {
     if (message.method === "thread/tokenUsage/updated") {
       this.latestUsage.set(message.params.turnId, message.params.tokenUsage);
     }
-    const activityTurnId = message.params?.turnId ?? message.params?.turn?.id;
+    const activityTurnId = notificationTurnId(message);
+    if (message.method === "turn/completed" && activityTurnId) {
+      this.completedTurns.set(activityTurnId, message);
+      while (this.completedTurns.size > 32) this.completedTurns.delete(this.completedTurns.keys().next().value);
+    }
     if (activityTurnId && this.turnActivity.has(activityTurnId)) {
       const activity = this.turnActivity.get(activityTurnId);
       if (message.method === "item/reasoning/summaryPartAdded") {
@@ -269,10 +278,13 @@ export class AppServerClient {
     };
     let steerTimer = null;
     try {
-      const completion = this.waitFor(
-        (message) => message.method === "turn/completed" && message.params.turn.id === turnId,
-        timeoutMs,
-      ).then(
+      const alreadyCompleted = this.completedTurns.get(turnId);
+      const completion = (alreadyCompleted
+        ? Promise.resolve(alreadyCompleted)
+        : this.waitFor(
+          (message) => message.method === "turn/completed" && notificationTurnId(message) === turnId,
+          timeoutMs,
+        )).then(
         (message) => (completionOutcome = { kind: "completed", message }),
         (error) => (completionOutcome = { kind: "error", error }),
       );
@@ -369,6 +381,7 @@ export class AppServerClient {
       error.steering = steering;
       this.latestUsage.delete(turnId);
       this.turnActivity.delete(turnId);
+      this.completedTurns.delete(turnId);
       throw error;
     }
     clearTimeout(steerTimer);
@@ -377,6 +390,7 @@ export class AppServerClient {
     this.latestUsage.delete(turnId);
     const activity = this.turnSnapshot(turnId);
     this.turnActivity.delete(turnId);
+    this.completedTurns.delete(turnId);
     const finalItems = turn.items.filter((item) => item.type === "agentMessage" && item.phase === "final_answer");
     const fallbackItems = turn.items.filter((item) => item.type === "agentMessage");
     const textOutput = (finalItems.at(-1) ?? fallbackItems.at(-1))?.text ?? "";

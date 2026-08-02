@@ -1,15 +1,20 @@
 {
   "name": "luna-pool-orchestrator",
-  "version": "0.5.2",
-  "description": "Cost-first engineering orchestration with bounded Luna workers, an adaptive reporting leader, and token-free live status.",
+  "version": "0.6.0",
+  "description": "Token-first or worktree-isolated speed-first engineering orchestration with bounded Luna workers, a shared operations leader, and token-free native status.",
   "author": {
-    "name": "Sicheng Gu"
+    "name": "Sicheng Gu",
+    "url": "https://github.com/gusc2013C"
   },
+  "homepage": "https://github.com/gusc2013C/Heliolune#readme",
+  "repository": "https://github.com/gusc2013C/Heliolune",
+  "license": "MIT",
+  "keywords": ["codex", "mcp", "orchestration", "luna", "cost-optimization"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Heliolune",
-    "shortDescription": "Delegate cheaply with visible Leader progress.",
-    "longDescription": "Heliolune runs four function-affine Luna/max workers and one adaptive Luna/high operations leader behind a blocking MCP boundary. Sol retains planning, architecture, risk, review, and final acceptance while an inline MCP App or automatic Windows fallback shows token-free Leader status.",
+    "shortDescription": "Low-cost Luna work with visible Sol governance.",
+    "longDescription": "Heliolune offers persistent token-first Luna/max lanes and Sol-defined four/eight-worker speed bursts behind a start-once, await-once MCP boundary. Parallel writes use detached Git worktrees and deterministic safe-apply gates. One shared Luna/high operations leader manages long-running sessions and compresses results while Sol retains planning, architecture, risk, integration review, and final acceptance. A native Windows panel shows token-free live status.",
     "developerName": "Sicheng Gu",
     "category": "Productivity",
     "capabilities": [
@@ -17,7 +22,11 @@
       "Read",
       "Write"
     ],
-    "defaultPrompt": "Use $luna-pool-orchestrator for one bounded task: start it with visible Leader status, await once without polling, then return a compact result."
+    "websiteURL": "https://github.com/gusc2013C/Heliolune",
+    "defaultPrompt": [
+      "Use $luna-pool-orchestrator in token-first mode for one bounded engineering task.",
+      "Use $luna-pool-orchestrator in four-way speed-first mode for independent workstreams."
+    ]
   },
   "mcpServers": "./.mcp.json"
 }

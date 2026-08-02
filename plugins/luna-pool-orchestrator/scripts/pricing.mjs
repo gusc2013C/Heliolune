@@ -163,6 +163,12 @@ export function emptyMetrics() {
   return {
     schemaVersion: 1,
     taskRuns: 0,
+    tokenFirstRuns: 0,
+    speedFirstRuns: 0,
+    speedFirstWorkstreams: 0,
+    parallelWriteRuns: 0,
+    parallelWriteApplied: 0,
+    parallelWriteBlocked: 0,
     healthChecks: 0,
     healthTurns: 0,
     verifierRuns: 0,
@@ -185,6 +191,12 @@ export function emptyMetrics() {
 export function recordMetrics(existing, event) {
   const metrics = existing && existing.schemaVersion === 1 ? structuredClone(existing) : emptyMetrics();
   metrics.taskRuns = nonNegativeNumber(metrics.taskRuns);
+  metrics.tokenFirstRuns = nonNegativeNumber(metrics.tokenFirstRuns);
+  metrics.speedFirstRuns = nonNegativeNumber(metrics.speedFirstRuns);
+  metrics.speedFirstWorkstreams = nonNegativeNumber(metrics.speedFirstWorkstreams);
+  metrics.parallelWriteRuns = nonNegativeNumber(metrics.parallelWriteRuns);
+  metrics.parallelWriteApplied = nonNegativeNumber(metrics.parallelWriteApplied);
+  metrics.parallelWriteBlocked = nonNegativeNumber(metrics.parallelWriteBlocked);
   metrics.healthChecks = nonNegativeNumber(metrics.healthChecks);
   metrics.healthTurns = nonNegativeNumber(metrics.healthTurns);
   metrics.verifierRuns = nonNegativeNumber(metrics.verifierRuns);
@@ -200,6 +212,16 @@ export function recordMetrics(existing, event) {
   metrics.leaderDeferredTasks = nonNegativeNumber(metrics.leaderDeferredTasks);
   metrics.wallMs = nonNegativeNumber(metrics.wallMs);
   if (event.kind === "task") metrics.taskRuns += 1;
+  if (event.kind === "task" && event.priority === "token-first") metrics.tokenFirstRuns += 1;
+  if (event.kind === "task" && event.priority === "speed-first") {
+    metrics.speedFirstRuns += 1;
+    metrics.speedFirstWorkstreams += nonNegativeNumber(event.workstreamCount);
+  }
+  if (event.kind === "task" && event.parallelWrite) {
+    metrics.parallelWriteRuns += 1;
+    metrics.parallelWriteApplied += event.parallelWriteApplied ? 1 : 0;
+    metrics.parallelWriteBlocked += event.parallelWriteApplied ? 0 : 1;
+  }
   if (event.kind === "health") metrics.healthChecks += 1;
   if (event.kind === "failed") metrics.failedRuns += 1;
   metrics.verifierRuns += event.verifierUsed ? 1 : 0;
@@ -239,6 +261,12 @@ export function dashboardData({ cwd, metrics: existing, actualModel = DEFAULT_AC
     cwd,
     counts: {
       taskRuns: metrics.taskRuns ?? 0,
+      tokenFirstRuns: metrics.tokenFirstRuns ?? 0,
+      speedFirstRuns: metrics.speedFirstRuns ?? 0,
+      speedFirstWorkstreams: metrics.speedFirstWorkstreams ?? 0,
+      parallelWriteRuns: metrics.parallelWriteRuns ?? 0,
+      parallelWriteApplied: metrics.parallelWriteApplied ?? 0,
+      parallelWriteBlocked: metrics.parallelWriteBlocked ?? 0,
       healthChecks: metrics.healthChecks ?? 0,
       healthTurns: metrics.healthTurns ?? 0,
       verifierRuns: metrics.verifierRuns ?? 0,
@@ -269,6 +297,8 @@ export function renderDashboard(data) {
     "",
     `- Repository: ${data.cwd}`,
     `- Successful tasks: ${data.counts.taskRuns}`,
+    `- Token-first / speed-first runs: ${data.counts.tokenFirstRuns} / ${data.counts.speedFirstRuns} (${data.counts.speedFirstWorkstreams} speed workstreams)`,
+    `- Parallel writes / safely applied / held: ${data.counts.parallelWriteRuns} / ${data.counts.parallelWriteApplied} / ${data.counts.parallelWriteBlocked}`,
     `- Verifier runs: ${data.counts.verifierRuns}`,
     `- Failed runs / hard timeouts: ${data.counts.failedRuns} / ${data.counts.hardTimeouts}`,
     `- Supervisor checks / interrupts: ${data.counts.supervisorChecks} / ${data.counts.supervisorInterrupts}`,

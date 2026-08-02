@@ -46,6 +46,7 @@ test("leader result hides raw worker bundles and controller-irrelevant cost deta
   assert.equal("audit" in summarized, false);
   assert.equal("assumptions" in summarized.cost, false);
   assert.equal(summarized.cost.historicalProjection.profileId, "alpha-0.5.0-matched");
+  assert.equal("reference" in summarized.cost.historicalProjection, false);
   assert.ok(JSON.stringify(summarized).length < JSON.stringify(direct).length);
 });
 

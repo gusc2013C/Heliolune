@@ -1,6 +1,6 @@
 ---
 name: luna-pool-orchestrator
-description: Delegate bounded engineering analysis, implementation, repair, and verification from a GPT-5.6 Sol controller to four function-affine GPT-5.6 Luna workers plus one shared Luna operations leader through the luna-pool-orchestrator MCP, show token-free live status through an inline or native fallback surface, adaptively compress large handoffs, and report cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, review, and final acceptance.
+description: Delegate bounded engineering work from a GPT-5.6 Sol controller through token-first persistent Luna/max lanes or speed-first four/eight-worker Luna/max bursts, including detached-worktree isolated parallel writes, with one shared Luna/high operations leader, a token-free native status window, adaptive compression, and cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, integration review, and final acceptance.
 ---
 
 # Luna Pool Orchestrator
@@ -15,7 +15,7 @@ Use the MCP as a blocking boundary. Never create, poll, or read Luna tasks direc
 
 ## Initialize
 
-Call `initialize_pool` once per repository when the user requests an explicit health check. Use `healthTurn=false` for a model/session check or `healthTurn=true` only when five paid Luna turns are justified.
+Call `initialize_pool` once per repository when the user requests an explicit health check. Use `healthTurn=false` for a model/session check. A paid `healthTurn=true` is justified only when actual Luna turns must be proven; it initializes the lanes selected by `priority` and `parallelism`.
 
 The runtime-affine sessions are:
 
@@ -25,24 +25,39 @@ The runtime-affine sessions are:
 - `verifier`: independent read-only verification only.
 - `supervisor`: shared operations leader for liveness, cross-lane outcome tracking, and reporting compression only.
 
-Workers use Luna with `max` effort for repository work. Schema-only finalization uses `high` by default because it must reuse completed reasoning rather than discover anything new; use `xhigh` or `max` only when a measured recovery case needs it. The operations leader uses `high` by default and may use `xhigh`; it never inspects repository contents, plans or assigns work, decides correctness beyond a supplied verifier verdict, or accepts results. Sessions are ephemeral and reused while the MCP process lives, so they should not appear as normal Desktop tasks. A Desktop restart creates a fresh hidden pool.
+Workers use Luna with `max` effort for repository work. Schema-only finalization uses `high` because it must reuse completed reasoning rather than discover anything new. The operations leader uses `high`; it never inspects repository contents, decomposes or assigns work, changes scope, decides correctness beyond a supplied verifier verdict, resolves reserved decisions, or accepts results. Sessions are ephemeral and reused while the MCP process lives, so they should not appear as normal Desktop tasks. A Desktop restart creates a fresh hidden pool.
 
 ## Delegate
 
-Before calling `start_task` or `run_task`, Sol must understand the request and decide the lane, scope, risk, acceptance criteria, and whether a reserved boundary is involved.
+Before calling `start_task` or `start_batch`, Sol must understand the request and decide the lane or workstreams, scope, risk, acceptance criteria, dependencies, and whether a reserved boundary is involved.
 
 Send only incremental task state:
 
 - an outcome-oriented `objective`;
-- 1–8 testable `acceptance` items;
+- 1–8 testable `acceptance` items for token-first, or 1–4 per speed-first workstream;
 - exact files or the narrowest relevant directories in `scope`;
 - volatile `repoState` only when needed;
-- `risk`, `reservedBoundary`, and `verification`;
-- small exploration budgets, normally `maxFiles=12` and `maxCommands=20`.
+- `risk` and `reservedBoundary`, plus token-first `verification` when its default `auto` is not sufficient;
+- token-first exploration budgets only when their defaults (`maxFiles=12`, `maxCommands=20`) are not appropriate.
 
-Do not paste repository files, transcripts, generic project background, or the stable worker role. Luna inspects the repository directly. Reuse the same functional lane for related work to improve cache hits.
+Do not paste repository files, transcripts, generic project background, or the stable worker role. Luna inspects the repository directly. Send only incremental state. Reuse the same functional lane for related work to improve cache hits.
 
 Use `verification=auto` by default. The MCP invokes the independent verifier when risk is high, a reserved boundary is touched, the owner requests verification, completion is partial, or high-severity risks remain. Use `always` for security-sensitive or decisive correctness claims. Use `never` only for low-risk, easily reversible work.
+
+## Choose a priority profile
+
+Use **token-first** with `start_task` for implementation, repair, dependent work, a single narrow investigation, or any task that cannot be safely split. It uses one persistent function-affine Luna/max owner, an adaptive verifier, and the shared Leader only when justified.
+
+Use **speed-first** with `start_batch` when Sol can define at least two independent workstreams. Four-way parallelism is the conditional default because measured cache-ignored cost was within noise of serial execution while wall time improved about 3.8x. Eight-way parallelism is explicit and experimental: it has produced the fastest run but materially higher tail variance.
+
+For speed-first:
+
+- Sol, never Luna or the Leader, decomposes the parent task and supplies each workstream's objective, acceptance criteria, and scope.
+- Prefer small workstreams likely to finish within 90 seconds. This is a sizing target and Leader checkpoint, not a hard limit; bounded workstreams may use independent deadlines up to 600 seconds.
+- For writes, require the Git repository root as `cwd`, a clean main worktree, and exact non-overlapping repository-relative scopes without globs or `..`. Assign `mode=implement` or `repair` only to non-verifier workstreams.
+- Heliolune creates detached worktrees at the verified current `HEAD`; each mutating workstream gets a fresh ephemeral Luna session and can modify only its own checkout. It captures tracked, deleted, renamed, binary, and untracked changes as patches.
+- Deterministic integration applies all patches only when every workstream completed, `HEAD` and the clean main worktree stayed unchanged, actual changed paths remain in scope and do not overlap, and `git apply --check --index` succeeds. Otherwise it changes nothing in the main worktree, reports `integration.applied=false`, and retains local patch artifacts for Sol review.
+- A failed or slow workstream must not discard completed siblings. Sol reviews any partial batch and decides whether to retry, narrow, or integrate findings.
 
 ## Sol boundary
 
@@ -60,21 +75,25 @@ If Luna returns `needsSol`, stop delegation for that decision. Do not ask Luna t
 
 ## Wait and accept
 
-On Codex Desktop, call `luna-pool.start_task` once, then immediately call `luna-await.await_task` exactly once with the returned `jobId`. Stop generating while `await_task` is blocked and resume only when it returns the compact terminal bundle. Never call `job_status` from the model and never add commentary or polling turns while waiting.
+On Codex Desktop, call exactly one of `luna-pool.start_task` or `luna-pool.start_batch`, then immediately call `luna-await.await_task` exactly once with the returned `jobId`. Stop generating while `await_task` is blocked and resume only when it returns the compact terminal bundle. Never poll `pool_status`, read job files, or add commentary/model turns while waiting.
 
-`start_task` selects one token-free visibility surface. A host that advertises the standard MCP Apps extension gets the inline Leader panel. Current Windows Codex builds that do not advertise it get the small native `Heliolune Leader` window; it reads transcript-free local status records, stays topmost while work runs, and closes shortly after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. The fallback is never launched when inline MCP Apps support is advertised.
+On Windows, Heliolune uses one token-free native `Heliolune Leader` window. It reads transcript-free local status records, dynamically displays every active token-first or burst lane, stays topmost while work runs, and closes shortly after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Heliolune does not also open an inline task panel.
 
-Other MCP hosts that supply `_meta.progressToken` may use the single blocking `run_task` call instead. Heliolune then emits rate-limited standard `notifications/progress` within that call. Both visibility paths identify the lane and Luna effort, elapsed time, observed events, cache rate, last activity, finalization steering, verification, and Leader compression without worker transcripts or repository content.
+When the host supplies `_meta.progressToken`, Heliolune may also emit rate-limited standard `notifications/progress` from the start call, but the model-visible workflow remains start once and await once. The native window shows lane, effort, elapsed time, observed events, cache rate, last activity, finalization, verification, Leader activity, and cost projections without worker transcripts or repository content.
 
 The terminal result contains evidence, changes, checks, risks, routing, timing, finalization status, and exact Luna token usage. The two-server Desktop path exists because a blocking request serializes calls to one MCP server; `luna-await` waits on the result file while `luna-pool` remains available to the status surface. This does not create another model session or add model tokens.
 
-Keep `finalization=auto` and `synthesisEffort=high`. Heliolune reserves part of the existing hard deadline for structured output. If a live work turn consumes its work budget, the MCP steers that active turn to stop tools and emit the schema from evidence already gathered. If a completed turn instead returns invalid JSON, one synthesis-only fallback turn may reuse the same warm thread at `synthesisEffort`. Both paths may report honest `partial` status and neither extends the hard deadline. Use `finalization=off` only for watchdog diagnostics. Narrow `scope`, acceptance criteria, files, and commands before increasing `timeoutSeconds`, `synthesisReserveSeconds`, or finalization effort.
+Finalization is an internal automatic policy. Heliolune reserves part of the existing hard deadline for structured output and uses `high` only for schema synthesis. If a live work turn consumes its work budget, the MCP steers that active turn to stop tools and emit the schema from evidence already gathered. If a completed turn instead returns invalid JSON, one synthesis-only fallback turn may reuse the same warm thread. Both paths may report honest `partial` status and neither extends the hard deadline. Narrow `scope`, acceptance criteria, files, and commands before increasing `timeoutSeconds`.
 
-For hard timeouts of at least 90 seconds, keep `supervision=auto` unless the user asks otherwise. At the soft checkpoint, recent app-server events continue deterministically without a model call; sustained silence wakes the shared supervisor once. Use `supervisorEffort=high` normally and `xhigh` only for ambiguous liveness diagnostics. A stale worker is not sent to synthesis because it has no trustworthy fresh work to summarize. The hard deadline remains absolute.
+For a token-first hard timeout of at least 90 seconds, the internal soft checkpoint first uses recent app-server events. Sustained silence wakes the shared Leader once at `high` effort. A stale worker is not sent to synthesis because it has no trustworthy fresh work to summarize. The hard deadline remains absolute.
 
-Keep `reporting=auto`. Small low-risk worker bundles return directly and add only a compact lifecycle digest to the leader backlog. Wake the leader for large bundles, verifier results, high risk, reserved boundaries, or actual `needsSol` decisions; it receives deferred digests on its next turn and returns a compressed handoff. Use `reporting=leader` only to force reporting for a benchmark or a genuinely dense bundle, and `reporting=direct` for diagnostics. Keep `includeRawResults=false` except during an audit. The leader reports to Sol but never replaces Sol planning, review, or acceptance.
+For a speed-first batch whose workstream deadlines exceed 90 seconds, one shared Luna/high Leader session coalesces simultaneous 90-second checks, receives compact liveness snapshots for all currently active burst workers, and returns per-slot continue/interrupt recommendations. A later queued wave may trigger another bounded turn on that same persistent Leader session; this is event-driven management, never polling. The Leader may summarize progress and identify a stalled slot, but may not assign work, expand scope, or decide whether the parent request is satisfied. The same warm session later aggregates terminal outcomes for Sol. A Leader failure never extends or replaces each worker's independent hard deadline.
+
+Reporting is also an internal automatic policy. Small low-risk token-first bundles return directly and add only a compact lifecycle digest to the Leader backlog. Large bundles, verifier results, high risk, reserved boundaries, or actual `needsSol` decisions wake the Leader for compression. Speed-first always uses the same shared Leader for one terminal aggregate. The Leader reports to Sol but never replaces Sol planning, review, or acceptance.
 
 Sol should inspect only decisive evidence. Re-open repository files or run a compact acceptance check when the result is contradictory, touches a reserved boundary, or the verifier fails. Do not replay Luna's exploration.
+
+After a mutating batch, Sol must inspect `integration`, review the actual changed paths in the main worktree, and run a compact acceptance check there. If integration was held, do not blindly apply retained patches; resolve the conflict or dirty-state condition through a narrower token-first task. Deterministic safe application is not final acceptance.
 
 Perform acceptance inside the current warm Sol main session. Never create a fresh Sol session or Sol subagent merely to judge Luna output: the cold system/tool prefix can cost more than the Luna work and erase the savings.
 

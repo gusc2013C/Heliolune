@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { resolveCodexExecutable } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
-import { jobDirectory } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
+import { jobDirectory, readJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(process.argv[2] ?? path.join(scriptDirectory, ".."));
@@ -108,17 +108,14 @@ const taskArguments = {
   risk: "low",
   reservedBoundary: false,
   verification: "never",
-  reporting: "direct",
   timeoutSeconds: 90,
-  synthesisReserveSeconds: 30,
-  finalization: "auto",
   maxFiles: 3,
   maxCommands: 3,
 };
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.5.2" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.6.0" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");
@@ -144,7 +141,7 @@ try {
   }, 60_000);
   const started = startResponse.structuredContent;
   if (!started?.jobId) throw new Error(`start_task did not return a jobId: ${JSON.stringify(startResponse)}`);
-  if (!['inline-mcp-app', 'native-window'].includes(started.display?.mode)) {
+  if (started.display?.mode !== "native-window") {
     throw new Error(`No visible status surface was selected: ${JSON.stringify(started.display)}`);
   }
   stage(`job ${started.jobId} started with ${started.display.mode}`);
@@ -153,40 +150,22 @@ try {
     : null;
   if (windowReady) stage(`native status window rendered in ${windowReady.language}`);
 
-  const samples = [];
-  const readStatus = async () => (await request("mcpServer/tool/call", {
-    threadId: thread.thread.id,
-    server: "luna-pool",
-    tool: "job_status",
-    arguments: { jobId: started.jobId },
-  }, 15_000)).structuredContent;
-  samples.push(await readStatus());
-  stage(`initial status: ${samples.at(-1)?.status}`);
-
-  let awaitSettled = false;
   const awaitResponse = request("mcpServer/tool/call", {
     threadId: thread.thread.id,
     server: "luna-await",
     tool: "await_task",
     arguments: { jobId: started.jobId, timeoutSeconds: 150 },
-  }, 180_000).finally(() => { awaitSettled = true; });
+  }, 180_000);
   stage("await_task is blocking on the independent server");
-
-  const deadline = Date.now() + 120_000;
-  while (!awaitSettled && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    samples.push(await readStatus());
-    stage(`concurrent status: ${samples.at(-1)?.status} ${Math.round(samples.at(-1)?.progress ?? 0)}%`);
-  }
   const awaited = await awaitResponse;
-  samples.push(await readStatus());
-  stage(`await_task complete; final status: ${samples.at(-1)?.status}`);
+  const finalRecord = await readJobRecord(started.jobId);
+  stage(`await_task complete; final status: ${finalRecord?.status}`);
 
   if (awaited.isError) throw new Error(`await_task failed: ${JSON.stringify(awaited)}`);
-  if (!samples.some((sample) => sample?.status === "running") || samples.at(-1)?.status !== "completed") {
-    throw new Error(`Status did not span running to completed: ${JSON.stringify(samples)}`);
+  if (finalRecord?.status !== "completed") {
+    throw new Error(`Final job record is incomplete: ${JSON.stringify(finalRecord)}`);
   }
-  const finalWorkers = samples.at(-1)?.workers ?? [];
+  const finalWorkers = finalRecord.snapshot?.workers ?? [];
   const activeWorker = finalWorkers.find((worker) => worker.lane === taskArguments.lane);
   if (finalWorkers.length !== 5 || activeWorker?.status !== "completed" || !activeWorker?.explanation) {
     throw new Error(`Worker lanes or natural-language status are incomplete: ${JSON.stringify(finalWorkers)}`);
@@ -194,11 +173,12 @@ try {
   if (windowReady?.language === "zh-CN" && !/[\u3400-\u9fff]/u.test(activeWorker.explanation)) {
     throw new Error(`Luna explanation did not follow the detected Chinese UI language: ${activeWorker.explanation}`);
   }
-  if (samples.at(-1)?.cost?.savingsPercent == null || samples.at(-1)?.cost?.actual == null || samples.at(-1)?.cost?.projectedSolOnly == null || samples.at(-1)?.cost?.estimatedSavings == null) {
-    throw new Error(`Final status does not expose the cost estimate: ${JSON.stringify(samples.at(-1)?.cost)}`);
+  const visibleCost = finalRecord.snapshot?.cost;
+  if (visibleCost?.savingsPercent == null || visibleCost?.actual == null || visibleCost?.projectedSolOnly == null || visibleCost?.estimatedSavings == null) {
+    throw new Error(`Final status does not expose the cost estimate: ${JSON.stringify(visibleCost)}`);
   }
-  if (samples.at(-1).cost.profile !== "alpha-0.5.0-matched" || Math.abs(samples.at(-1).cost.savingsPercent - 75.6261) > 0.01) {
-    throw new Error(`Visible savings did not use the matched historical profile: ${JSON.stringify(samples.at(-1).cost)}`);
+  if (visibleCost.profile !== "alpha-0.5.0-matched" || Math.abs(visibleCost.savingsPercent - 75.6261) > 0.01) {
+    throw new Error(`Visible savings did not use the matched historical profile: ${JSON.stringify(visibleCost)}`);
   }
   process.stdout.write(`${JSON.stringify({
     server: "Codex app-server",
@@ -207,13 +187,8 @@ try {
     displayMode: started.display.mode,
     windowReady,
     activeWorker,
-    cost: samples.at(-1).cost,
-    statusSamples: samples.map((sample) => ({
-      status: sample.status,
-      progress: sample.progress,
-      message: sample.message,
-      sequence: sample.sequence,
-    })),
+    cost: visibleCost,
+    finalProgress: finalRecord.snapshot?.progress,
     awaitStatus: "completed",
   }, null, 2)}\n`);
 } finally {

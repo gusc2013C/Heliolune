@@ -93,12 +93,14 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   scheduled.push(setTimeout(() => {
+    const topLevelTurnId = text.includes("TOP_LEVEL_TURN_ID");
     send({
       jsonrpc: "2.0",
       method: "turn/completed",
       params: {
+        ...(topLevelTurnId ? { turnId } : {}),
         turn: {
-          id: turnId,
+          ...(topLevelTurnId ? {} : { id: turnId }),
           status: "completed",
           durationMs: 90,
           items: [{ type: "agentMessage", phase: "final_answer", text: text.includes("INVALID") ? "not-json" : JSON.stringify({ ok: true }) }],

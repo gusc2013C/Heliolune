@@ -61,6 +61,10 @@ test("accepts provider-neutral pricing overrides", () => {
 test("records raw metrics and renders a compact dashboard", () => {
   const metrics = recordMetrics(null, {
     kind: "task",
+    priority: "speed-first",
+    workstreamCount: 4,
+    parallelWrite: true,
+    parallelWriteApplied: true,
     wallMs: 2500,
     verifierUsed: true,
     softTimeout: true,
@@ -80,6 +84,11 @@ test("records raw metrics and renders a compact dashboard", () => {
   assert.equal(data.counts.verifierRuns, 1);
   assert.equal(data.counts.softTimeouts, 1);
   assert.equal(data.counts.supervisorChecks, 1);
+  assert.equal(data.counts.speedFirstRuns, 1);
+  assert.equal(data.counts.speedFirstWorkstreams, 4);
+  assert.equal(data.counts.parallelWriteRuns, 1);
+  assert.equal(data.counts.parallelWriteApplied, 1);
+  assert.equal(data.counts.parallelWriteBlocked, 0);
   assert.equal(data.counts.synthesisAttempts, 1);
   assert.equal(data.counts.synthesisRecoveries, 1);
   assert.equal(data.counts.leaderReports, 1);

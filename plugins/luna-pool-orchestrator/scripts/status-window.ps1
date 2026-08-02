@@ -191,9 +191,10 @@ $costText.Text = $strings.CostPending
 $closeButton.ToolTip = $strings.Close
 $minimizeButton.ToolTip = $strings.Minimize
 
-$laneOrder = @('core', 'tests', 'integration', 'verifier', 'supervisor')
+$laneOrder = @()
 $workerControls = @{}
-foreach ($lane in $laneOrder) {
+function Add-WorkerCard([string]$lane) {
+    if ($workerControls.ContainsKey($lane)) { return }
     $card = New-Object System.Windows.Controls.Border
     $card.Background = [Windows.Media.BrushConverter]::new().ConvertFromString('#CC20283A')
     $card.BorderBrush = [Windows.Media.BrushConverter]::new().ConvertFromString('#303B51')
@@ -211,7 +212,12 @@ foreach ($lane in $laneOrder) {
     $header.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition))
     $header.ColumnDefinitions.Add((New-Object System.Windows.Controls.ColumnDefinition -Property @{ Width = [Windows.GridLength]::Auto }))
     $name = New-Object System.Windows.Controls.TextBlock
-    $name.Text = $laneNames[$lane]
+    $displayName = $laneNames[$lane]
+    if ([string]::IsNullOrWhiteSpace([string]$displayName)) {
+        if ($lane -match '^burst-(\d+)$') { $displayName = $strings.BurstWorker -f $Matches[1] }
+        else { $displayName = $lane }
+    }
+    $name.Text = $displayName
     $name.FontFamily = 'Segoe UI Semibold'
     $name.FontSize = 12
     $name.Foreground = [Windows.Media.BrushConverter]::new().ConvertFromString('#EDF2FF')
@@ -289,6 +295,8 @@ $timer.Add_Tick({
     foreach ($worker in @($snapshot.workers)) {
         $workerMap[[string]$worker.lane] = $worker
     }
+    $laneOrder = @($snapshot.workers | ForEach-Object { [string]$_.lane })
+    foreach ($lane in $laneOrder) { Add-WorkerCard $lane }
     $activeWorkers = 0
     $activeExplanation = $null
     foreach ($lane in $laneOrder) {

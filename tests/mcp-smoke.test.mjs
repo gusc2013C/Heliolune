@@ -54,18 +54,15 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
 
   const listed = await request("tools/list");
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), [
-    "initialize_pool", "run_task", "start_task", "job_status", "pool_status", "cost_dashboard",
+    "initialize_pool", "start_task", "start_batch", "pool_status", "cost_dashboard",
   ]);
   const startTool = listed.result.tools.find((tool) => tool.name === "start_task");
-  const statusTool = listed.result.tools.find((tool) => tool.name === "job_status");
-  assert.equal(startTool._meta.ui.resourceUri, "ui://heliolune/leader-status.html");
-  assert.deepEqual(statusTool._meta.ui.visibility, ["app"]);
-
-  const resources = await request("resources/list");
-  assert.equal(resources.result.resources[0].mimeType, "text/html;profile=mcp-app");
-  const widget = await request("resources/read", { uri: "ui://heliolune/leader-status.html" });
-  assert.match(widget.result.contents[0].text, /job_status/);
-  assert.equal(widget.result.contents[0]._meta.ui.prefersBorder, true);
+  assert.equal(startTool._meta, undefined);
+  assert.equal(initialized.result.capabilities.resources, undefined);
+  const batchTool = listed.result.tools.find((tool) => tool.name === "start_batch");
+  assert.deepEqual(batchTool.inputSchema.properties.parallelism.enum, [4, 8]);
+  assert.equal(batchTool.inputSchema.properties.workstreams.maxItems, 8);
+  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "parallelism", "workstreams", "timeoutSeconds"]);
 
   const dashboardResponse = await request("tools/call", {
     name: "cost_dashboard",

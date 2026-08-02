@@ -54,3 +54,20 @@ test("job store converts worker rejection into a stable failed snapshot", async 
   assert.equal(jobs.status("job-fail").status, "failed");
   assert.match(jobs.status("job-fail").message, /bounded failure/);
 });
+
+test("batch jobs can expose active workers without a synthetic profile card", async () => {
+  let finish;
+  const store = new JobStore({ now: () => 1_000, idFactory: () => "batch-job", minimumIntervalMs: 0 });
+  const started = store.start({
+    lane: "speed-first",
+    workerLanes: ["burst-1", "burst-2", "supervisor"],
+    activeLanes: ["burst-1", "burst-2"],
+    run: () => new Promise((resolve) => { finish = resolve; }),
+  });
+  assert.equal(started.workers.find((worker) => worker.lane === "burst-1").status, "queued");
+  assert.equal(started.workers.find((worker) => worker.lane === "supervisor").status, "idle");
+  await Promise.resolve();
+  finish({ status: "completed" });
+  await store.wait("batch-job");
+  assert.equal(store.status("batch-job").status, "completed");
+});

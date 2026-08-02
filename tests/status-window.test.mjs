@@ -1,36 +1,28 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
-  MCP_APP_EXTENSION_ID,
-  MCP_APP_MIME_TYPE,
   detectSystemLanguage,
   launchStatusWindow,
   shouldLaunchStatusWindow,
-  supportsInlineStatus,
 } from "../plugins/luna-pool-orchestrator/scripts/status-window.mjs";
 
 const execFileAsync = promisify(execFile);
 const statusScript = fileURLToPath(new URL("../plugins/luna-pool-orchestrator/scripts/status-window.ps1", import.meta.url));
+const statusLocales = fileURLToPath(new URL("../plugins/luna-pool-orchestrator/assets/status-locales.json", import.meta.url));
 
-test("native window is an automatic Windows-only fallback", () => {
+test("native window is the only automatic Windows status surface", () => {
   assert.equal(shouldLaunchStatusWindow({ platform: "win32" }), true);
   assert.equal(shouldLaunchStatusWindow({ platform: "linux" }), false);
-  assert.equal(shouldLaunchStatusWindow({ platform: "win32", progressEnabled: true }), false);
-  assert.equal(shouldLaunchStatusWindow({ platform: "win32", inlineUiSupported: true }), false);
+  assert.equal(shouldLaunchStatusWindow({ platform: "win32", progressEnabled: true }), true);
+  assert.equal(shouldLaunchStatusWindow({ platform: "win32", inlineUiSupported: true }), true);
   assert.equal(shouldLaunchStatusWindow({ platform: "win32", mode: "on", inlineUiSupported: true }), true);
   assert.equal(shouldLaunchStatusWindow({ platform: "win32", mode: "off" }), false);
-});
-
-test("MCP Apps capability negotiation suppresses the fallback", () => {
-  const capabilities = { extensions: { [MCP_APP_EXTENSION_ID]: { mimeTypes: [MCP_APP_MIME_TYPE] } } };
-  assert.equal(supportsInlineStatus(capabilities), true);
-  assert.equal(supportsInlineStatus({}), false);
 });
 
 test("system language survives a sanitized Windows runtime locale", () => {
@@ -62,6 +54,15 @@ test("launcher uses the bundled WSH bridge without a console window", () => {
   assert.ok(invocation.args.some((value) => value.endsWith("status-window.ps1")));
   assert.equal(invocation.options.windowsHide, false);
   assert.equal(invocation.options.stdio, "ignore");
+});
+
+test("native panel creates cards for dynamic four/eight-worker burst lanes", async () => {
+  const script = await readFile(statusScript, "utf8");
+  const locales = JSON.parse(await readFile(statusLocales, "utf8"));
+  assert.match(script, /function Add-WorkerCard/);
+  assert.match(script, /snapshot\.workers \| ForEach-Object/);
+  assert.equal(locales.en.strings.BurstWorker, "Burst worker {0}");
+  assert.equal(locales["zh-CN"].lanes["speed-first"], "速度优先");
 });
 
 test("Windows PowerShell can read the fallback status record", { skip: process.platform !== "win32" }, async (t) => {

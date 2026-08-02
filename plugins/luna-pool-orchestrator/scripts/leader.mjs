@@ -30,14 +30,20 @@ export function shouldUseLeader(args, owner, verifier) {
   );
 }
 
-function compactCost(cost) {
+export function compactCost(cost) {
   return {
     unit: cost.unit,
     actual: { model: cost.actual.model, amount: cost.actual.amount },
     sameTokenBaseline: { model: cost.sameTokenBaseline.model, amount: cost.sameTokenBaseline.amount },
     estimatedSavings: cost.estimatedSavings,
     estimatedSavingsRate: cost.estimatedSavingsRate,
-    historicalProjection: cost.historicalProjection,
+    historicalProjection: {
+      profileId: cost.historicalProjection.profileId,
+      estimatedSolOnlyCost: cost.historicalProjection.estimatedSolOnlyCost,
+      estimatedSavings: cost.historicalProjection.estimatedSavings,
+      estimatedSavingsRate: cost.historicalProjection.estimatedSavingsRate,
+      confidence: cost.historicalProjection.confidence,
+    },
   };
 }
 
@@ -52,7 +58,7 @@ function compactRouting(routing) {
   };
 }
 
-function compactUsage(usage) {
+export function compactUsage(usage) {
   return {
     inputTokens: usage.inputTokens,
     cachedInputTokens: usage.cachedInputTokens,

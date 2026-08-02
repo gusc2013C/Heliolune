@@ -23,6 +23,8 @@ $required = @(
     (Join-Path $pluginRoot 'scripts\supervision.mjs'),
     (Join-Path $pluginRoot 'scripts\finalization.mjs'),
     (Join-Path $pluginRoot 'scripts\leader.mjs'),
+    (Join-Path $pluginRoot 'scripts\profiles.mjs'),
+    (Join-Path $pluginRoot 'scripts\worktrees.mjs'),
     (Join-Path $pluginRoot 'scripts\progress.mjs'),
     (Join-Path $pluginRoot 'scripts\jobs.mjs'),
     (Join-Path $pluginRoot 'scripts\job-files.mjs'),
@@ -30,7 +32,6 @@ $required = @(
     (Join-Path $pluginRoot 'scripts\status-window.mjs'),
     (Join-Path $pluginRoot 'scripts\status-window.ps1'),
     (Join-Path $pluginRoot 'scripts\status-window-launcher.vbs'),
-    (Join-Path $pluginRoot 'assets\status.html'),
     (Join-Path $pluginRoot 'assets\status-locales.json'),
     $skillPath,
     (Join-Path $repoRoot 'README.md'),
@@ -42,10 +43,16 @@ $required = @(
     (Join-Path $repoRoot 'RELEASE_CHECKLIST.zh-CN.md'),
     (Join-Path $repoRoot 'docs\ARCHITECTURE.zh-CN.md'),
     (Join-Path $repoRoot 'docs\BENCHMARKS.zh-CN.md'),
+    (Join-Path $repoRoot 'docs\0.6-RESEARCH.md'),
+    (Join-Path $repoRoot 'docs\0.6-RESEARCH.zh-CN.md'),
+    (Join-Path $repoRoot 'docs\HELIOLUNE-VS-CODEX-SUBAGENTS.md'),
+    (Join-Path $repoRoot 'docs\HELIOLUNE-VS-CODEX-SUBAGENTS.zh-CN.md'),
     (Join-Path $repoRoot 'tests\pricing.test.mjs'),
     (Join-Path $repoRoot 'tests\supervision.test.mjs'),
     (Join-Path $repoRoot 'tests\finalization.test.mjs'),
     (Join-Path $repoRoot 'tests\leader.test.mjs'),
+    (Join-Path $repoRoot 'tests\profiles.test.mjs'),
+    (Join-Path $repoRoot 'tests\worktrees.test.mjs'),
     (Join-Path $repoRoot 'tests\progress.test.mjs'),
     (Join-Path $repoRoot 'tests\jobs.test.mjs'),
     (Join-Path $repoRoot 'tests\job-files.test.mjs'),
@@ -56,9 +63,15 @@ $required = @(
     (Join-Path $repoRoot 'tests\fixtures\fake-app-server.mjs'),
     (Join-Path $repoRoot 'scripts\run-live-benchmark.mjs'),
     (Join-Path $repoRoot 'scripts\run-codex-host-smoke.mjs'),
+    (Join-Path $repoRoot 'scripts\benchmark-parallel-luna.mjs'),
+    (Join-Path $repoRoot 'scripts\measure-tool-schema.mjs'),
+    (Join-Path $repoRoot 'scripts\run-speed-batch-smoke.mjs'),
+    (Join-Path $repoRoot 'scripts\run-parallel-write-smoke.mjs'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis-direct.json'),
-    (Join-Path $repoRoot 'benchmarks\forced-finalization.json')
+    (Join-Path $repoRoot 'benchmarks\forced-finalization.json'),
+    (Join-Path $repoRoot 'benchmarks\results\0.6-parallel-cold-r1.json'),
+    (Join-Path $repoRoot 'benchmarks\results\0.6-parallel-cold-r2.json')
 )
 
 foreach ($path in $required) {
@@ -71,8 +84,8 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | Convert
 if ($manifest.name -ne 'luna-pool-orchestrator') {
     throw "Unexpected plugin name: $($manifest.name)"
 }
-if ($manifest.version -notmatch '^0\.5\.[0-2](?:-alpha\.[0-9]+)?(?:\+codex\.[0-9A-Za-z.-]+)?$') {
-    throw "Unexpected alpha version: $($manifest.version)"
+if ($manifest.version -notmatch '^0\.6\.0(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+    throw "Unexpected release version: $($manifest.version)"
 }
 if ($manifest.author.name -ne 'Sicheng Gu' -or $manifest.interface.developerName -ne 'Sicheng Gu') {
     throw 'Plugin author and developerName must be Sicheng Gu.'
@@ -97,8 +110,12 @@ if (-not $mcp.mcpServers.'luna-pool' -or -not $mcp.mcpServers.'luna-await') {
 if ($mcp.mcpServers.'luna-pool'.default_tools_approval_mode -ne 'approve' -or $mcp.mcpServers.'luna-await'.default_tools_approval_mode -ne 'approve') {
     throw 'Installed Heliolune MCP tools must avoid redundant blocking approval prompts.'
 }
-if (@($mcp.mcpServers.'luna-pool'.enabled_tools) -notcontains 'start_task' -or @($mcp.mcpServers.'luna-await'.enabled_tools) -notcontains 'await_task') {
-    throw 'Visible status requires start_task on luna-pool and await_task on luna-await.'
+$poolTools = @($mcp.mcpServers.'luna-pool'.enabled_tools)
+if ($poolTools -notcontains 'start_task' -or $poolTools -notcontains 'start_batch' -or @($mcp.mcpServers.'luna-await'.enabled_tools) -notcontains 'await_task') {
+    throw 'Heliolune requires start_task/start_batch on luna-pool and await_task on luna-await.'
+}
+if ($poolTools -contains 'run_task' -or $poolTools -contains 'job_status') {
+    throw 'Removed duplicate/inline tools must not be exposed in 0.6.'
 }
 
 $skill = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
@@ -116,16 +133,18 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
     throw 'README versions do not match the plugin manifest.'
 }
 
-foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs', 'leader.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'status-window.mjs')) {
+foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs', 'leader.mjs', 'profiles.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'status-window.mjs')) {
     & node --check (Join-Path $pluginRoot "scripts\$script")
     if ($LASTEXITCODE -ne 0) {
         throw "Node syntax validation failed: $script"
     }
 }
 
-& node --check (Join-Path $repoRoot 'scripts\run-codex-host-smoke.mjs')
-if ($LASTEXITCODE -ne 0) {
-    throw 'Node syntax validation failed: run-codex-host-smoke.mjs'
+foreach ($scriptPath in Get-ChildItem -LiteralPath (Join-Path $repoRoot 'scripts') -Filter '*.mjs' -File) {
+    & node --check $scriptPath.FullName
+    if ($LASTEXITCODE -ne 0) {
+        throw "Node syntax validation failed: $($scriptPath.Name)"
+    }
 }
 
 $nodeTests = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'tests') -Filter '*.test.mjs' -File | Select-Object -ExpandProperty FullName)
@@ -136,14 +155,19 @@ if ($LASTEXITCODE -ne 0) {
 
 $serverText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\server.mjs') -Raw -Encoding UTF8
 $clientText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\app-server-client.mjs') -Raw -Encoding UTF8
+$awaitText = Get-Content -LiteralPath (Join-Path $pluginRoot 'scripts\await-server.mjs') -Raw -Encoding UTF8
 $escapedVersion = [regex]::Escape(($manifest.version -replace '\+.*$', ''))
 $serverVersionPattern = 'const VERSION = ["'']' + $escapedVersion + '["'']'
 $clientVersionPattern = 'const APP_VERSION = ["'']' + $escapedVersion + '["'']'
+$awaitVersionPattern = 'const VERSION = ["'']' + $escapedVersion + '["'']'
 if ($serverText -notmatch $serverVersionPattern) {
     throw 'server.mjs version does not match the plugin manifest.'
 }
 if ($clientText -notmatch $clientVersionPattern) {
     throw 'app-server-client.mjs version does not match the plugin manifest.'
+}
+if ($awaitText -notmatch $awaitVersionPattern) {
+    throw 'await-server.mjs version does not match the plugin manifest.'
 }
 
 $parseFailures = @()
@@ -170,6 +194,9 @@ if ([System.IO.File]::ReadAllBytes($statusWindowScript) | Where-Object { $_ -gt 
 $statusLocales = Get-Content -LiteralPath (Join-Path $pluginRoot 'assets\status-locales.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $statusLocales.en -or -not $statusLocales.'zh-CN') {
     throw 'The status window must ship English and Simplified Chinese locales.'
+}
+if (Test-Path -LiteralPath (Join-Path $pluginRoot 'assets\status.html') -PathType Leaf) {
+    throw 'The removed inline status app must not ship in 0.6.'
 }
 
 $forbidden = Get-ChildItem -LiteralPath $repoRoot -Recurse -Force -File | Where-Object {

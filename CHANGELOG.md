@@ -4,6 +4,31 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.0] - 2026-08-02
+
+### Added
+
+- Add a Sol-selected `token-first` profile and a `speed-first` profile with four stable-default or eight experimental Luna/max burst workers.
+- Add `start_batch` for 2–8 independent, Sol-defined workstreams with per-workstream deadlines and failure isolation.
+- Let one shared Luna/high Leader manage all still-active parallel sessions at the 90-second sizing checkpoint, then reuse the warm Leader to aggregate terminal outcomes. Ninety seconds is not a hard cap; bounded workstreams may run up to 600 seconds.
+- Dynamically render all four/eight burst workers and the shared Leader in the native status window.
+- Add detached-HEAD Git worktree isolation for parallel implementation and repair. Clean-HEAD, exact-scope, completion, actual-path overlap, and `git apply --check --index` gates must all pass before patches are safely applied to the main worktree.
+- Retain local patch artifacts instead of changing the main worktree when deterministic integration is held for Sol.
+- Add an English/简体中文 comparison of Heliolune and native Codex subagents, based on the official Codex subagent and worktree documentation.
+
+### Optimized
+
+- Make four-way parallelism the conditional default for separable workstreams after cold-equivalent read-only cost stayed comparable to serial execution while mean wall time improved about 3.8x. Keep eight-way opt-in because of tail variance.
+- Remove the inline MCP App, app-only `job_status`, duplicate public `run_task`, and low-frequency public tuning fields. The complete 0.6 tool surface is approximately 38.2% smaller than the previous token-first surface by serialized-character estimate.
+- Accept both nested `params.turn.id` and top-level `params.turnId` completion notifications, avoiding false active timeouts after a worker has already completed.
+- Compact batch usage, cost projections, and output strings before returning them to Sol; full pricing assumptions remain available from `cost_dashboard`.
+- Use fresh ephemeral Luna sessions for mutating worktrees so cache history cannot leak another workstream's checkout context.
+
+### Safety and verification
+
+- Sol alone decomposes batches and owns architecture, security, public APIs, irreversible migrations, risk acceptance, review, and final acceptance. The Leader manages liveness and compression only.
+- A real two-worker write smoke safely integrated two disjoint files in 35.541 seconds total, left the Git index clean, and removed every temporary worktree. Focused Git safety tests cover clean integration, out-of-scope rejection, dirty-main rejection, and changed-HEAD rejection.
+
 ## [0.5.2] - 2026-08-02
 
 ### Added

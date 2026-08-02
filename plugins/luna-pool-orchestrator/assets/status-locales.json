@@ -19,14 +19,16 @@
       "Idle": "Waiting for an assigned task",
       "NoExplanation": "Starting up and waiting for Luna to explain its current work…",
       "Elapsed": "elapsed",
-      "ActiveCount": "{0} active"
+      "ActiveCount": "{0} active",
+      "BurstWorker": "Burst worker {0}"
     },
     "lanes": {
       "core": "Core",
       "tests": "Tests",
       "integration": "Integration",
       "verifier": "Verifier",
-      "supervisor": "Leader"
+      "supervisor": "Leader",
+      "speed-first": "Speed first"
     },
     "statuses": {
       "idle": "Idle",
@@ -60,14 +62,16 @@
       "Idle": "等待分配任务",
       "NoExplanation": "正在启动，等待 Luna 汇报当前工作…",
       "Elapsed": "已用时",
-      "ActiveCount": "{0} 个活动"
+      "ActiveCount": "{0} 个活动",
+      "BurstWorker": "并行工作单元 {0}"
     },
     "lanes": {
       "core": "核心实现",
       "tests": "测试验证",
       "integration": "集成工程",
       "verifier": "独立审查",
-      "supervisor": "Leader 监督"
+      "supervisor": "Leader 监督",
+      "speed-first": "速度优先"
     },
     "statuses": {
       "idle": "空闲",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { AppServerClient, compactStatusExplanation } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
+import { AppServerClient, compactStatusExplanation, notificationTurnId } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "fake-app-server.mjs");
 const schema = { type: "object", additionalProperties: false, required: ["ok"], properties: { ok: { type: "boolean" } } };
@@ -12,6 +12,11 @@ test("worker status explanations are compact natural-language summaries", () => 
   const bounded = compactStatusExplanation("x".repeat(500), 80);
   assert.equal(bounded.length, 80);
   assert.match(bounded, /…$/);
+});
+
+test("turn completion IDs support both app-server notification shapes", () => {
+  assert.equal(notificationTurnId({ params: { turn: { id: "nested" } } }), "nested");
+  assert.equal(notificationTurnId({ params: { turnId: "top-level", turn: {} } }), "top-level");
 });
 
 async function clientForTest(t) {
@@ -36,6 +41,18 @@ test("recent app-server events prove a worker is live at soft timeout", async (t
   assert.ok(snapshot.eventCount >= 1);
   assert.ok(snapshot.silentMs < 50);
   assert.equal(run.supervision.action, "continue");
+});
+
+test("top-level turnId completion does not wait until the hard timeout", async (t) => {
+  const client = await clientForTest(t);
+  const startedAt = Date.now();
+  const run = await client.runTurn({
+    threadId: "fake-thread", text: "TOP_LEVEL_TURN_ID", cwd: process.cwd(),
+    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
+  });
+  assert.equal(run.output.ok, true);
+  assert.ok(Date.now() - startedAt < 400);
+  assert.equal(run.activity.lastMethod, "turn/completed");
 });
 
 test("supervisor can interrupt a silent worker before hard timeout", async (t) => {

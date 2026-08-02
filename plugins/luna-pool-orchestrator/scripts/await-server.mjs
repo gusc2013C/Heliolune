@@ -1,11 +1,11 @@
 import readline from "node:readline";
 import { waitForJobRecord } from "./job-files.mjs";
 
-const VERSION = "0.5.2";
+const VERSION = "0.6.0";
 const TOOL = {
   name: "await_task",
   title: "Await Heliolune task",
-  description: "Block once on a job returned by luna-pool.start_task and return its final compact owner/verifier/Leader bundle to Sol. Do not call more than once for the same job.",
+  description: "Block once on a job returned by luna-pool.start_task or start_batch and return its compact terminal bundle to Sol. Never call more than once for the same job.",
   inputSchema: {
     type: "object", additionalProperties: false,
     required: ["jobId"],

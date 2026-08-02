@@ -71,3 +71,17 @@ Unit coverage also verifies silent operation without a progress token, strict mo
 Codex CLI 0.146.0 does not attach a progress token to model-initiated MCP calls or advertise the MCP Apps capability. The installed-plugin host smoke therefore exercised the 0.5.2 fallback path: `start_task` returned immediately, a separate `luna-await` server blocked without consuming Sol turns, and a Windows-native status window rendered in Simplified Chinese. The window showed all five fixed lanes (`core`, `tests`, `integration`, `verifier`, and `supervisor`) while the main MCP server remained responsive to status reads.
 
 The final integration-lane regression completed worker execution in 27.558 seconds (29.244 seconds host wall time). It used 14,886 input / 13,056 cached / 634 output tokens, including 444 reasoning tokens, for an 87.71% input-cache rate. Estimated Luna cost was `0.034698`; the visible historical-profile projection was Sol-only `0.142357`, with projected savings `0.107659` (75.6261%). The active worker supplied a bounded natural-language status in Chinese explaining the token gate, finite-value validation, throttling, 0–100 bounds, monotonicity, and terminal close. The regression additionally requires exactly five worker records, a terminal active-worker state, a Chinese Luna-authored explanation when the UI locale is Chinese, and a non-empty `alpha-0.5.0-matched` cost projection.
+
+## 0.6 parallel profiles
+
+Eight identical, independent read-only audits were run on fresh Luna/max threads at concurrency 1, 4, and 8. Each arm also paid for one fresh Luna/high Leader aggregation. To compare cost without relying on Luna cache hits, `cacheIgnoredColdEquivalent` prices every input token at the uncached Luna rate.
+
+| Concurrency | Samples | Wall time | Speedup vs 1 | Quality | Cold-equivalent cost |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1 | 200.769s | 1.00x | 100% | 0.890920 |
+| 4 | 2 | mean 52.846s | 3.80x | 90–95% | mean 0.816648 |
+| 8 | 2 | 36.488–73.225s | 3.66x mean | 95% | mean 0.821255 |
+
+Four-way execution was stable and its cold-equivalent cost was comparable to serial, so it is the conditional default when Sol can define independent workstreams. Eight-way remains opt-in because one run was the fastest overall while another suffered a large straggler. Three end-to-end four-way read-only MCP smokes completed in 44.137s, 49.607s, and 43.843s, including shared Leader aggregation; the final reduced-schema smoke completed all workstreams at an estimated Luna cost of 0.225093. Workstreams should target 90 seconds, but may use bounded deadlines up to 600 seconds; one shared Leader session manages workers still active at their checkpoint.
+
+A separate real-write smoke used two Luna/max workers in detached Git worktrees. Heliolune applied disjoint changes to `alpha.txt` and `beta.txt`, left the main index unstaged, removed every temporary worktree, and completed in 35.541s at an estimated Luna cost of 0.116710. Unit tests cover dirty-main, changed-`HEAD`, scope-escape, and retained-patch failure paths. See [the full 0.6 engineering report](0.6-RESEARCH.md) and its raw JSON artifacts.

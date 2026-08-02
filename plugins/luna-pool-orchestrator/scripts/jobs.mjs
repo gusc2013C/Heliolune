@@ -56,7 +56,7 @@ export class JobStore {
     }
   }
 
-  start({ lane, effort = "max", workerLanes = [lane], run, onSnapshot }) {
+  start({ lane, effort = "max", workerLanes = [lane], activeLanes = [lane], run, onSnapshot }) {
     this.#prune();
     if (this.jobs.size >= this.maxJobs) throw new Error("Too many active Heliolune jobs; await an existing job before starting another.");
     const timestamp = this.now();
@@ -73,8 +73,8 @@ export class JobStore {
       updates: [],
       workers: Object.fromEntries([...new Set(workerLanes)].map((workerLane) => [workerLane, {
         lane: workerLane,
-        status: workerLane === lane ? "queued" : "idle",
-        progress: workerLane === lane ? 1 : 0,
+        status: activeLanes.includes(workerLane) ? "queued" : "idle",
+        progress: activeLanes.includes(workerLane) ? 1 : 0,
         explanation: null,
         updatedAt: new Date(timestamp).toISOString(),
       }])),
@@ -123,8 +123,10 @@ export class JobStore {
         job.status = "completed";
         job.progress = 100;
         job.message = `Heliolune Leader · task complete · ${result?.status ?? "completed"} · ready for Sol`;
-        job.workers[job.lane].status = "completed";
-        job.workers[job.lane].progress = 100;
+        if (job.workers[job.lane]) {
+          job.workers[job.lane].status = "completed";
+          job.workers[job.lane].progress = 100;
+        }
         job.sequence += 1;
         job.updatedAt = this.now();
         return result;
@@ -133,8 +135,10 @@ export class JobStore {
         job.progress = 100;
         job.error = error?.message ?? String(error);
         job.message = `Heliolune Leader · task failed · ${job.error}`;
-        job.workers[job.lane].status = "failed";
-        job.workers[job.lane].progress = 100;
+        if (job.workers[job.lane]) {
+          job.workers[job.lane].status = "failed";
+          job.workers[job.lane].progress = 100;
+        }
         job.sequence += 1;
         job.updatedAt = this.now();
         return null;

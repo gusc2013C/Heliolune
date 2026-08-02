@@ -4,9 +4,9 @@
 
 **高智力监督，低成本执行。**
 
-Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个可用适配器面向 Codex，由 GPT-5.6 Sol 管理四个隐藏的 GPT-5.6 Luna/max worker，并由一个共享 Luna/high Operations Leader 跟踪运行状态、压缩较大的结果。
+Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个可用适配器面向 Codex，由 GPT-5.6 Sol 管理持久 token-first Luna/max lane，或带 detached-worktree 写隔离的 4/8 路 speed-first worker。
 
-> 当前版本：**`0.5.2`**。1.0 之前公共接口仍可能调整。
+> 当前发布版本：**`0.6.0`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -32,15 +32,18 @@ Sol review and final acceptance
 ## 当前能力
 
 - `core`、`tests`、`integration` 三个 owner lane，以及独立只读 `verifier`。
+- token-first 使用一个持久功能型 owner；speed-first 使用默认 4 路、实验 8 路的 Luna/max burst worker。
 - worker 使用 Luna/max；共享 Operations Leader 默认使用 Luna/high，可选 xhigh。
 - session 使用 `ephemeral=true`，通常不会出现在 Codex Desktop 普通任务列表中。
 - 同一功能持续复用固定 lane，提高 prompt/cache 命中率。
 - 一次异步启动加一次阻塞等待替代 Sol 轮询；终态返回前 Sol 停止生成。
 - owner/verifier 使用受限 JSON schema，返回 evidence、changes、checks、risks 与 `needsSol`。
 - 60 秒以上任务默认在原硬截止内预留 40–90 秒；活跃 turn 通过 app-server `turn/steer` 原位停止探索并输出结构化结果。
-- `reporting=auto`：小型低风险结果直接返回；大结果、verifier、高风险、保留边界或 `needsSol` 才唤醒 Leader 压缩。
+- 自动报告路由：小型低风险结果直接返回；大结果、verifier、高风险、保留边界或 `needsSol` 才唤醒 Leader 压缩。
 - 未唤醒 Leader 的小任务只追加有上限的 lifecycle digest；Leader 下次运行时批量接收 backlog。
-- Host 支持 MCP Apps 时使用内联面板，否则在 Windows 自动使用 WPF 悬浮窗；显示五个 lane、各自进度、Luna 提供的自然语言 reasoning summary，以及由历史 benchmark 校准的 Sol-only 费用与节省预测，且不产生额外 Sol token。
+- Windows 只使用一个原生 WPF 悬浮窗，动态显示所有持久或 4/8 路 burst lane、Luna 自然语言 reasoning summary，以及历史 benchmark 校准的 Sol-only 费用与节省预测，不产生额外 Sol token。
+- speed-first 长任务到达各自 90 秒规模检查点时，由一个共享 Luna/high Leader session 合并管理当前活跃 worker；后续排队批次仍复用该 warm session，终态也由它压缩。90 秒不是硬上限。
+- 并行实现和修复使用 fresh Luna session 与 detached Git worktree；只有 clean HEAD、全部完成、scope、路径重叠和 Git apply gate 全部通过，patch 才进入主工作树。
 - 精确统计 Luna 输入、缓存输入、输出、推理输出、墙钟时间；提供费用估算与 `cost_dashboard`。
 - 无第三方 npm 依赖，不复制 Codex 可执行文件，不上传 telemetry 或 worker transcript。
 
@@ -62,21 +65,20 @@ Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能
 
 | 工具 | 用途 |
 |---|---|
-| `initialize_pool` | 校验本地 app-server，初始化四个 worker lane 与共享 Leader；真实付费健康 turn 可选。 |
-| `start_task` | 启动一个有界任务并选择内联或原生状态界面。 |
+| `initialize_pool` | 校验本地 app-server，初始化所选 token-first / speed-first lane 与共享 Leader；真实付费健康 turn 可选。 |
+| `start_task` | 启动一个有界 token-first 任务并显示原生状态。 |
+| `start_batch` | 用 4 或 8 个 Luna/max worker 启动 2–8 个独立分析、实现或修复 workstream；写入由 worktree 隔离。 |
 | `await_task`（`luna-await`） | 对已启动任务阻塞等待一次，返回紧凑终态结果。 |
-| `run_task` | 为能提供标准 MCP progress token 的 host 保留的单调用兼容路径。 |
-| `job_status` | 仅供 UI 使用的无 transcript 状态读取；对模型隐藏。 |
 | `pool_status` | 不调用模型，返回 lane、prompt 版本、复用次数与最近 usage。 |
 | `cost_dashboard` | 不调用模型，返回累计成本、历史校准的 Sol-only 预测、缓存与分 lane 统计。 |
 
 ## Codex 中可见的工作状态
 
-Codex Desktop 使用 `start_task` 后立即调用一次 `luna-await.await_task`，Sol 在该调用上停止生成；模型不得轮询 `job_status` 或 `pool_status`。独立等待服务器让状态服务器在阻塞期间保持可读，不会创建新的模型 session 或 controller turn。
+Codex Desktop 使用 `start_task` 或 `start_batch` 后立即调用一次 `luna-await.await_task`，Sol 在该调用上停止生成；模型不得轮询 `pool_status` 或读取本地 job 文件。独立等待服务器让原生窗口在阻塞期间持续读取状态，不会创建新的模型 session 或 controller turn。
 
-Codex CLI `0.146.0` 不会给模型发起的 MCP 调用附加 `_meta.progressToken`，也没有声明 MCP Apps UI 扩展，因此 0.5.2 在 Windows 自动启动 WPF 悬浮窗。窗口根据系统用户语言自动切换英语/简体中文，显示 `core`、`tests`、`integration`、`verifier`、`supervisor` 的状态和进度；终态 token 用量到达后，还会显示 Luna 实际估算费用、历史 profile 预计的 Sol-only 费用和预估节省，并在完成 15 秒后关闭。`HELIOLUNE_STATUS_WINDOW=off` 可关闭，`on` 可强制启用。未来 host 若声明 `io.modelcontextprotocol/ui`，只使用内联面板，不启动悬浮窗。
+Heliolune 在 Windows 自动启动一个 WPF 悬浮窗，不再同时提供内联 task 面板。窗口根据系统用户语言自动切换英语/简体中文，动态显示 token-first 或 4/8 路 burst worker 与共享 Leader；终态 token 用量到达后，还会显示 Luna 实际估算费用、历史 profile 预计的 Sol-only 费用和预估节省，并在完成 15 秒后关闭。`HELIOLUNE_STATUS_WINDOW=off` 可关闭，`on` 可强制启用。
 
-自然语言工作说明来自活动 Luna turn 已经生成的官方 `reasoning/summaryTextDelta`，不会为“解说”额外唤醒模型。Heliolune 不显示 raw reasoning、命令输出或完整 worker transcript。其他能提供 progress token 的 host 仍可使用单次阻塞 `run_task` 和标准 `notifications/progress`。
+自然语言工作说明来自活动 Luna turn 已经生成的官方 `reasoning/summaryTextDelta`，不会为“解说”额外唤醒模型。Heliolune 不显示 raw reasoning、命令输出或完整 worker transcript。Host 若提供 progress token，start 调用仍可发送标准 `notifications/progress`。
 
 ## 环境要求
 
@@ -90,7 +92,7 @@ Codex CLI `0.146.0` 不会给模型发起的 MCP 调用附加 `_meta.progressTok
 ## 从 checkout 安装
 
 ```powershell
-codex plugin marketplace add D:\code\heliolune
+codex plugin marketplace add "C:\path\to\heliolune"
 codex plugin add luna-pool-orchestrator@heliolune
 ```
 
@@ -114,6 +116,24 @@ Limit scope to src/parser and tests/parser, run focused tests,
 and let Sol review and accept the final result.
 ```
 
+对于可以拆开的工作，让 Sol 选择 speed-first：
+
+```text
+使用 $luna-pool-orchestrator 的 speed-first 档位。
+由 Sol 定义互相独立的 workstream，默认使用 4 个 Luna/max worker，
+由共享 Leader 管理长任务，只 await 一次，最后由 Sol 审查。
+优先将每个 workstream 缩到 90 秒内，但不要把 90 秒当作硬上限。
+```
+
+并行写入要求干净 Git 根目录与精确非重叠 scope：
+
+```text
+使用 $luna-pool-orchestrator 的 speed-first 档位。
+由 Sol 定义两个文件 scope 不重叠的独立实现 workstream。
+默认使用 4 个 Luna/max worker、detached worktree 隔离和确定性安全集成。
+await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff、运行聚焦测试并最终验收。
+```
+
 优质任务应有明确 outcome、1–8 条可测试 acceptance、尽可能窄的文件/目录 scope，以及合理的文件/命令预算。不要把完整源码、旧 transcript 或通用项目背景粘贴给 worker；Luna 会直接读取仓库。
 
 ## 路由与收尾
@@ -124,7 +144,13 @@ and let Sol review and accept the final result.
 - `verifier`：独立只读验证，不作为实现 owner。
 - `supervisor`：兼容 lane 名；实际职责为 Operations Leader。
 
-默认使用 `verification=auto`、`finalization=auto`、`reporting=auto`。活跃 worker 超过工作预算时，MCP 在同一 turn 内发送 `FINALIZE_NOW`，不延长硬截止；worker 可以诚实返回 `partial`。若已完成 turn 只是不符合 JSON，才启用同一 warm thread 的一次 no-tools fallback turn。
+公开接口保留 `verification=auto`，finalization 与报告路由则由 0.6 内部自动管理。活跃 worker 超过工作预算时，MCP 在同一 turn 内发送 `FINALIZE_NOW`，不延长硬截止；worker 可以诚实返回 `partial`。若已完成 turn 只是不符合 JSON，才启用同一 warm thread 的一次 no-tools fallback turn。
+
+dirty 仓库、scope 重叠或有依赖的修改，以及小任务继续使用 token-first。Sol 能定义至少两个独立 workstream 时，条件默认 4 路 speed-first：本地只读冷等价费用与串行相当，平均墙钟约加速 3.8 倍。8 路因长尾方差较大，必须显式选择。
+
+并行 workstream 优先缩到 90 秒内，但独立硬截止允许最长 600 秒。到各自检查点时，共享 Luna/high Leader session 会合并同时发生的请求，读取当前活跃 session 的紧凑 snapshot，并可建议 continue/interrupt；后续排队波次可在同一 warm session 上再进行一次有界检查，不做轮询。Leader 不得规划、重分配 scope 或验收 batch。单个长尾或失败不会丢弃已完成的兄弟 workstream。
+
+mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓库相对、非重叠且不含 glob/父目录跳转的路径。每个写 worker 在已验证 `HEAD` 的 fresh detached worktree 中启动。Heliolune 捕获 tracked、删除、rename、binary 与 untracked 变更，校验实际路径，全部 gate 通过后统一应用 patch、保持 index 未 staged，并清理临时 worktree。若 gate 失败，主 checkout 不变，结果返回本地 patch artifact 给 Sol；不得盲目应用。
 
 ## 费用
 
@@ -175,7 +201,7 @@ pwsh -NoProfile -File .\scripts\package-release.ps1
 
 ### Leader 进度不可见
 
-安装 0.5.2 后新建 Codex 任务。Codex CLI 0.146.0 上，`start_task` 应返回 `display.mode=native-window`；窗口只有实际渲染后才写入本地 `*.window.json` ready 标记。若未显示，可查看相邻的 `*.window-error.log`。未来 host 声明 MCP Apps 后会改用内联面板，不再启动悬浮窗。
+安装后新建 Codex 任务。`start_task` 与 `start_batch` 应返回 `display.mode=native-window`；窗口只有实际渲染后才写入本地 `*.window.json` ready 标记。若未显示，可查看相邻的 `*.window-error.log`。`HELIOLUNE_STATUS_WINDOW=off` 会关闭悬浮窗。
 
 ### worker 出现在 Desktop 任务列表
 
@@ -183,11 +209,13 @@ pwsh -NoProfile -File .\scripts\package-release.ps1
 
 ### benchmark 没有节省
 
-确认两个 arm 使用相同 repo state、scope、acceptance、schema 与匹配 warmup。不要为 Luna 结果创建新的冷 Sol 验收 session。小任务默认应由 `reporting=auto` 跳过 Leader model turn。
+确认两个 arm 使用相同 repo state、scope、acceptance、schema 与匹配 warmup。不要为 Luna 结果创建新的冷 Sol 验收 session。自动报告路由应让小任务跳过 Leader model turn。
 
 ## 文档
 
 - [架构](docs/ARCHITECTURE.zh-CN.md)
+- [0.6 Token / 并行工程报告](docs/0.6-RESEARCH.zh-CN.md)
+- [Heliolune 与 Codex subagent 对比](docs/HELIOLUNE-VS-CODEX-SUBAGENTS.zh-CN.md)
 - [Benchmark 方法与结果](docs/BENCHMARKS.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
 - [贡献指南](CONTRIBUTING.zh-CN.md)
@@ -198,7 +226,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1
 
 - 抽取 provider-neutral controller/worker adapter 接口。
 - 允许配置 controller 与 worker 身份。
-- 将固定 lane 转为声明式路由 profile。
+- 稳定声明式 token-first / speed-first 路由 profile。
+- 为隔离写 worktree 增加可选、确定性的依赖 setup hook。
 - 支持更多 agent host 与 MCP 模型后端。
 - 增加跨仓库、可复现的 benchmark fixture。
 - 在 1.0 前稳定 MCP contract。

@@ -1,0 +1,434 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-02T12:05:13.179Z",
+  "repository": "heliolune",
+  "model": "gpt-5.6-luna",
+  "workerEffort": "max",
+  "leaderEffort": "high",
+  "taskCount": 8,
+  "cachePolicy": "Observed cache is reported, but cacheIgnoredColdEquivalent prices every input token at the uncached Luna rate.",
+  "summary": [
+    {
+      "parallelism": 1,
+      "repeats": 1,
+      "measuredWallMs": 200769,
+      "workerMs": 196358,
+      "leaderMs": 4411,
+      "speedup": 1,
+      "qualityRate": 1,
+      "observedCost": 0.456616,
+      "cacheIgnoredColdEquivalent": 0.89092,
+      "cacheRate": 0.6785819751662846
+    },
+    {
+      "parallelism": 4,
+      "repeats": 1,
+      "measuredWallMs": 52064,
+      "workerMs": 46561,
+      "leaderMs": 5503,
+      "speedup": 3.856196220036878,
+      "qualityRate": 0.95,
+      "observedCost": 0.311699,
+      "cacheIgnoredColdEquivalent": 0.7817149999999999,
+      "cacheRate": 0.7425301247645114
+    },
+    {
+      "parallelism": 8,
+      "repeats": 1,
+      "measuredWallMs": 73225,
+      "workerMs": 67629,
+      "leaderMs": 5596,
+      "speedup": 2.741809491293957,
+      "qualityRate": 0.95,
+      "observedCost": 0.523509,
+      "cacheIgnoredColdEquivalent": 0.843765,
+      "cacheRate": 0.5030144964412686
+    }
+  ],
+  "runs": [
+    {
+      "parallelism": 1,
+      "repeat": 1,
+      "initializationMs": 331,
+      "workerMs": 196358,
+      "leaderMs": 4411,
+      "measuredWallMs": 200769,
+      "totalWallMs": 201225,
+      "quality": {
+        "score": 40,
+        "maximum": 40,
+        "rate": 1,
+        "leaderOverall": "pass",
+        "tasks": [
+          {
+            "id": "completion-shapes",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "finalization-budget",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "stale-supervision",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "leader-routing",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "historical-cost",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "monotonic-progress",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "native-status",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "blocking-await",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          }
+        ]
+      },
+      "usage": {
+        "inputTokens": 142226,
+        "cachedInputTokens": 96512,
+        "outputTokens": 5993,
+        "reasoningOutputTokens": 5082,
+        "totalTokens": 148219,
+        "cacheWriteInputTokens": 0,
+        "uncachedInputTokens": 45714,
+        "cacheRate": 0.6785819751662846
+      },
+      "cost": {
+        "observed": 0.456616,
+        "cacheRate": 0.6785819751662846,
+        "cacheIgnoredColdEquivalent": 0.89092
+      }
+    },
+    {
+      "parallelism": 4,
+      "repeat": 1,
+      "initializationMs": 286,
+      "workerMs": 46561,
+      "leaderMs": 5503,
+      "measuredWallMs": 52064,
+      "totalWallMs": 52451,
+      "quality": {
+        "score": 38,
+        "maximum": 40,
+        "rate": 0.95,
+        "leaderOverall": "partial",
+        "tasks": [
+          {
+            "id": "completion-shapes",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "finalization-budget",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "stale-supervision",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "leader-routing",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "historical-cost",
+            "score": 4,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": false
+            }
+          },
+          {
+            "id": "monotonic-progress",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "native-status",
+            "score": 4,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": false,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "blocking-await",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          }
+        ]
+      },
+      "usage": {
+        "inputTokens": 140665,
+        "cachedInputTokens": 104448,
+        "outputTokens": 2613,
+        "reasoningOutputTokens": 1701,
+        "totalTokens": 143278,
+        "cacheWriteInputTokens": 0,
+        "uncachedInputTokens": 36217,
+        "cacheRate": 0.7425301247645114
+      },
+      "cost": {
+        "observed": 0.311699,
+        "cacheRate": 0.7425301247645114,
+        "cacheIgnoredColdEquivalent": 0.7817149999999999
+      }
+    },
+    {
+      "parallelism": 8,
+      "repeat": 1,
+      "initializationMs": 283,
+      "workerMs": 67629,
+      "leaderMs": 5596,
+      "measuredWallMs": 73225,
+      "totalWallMs": 73608,
+      "quality": {
+        "score": 38,
+        "maximum": 40,
+        "rate": 0.95,
+        "leaderOverall": "partial",
+        "tasks": [
+          {
+            "id": "completion-shapes",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "finalization-budget",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "stale-supervision",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "leader-routing",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "historical-cost",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "monotonic-progress",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          },
+          {
+            "id": "native-status",
+            "score": 3,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": false,
+              "path": true,
+              "line": true,
+              "signals": false
+            }
+          },
+          {
+            "id": "blocking-await",
+            "score": 5,
+            "maximum": 5,
+            "checks": {
+              "schema": true,
+              "verdict": true,
+              "path": true,
+              "line": true,
+              "signals": true
+            }
+          }
+        ]
+      },
+      "usage": {
+        "inputTokens": 141483,
+        "cachedInputTokens": 71168,
+        "outputTokens": 4545,
+        "reasoningOutputTokens": 3604,
+        "totalTokens": 146028,
+        "cacheWriteInputTokens": 0,
+        "uncachedInputTokens": 70315,
+        "cacheRate": 0.5030144964412686
+      },
+      "cost": {
+        "observed": 0.523509,
+        "cacheRate": 0.5030144964412686,
+        "cacheIgnoredColdEquivalent": 0.843765
+      }
+    }
+  ]
+}
