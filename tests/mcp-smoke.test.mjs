@@ -54,7 +54,7 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
 
   const listed = await request("tools/list");
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), [
-    "initialize_pool", "start_task", "start_batch", "pool_status", "cost_dashboard",
+    "initialize_pool", "start_batch", "start_task", "pool_status", "cost_dashboard",
   ]);
   const startTool = listed.result.tools.find((tool) => tool.name === "start_task");
   assert.equal(startTool._meta, undefined);

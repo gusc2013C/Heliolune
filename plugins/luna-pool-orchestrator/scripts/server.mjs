@@ -25,6 +25,7 @@ import { detectSystemLanguage, launchStatusWindow } from "./status-window.mjs";
 import {
   SPEED_FIRST,
   TOKEN_FIRST,
+  DEFAULT_PROFILE,
   batchSupervisionSchedule,
   burstLanes,
   compactBatchLeaderPrompt,
@@ -43,7 +44,7 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 const PROMPT_VERSION = "mcp-v9-isolated-write";
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
@@ -299,7 +300,7 @@ const INIT_INPUT_SCHEMA = {
   required: ["cwd"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
-    priority: { type: "string", enum: ["token-first", "speed-first"], default: "token-first" },
+    priority: { type: "string", enum: ["token-first", "speed-first"], default: "speed-first", description: "Four-way speed-first is the default; token-first is an explicit safety fallback." },
     parallelism: { type: "integer", enum: [4, 8], default: 4, description: "Only used when priority=speed-first." },
     healthTurn: { type: "boolean", default: false, description: "Run a minimal paid Luna turn on every selected lane. False checks availability and creates/resumes sessions without a model turn." },
     timeoutSeconds: { type: "integer", minimum: 30, maximum: 900, default: 300 },
@@ -313,22 +314,22 @@ const TOOLS = [
   {
     name: "initialize_pool",
     title: "Initialize Heliolune pool",
-    description: "Create or resume the token-first four-worker pool or the speed-first four/eight-worker burst pool plus one shared Luna/high Leader, without changing code.",
+    description: "Create or resume the default four/eight-worker speed-first pool or an explicit token-first fallback pool plus one shared Luna/high Leader, without changing code.",
     inputSchema: INIT_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
   {
-    name: "start_task",
-    title: "Start token-first Heliolune task",
-    description: "Start one cache-oriented function-affine Luna/max task and render the native Windows Leader panel when enabled. Always call luna-await.await_task once with the returned jobId.",
-    inputSchema: RUN_INPUT_SCHEMA,
+    name: "start_batch",
+    title: "Start default parallel Heliolune batch",
+    description: "Default route: run 2-8 meaningful Sol-defined workstreams on four Luna/max workers (or explicit eight). One writer may be paired with independent read-only contract, edge-case, test, or verification streams. Writes use clean detached Git worktrees and apply only disjoint in-scope patches. Await once.",
+    inputSchema: BATCH_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
   {
-    name: "start_batch",
-    title: "Start speed-first Heliolune batch",
-    description: "Run 2-8 independent Sol-defined workstreams on four or eight Luna/max workers. Writes use clean detached Git worktrees and apply only disjoint in-scope patches. A shared Leader manages long tasks and compresses outcomes. Four is default; eight is experimental. Await once.",
-    inputSchema: BATCH_INPUT_SCHEMA,
+    name: "start_task",
+    title: "Start token-first Heliolune fallback",
+    description: "Explicit fallback for a mutating non-Git/dirty repository or work that cannot be isolated safely. Run one cache-oriented Luna/max owner and await once.",
+    inputSchema: RUN_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
   {
@@ -515,7 +516,7 @@ async function initializePool(args, context = {}) {
   const key = projectKey(cwd);
   const project = registry.projects[key] ??= { cwd, lanes: {}, createdAt: new Date().toISOString() };
   const timeoutMs = (args.timeoutSeconds ?? 300) * 1000;
-  const priority = args.priority ?? TOKEN_FIRST.id;
+  const priority = args.priority ?? DEFAULT_PROFILE.id;
   const parallelism = priority === SPEED_FIRST.id ? speedParallelism(args.parallelism) : TOKEN_FIRST.defaultParallelism;
   const poolLanes = priority === SPEED_FIRST.id ? [...burstLanes(parallelism), "supervisor"] : LANES;
   const health = [];

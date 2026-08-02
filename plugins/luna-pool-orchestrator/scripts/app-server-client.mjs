@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
 
 export function compactStatusExplanation(value, maxLength = 360) {

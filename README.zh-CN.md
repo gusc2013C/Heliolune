@@ -6,7 +6,7 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个可用适配器面向 Codex，由 GPT-5.6 Sol 管理持久 token-first Luna/max lane，或带 detached-worktree 写隔离的 4/8 路 speed-first worker。
 
-> 当前发布版本：**`0.6.0`**。1.0 之前公共接口仍可能调整。
+> 当前发布版本：**`0.6.1`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -32,7 +32,7 @@ Sol review and final acceptance
 ## 当前能力
 
 - `core`、`tests`、`integration` 三个 owner lane，以及独立只读 `verifier`。
-- token-first 使用一个持久功能型 owner；speed-first 使用默认 4 路、实验 8 路的 Luna/max burst worker。
+- speed-first 默认启动 4 路 Luna/max burst worker，8 路为实验选项；token-first 仅作为显式安全回退。
 - worker 使用 Luna/max；共享 Operations Leader 默认使用 Luna/high，可选 xhigh。
 - session 使用 `ephemeral=true`，通常不会出现在 Codex Desktop 普通任务列表中。
 - 同一功能持续复用固定 lane，提高 prompt/cache 命中率。
@@ -65,9 +65,9 @@ Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能
 
 | 工具 | 用途 |
 |---|---|
-| `initialize_pool` | 校验本地 app-server，初始化所选 token-first / speed-first lane 与共享 Leader；真实付费健康 turn 可选。 |
-| `start_task` | 启动一个有界 token-first 任务并显示原生状态。 |
-| `start_batch` | 用 4 或 8 个 Luna/max worker 启动 2–8 个独立分析、实现或修复 workstream；写入由 worktree 隔离。 |
+| `initialize_pool` | 校验本地 app-server，初始化默认 4 路 speed-first lane（或显式回退 profile）与共享 Leader；真实付费健康 turn 可选。 |
+| `start_batch` | 默认路由：用 4 或 8 个 Luna/max worker 启动 2–8 个有意义的分析、实现、修复或伴随审查 workstream；写入由 worktree 隔离。 |
+| `start_task` | 单任务 token-first 显式安全回退。 |
 | `await_task`（`luna-await`） | 对已启动任务阻塞等待一次，返回紧凑终态结果。 |
 | `pool_status` | 不调用模型，返回 lane、prompt 版本、复用次数与最近 usage。 |
 | `cost_dashboard` | 不调用模型，返回累计成本、历史校准的 Sol-only 预测、缓存与分 lane 统计。 |
@@ -116,11 +116,11 @@ Limit scope to src/parser and tests/parser, run focused tests,
 and let Sol review and accept the final result.
 ```
 
-对于可以拆开的工作，让 Sol 选择 speed-first：
+默认让 Sol 使用 4 路并行，而不是手工分配 Luna：
 
 ```text
-使用 $luna-pool-orchestrator 的 speed-first 档位。
-由 Sol 定义互相独立的 workstream，默认使用 4 个 Luna/max worker，
+使用 $luna-pool-orchestrator 的默认并行路由。
+由 Sol 定义有意义的独立 workstream，并使用 4 个 Luna/max worker，
 由共享 Leader 管理长任务，只 await 一次，最后由 Sol 审查。
 优先将每个 workstream 缩到 90 秒内，但不要把 90 秒当作硬上限。
 ```
@@ -146,7 +146,7 @@ await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff�
 
 公开接口保留 `verification=auto`，finalization 与报告路由则由 0.6 内部自动管理。活跃 worker 超过工作预算时，MCP 在同一 turn 内发送 `FINALIZE_NOW`，不延长硬截止；worker 可以诚实返回 `partial`。若已完成 turn 只是不符合 JSON，才启用同一 warm thread 的一次 no-tools fallback turn。
 
-dirty 仓库、scope 重叠或有依赖的修改，以及小任务继续使用 token-first。Sol 能定义至少两个独立 workstream 时，条件默认 4 路 speed-first：本地只读冷等价费用与串行相当，平均墙钟约加速 3.8 倍。8 路因长尾方差较大，必须显式选择。
+默认使用 4 路 speed-first，小任务或单文件任务也不例外。Sol 应把一个精确 scope 的写 owner，与只读的 contract、边界/测试、正确性风险 workstream 配对；只读 workstream 可以查看同一文件，但写 scope 绝不能重叠。只有 mutating 仓库 dirty/非 Git、写 scope 无法安全隔离，或严格依赖使并行结果不可用时，才显式回退 token-first；dirty 仓库里的只读工作仍保持并行。8 路因长尾方差较大，必须显式选择。
 
 并行 workstream 优先缩到 90 秒内，但独立硬截止允许最长 600 秒。到各自检查点时，共享 Luna/high Leader session 会合并同时发生的请求，读取当前活跃 session 的紧凑 snapshot，并可建议 continue/interrupt；后续排队波次可在同一 warm session 上再进行一次有界检查，不做轮询。Leader 不得规划、重分配 scope 或验收 batch。单个长尾或失败不会丢弃已完成的兄弟 workstream。
 

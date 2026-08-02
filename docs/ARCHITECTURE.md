@@ -25,7 +25,7 @@ controller review and final acceptance
 - **Worker:** performs bounded exploration or implementation within an explicit scope and command/file budget.
 - **Lane:** a function-affine reusable worker context that improves cache locality.
 - **Verifier:** an independent, read-only worker used only when risk or the requested claim justifies it.
-- **Profile:** a controller-selected routing policy: persistent token-first execution or parallel speed-first execution.
+- **Profile:** a routing policy: four-way parallel speed-first by default, with persistent token-first reserved for explicit safety fallback.
 - **Adapter:** host/model-specific code that starts sessions, sends turns, interrupts timeouts, and records usage.
 
 ## Current Codex adapter

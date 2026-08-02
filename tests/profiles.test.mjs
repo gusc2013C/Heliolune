@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_PROFILE,
   SPEED_FIRST,
   TOKEN_FIRST,
   batchSupervisionSchedule,
@@ -13,6 +14,7 @@ import {
 } from "../plugins/luna-pool-orchestrator/scripts/profiles.mjs";
 
 test("execution profiles separate cache-oriented and burst-oriented routing", () => {
+  assert.equal(DEFAULT_PROFILE, SPEED_FIRST);
   assert.equal(TOKEN_FIRST.defaultParallelism, 1);
   assert.equal(TOKEN_FIRST.cachePolicy, "function-affine-reuse");
   assert.equal(SPEED_FIRST.defaultParallelism, 4);

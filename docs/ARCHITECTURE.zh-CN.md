@@ -26,7 +26,7 @@ Sol review and final acceptance
 - **Lane**：按功能固定、可复用的 worker context，用于提高 cache locality。
 - **Verifier**：风险或关键正确性声明需要时启用的独立只读 worker。
 - **Operations Leader**：只根据 MCP 提供的数据跟踪运行、判断存活并压缩上报。
-- **Profile**：controller 选择的路由策略，即持久 token-first 或并行 speed-first。
+- **Profile**：默认使用 4 路并行 speed-first；持久 token-first 仅作为显式安全回退。
 - **Adapter**：负责 session、turn、steer/interrupt、进度和 usage 的 host/model 适配层。
 
 ## 当前 Codex adapter

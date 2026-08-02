@@ -115,7 +115,7 @@ const taskArguments = {
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.6.0" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.6.1" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");

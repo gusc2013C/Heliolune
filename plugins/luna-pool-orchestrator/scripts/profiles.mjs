@@ -14,6 +14,8 @@ export const SPEED_FIRST = Object.freeze({
   cachePolicy: "best-effort-burst",
 });
 
+export const DEFAULT_PROFILE = SPEED_FIRST;
+
 export function speedParallelism(value) {
   const parsed = Number(value ?? SPEED_FIRST.defaultParallelism);
   if (!SPEED_FIRST.allowedParallelism.includes(parsed)) {

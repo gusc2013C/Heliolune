@@ -1,6 +1,6 @@
 ---
 name: luna-pool-orchestrator
-description: Delegate bounded engineering work from a GPT-5.6 Sol controller through token-first persistent Luna/max lanes or speed-first four/eight-worker Luna/max bursts, including detached-worktree isolated parallel writes, with one shared Luna/high operations leader, a token-free native status window, adaptive compression, and cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, integration review, and final acceptance.
+description: Delegate bounded engineering work from a GPT-5.6 Sol controller through default four-way Luna/max parallel batches (or explicit eight-way), with token-first only as a safety fallback, detached-worktree isolated writes, one shared Luna/high operations leader, a token-free native status window, adaptive compression, and cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, integration review, and final acceptance.
 ---
 
 # Luna Pool Orchestrator
@@ -15,7 +15,7 @@ Use the MCP as a blocking boundary. Never create, poll, or read Luna tasks direc
 
 ## Initialize
 
-Call `initialize_pool` once per repository when the user requests an explicit health check. Use `healthTurn=false` for a model/session check. A paid `healthTurn=true` is justified only when actual Luna turns must be proven; it initializes the lanes selected by `priority` and `parallelism`.
+Call `initialize_pool` once per repository only when the user requests an explicit health check. Its default profile is four-way speed-first. Use `healthTurn=false` for a model/session check. A paid `healthTurn=true` is justified only when actual Luna turns must be proven; it initializes the lanes selected by `priority` and `parallelism`.
 
 The runtime-affine sessions are:
 
@@ -29,7 +29,7 @@ Workers use Luna with `max` effort for repository work. Schema-only finalization
 
 ## Delegate
 
-Before calling `start_task` or `start_batch`, Sol must understand the request and decide the lane or workstreams, scope, risk, acceptance criteria, dependencies, and whether a reserved boundary is involved.
+Before calling `start_batch` or the fallback `start_task`, Sol must understand the request and decide the workstreams or lane, scope, risk, acceptance criteria, dependencies, and whether a reserved boundary is involved.
 
 Send only incremental task state:
 
@@ -44,11 +44,15 @@ Do not paste repository files, transcripts, generic project background, or the s
 
 Use `verification=auto` by default. The MCP invokes the independent verifier when risk is high, a reserved boundary is touched, the owner requests verification, completion is partial, or high-severity risks remain. Use `always` for security-sensitive or decisive correctness claims. Use `never` only for low-risk, easily reversible work.
 
-## Choose a priority profile
+## Parallel-first routing
 
-Use **token-first** with `start_task` for implementation, repair, dependent work, a single narrow investigation, or any task that cannot be safely split. It uses one persistent function-affine Luna/max owner, an adaptive verifier, and the shared Leader only when justified.
+Use **speed-first** with `start_batch` by default. Select four-way parallelism unless the user explicitly requests the experimental eight-way mode. Do not route to token-first merely because the task is small, narrow, or modifies one file.
 
-Use **speed-first** with `start_batch` when Sol can define at least two independent workstreams. Four-way parallelism is the conditional default because measured cache-ignored cost was within noise of serial execution while wall time improved about 3.8x. Eight-way parallelism is explicit and experimental: it has produced the fastest run but materially higher tail variance.
+For a narrow implementation or repair, define one exact-scope mutating owner and up to three meaningful read-only companions that independently inspect the contract, edge cases/tests, and correctness risks. Read-only companions may inspect the same scope; never create overlapping mutating scopes. For a read-only request, split by distinct questions or evidence sources. Aim for four active workstreams, use at least two, and never invent dummy work solely to fill a slot.
+
+Use **token-first** with `start_task` only as an explicit safety fallback when a mutating task has a dirty or non-Git main checkout, write scopes cannot be isolated without overlap, or a strict dependency makes parallel results unusable. State the concrete fallback reason in Sol's final handoff. Read-only work can remain parallel even in a dirty repository.
+
+Four-way execution is the product default because measured cache-ignored cost was within noise of serial execution while wall time improved about 3.8x on separable work. Eight-way parallelism is explicit and experimental: it has produced the fastest run but materially higher tail variance.
 
 For speed-first:
 
@@ -75,7 +79,7 @@ If Luna returns `needsSol`, stop delegation for that decision. Do not ask Luna t
 
 ## Wait and accept
 
-On Codex Desktop, call exactly one of `luna-pool.start_task` or `luna-pool.start_batch`, then immediately call `luna-await.await_task` exactly once with the returned `jobId`. Stop generating while `await_task` is blocked and resume only when it returns the compact terminal bundle. Never poll `pool_status`, read job files, or add commentary/model turns while waiting.
+On Codex Desktop, call `luna-pool.start_batch` by default or `luna-pool.start_task` only for a documented safety fallback, then immediately call `luna-await.await_task` exactly once with the returned `jobId`. Stop generating while `await_task` is blocked and resume only when it returns the compact terminal bundle. Never poll `pool_status`, read job files, or add commentary/model turns while waiting.
 
 On Windows, Heliolune uses one token-free native `Heliolune Leader` window. It reads transcript-free local status records, dynamically displays every active token-first or burst lane, stays topmost while work runs, and closes shortly after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Heliolune does not also open an inline task panel.
 

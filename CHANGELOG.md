@@ -4,6 +4,16 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.1] - 2026-08-02
+
+### Changed
+
+- Make four-way `speed-first` the unconditional product default instead of only a conditional route for obviously separable tasks.
+- Route narrow and single-file work through one isolated mutating owner plus meaningful read-only contract, edge-case/test, and correctness-risk workstreams; never create overlapping writers or dummy workstreams.
+- Keep `token-first` only as a documented safety fallback for dirty/non-Git mutating checkouts, writes that cannot be isolated, or strictly dependent work.
+- Default `initialize_pool`, tool ordering, plugin prompts, and bilingual guidance to parallel execution so a fresh Codex task does not silently select the serial path.
+- The clearer default/fallback tool descriptions raise the complete approximate tool surface from 1,557 to 1,586 tokens; it remains about 37.1% below the pre-0.6 surface.
+
 ## [0.6.0] - 2026-08-02
 
 ### Added

@@ -84,7 +84,7 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | Convert
 if ($manifest.name -ne 'luna-pool-orchestrator') {
     throw "Unexpected plugin name: $($manifest.name)"
 }
-if ($manifest.version -notmatch '^0\.6\.0(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.6\.1(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 if ($manifest.author.name -ne 'Sicheng Gu' -or $manifest.interface.developerName -ne 'Sicheng Gu') {

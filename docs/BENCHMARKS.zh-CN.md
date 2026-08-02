@@ -68,7 +68,7 @@ Codex CLI 0.146.0 不会给模型发起的 MCP 调用附加 progress token，也
 | 4 | 2 | 均值 52.846s | 3.80x | 90–95% | 均值 0.816648 |
 | 8 | 2 | 36.488–73.225s | 均值 3.66x | 95% | 均值 0.821255 |
 
-4 路运行稳定，冷等价费用与串行相当，因此在 Sol 能定义独立 workstream 时成为条件默认。8 路有一次全场最快，也有一次明显长尾，继续保持 opt-in。三次完整 4 路只读 MCP smoke（含共享 Leader 汇总）分别为 44.137s、49.607s 和 43.843s；最后一次精简 schema smoke 的 workstream 全部完成，Luna 估算费用为 0.225093。workstream 以 90 秒为尺寸目标，但有界硬截止最长可到 600 秒；共享 Leader session 在各自检查点统一管理仍活跃的 worker。
+4 路运行稳定，冷等价费用与串行相当。该证据最初支持 0.6.0 的条件路由；0.6.1 将其提升为产品默认，并为窄任务增加有意义的只读伴随 workstream。8 路有一次全场最快，也有一次明显长尾，继续保持 opt-in。三次完整 4 路只读 MCP smoke（含共享 Leader 汇总）分别为 44.137s、49.607s 和 43.843s；最后一次精简 schema smoke 的 workstream 全部完成，Luna 估算费用为 0.225093。workstream 以 90 秒为尺寸目标，但有界硬截止最长可到 600 秒；共享 Leader session 在各自检查点统一管理仍活跃的 worker。
 
 独立的真实写入 smoke 使用两个 detached Git worktree 内的 Luna/max worker。Heliolune 安全应用了 `alpha.txt` 与 `beta.txt` 的非重叠修改，使主 index 保持 unstaged，清理全部临时 worktree，并以 0.116710 Luna 估算费用在 35.541 秒内完成。单元测试覆盖 dirty main、`HEAD` 变化、scope 越界和 patch 证据保留等失败路径。详见[完整 0.6 工程报告](0.6-RESEARCH.zh-CN.md)与原始 JSON。
 

@@ -15,7 +15,7 @@ Heliolune 并不是 Codex subagent 的替代品。它是为 Sol/Luna 工作流�
 | 主会话 context | 结构化、有界 handoff；大结果先压缩再交给 Sol。 | subagent summary 可隔离探索噪音，但每个 agent 都会独立消耗模型与工具 token。 |
 | Cache | token-first 复用功能型 lane 与稳定 prompt；写入 burst 为隔离而使用 fresh session。 | context 与模型设置按 Codex agent/thread 配置；公开 contract 不提供 Heliolune 式 cache 统计。 |
 | 可见性 | 隐藏 ephemeral Luna session；一个双语原生悬浮窗显示进度与预计费用。 | 支持的 Codex app、CLI、IDE 会直接显示 subagent activity/thread，可查看或 steer。 |
-| 并行读取 | Sol 找到至少两个独立 workstream 时条件默认 4 路。 | 原生能力的典型场景；不需要费用归因时通常更简单。 |
+| 并行读取 | 默认 4 路；窄任务按 contract、边界/测试和风险问题拆分，不因任务小而自动回退。 | 原生能力的典型场景；不需要费用归因时通常更简单。 |
 | 并行写入 | detached Git worktree、精确非重叠 scope、clean-HEAD gate、patch 校验、安全合并与 Sol 复核。 | 官方建议谨慎使用 write-heavy 并行，因为冲突和协调开销会上升；Codex Desktop worktree 可隔离 chat 并支持 Handoff。 |
 | 费用 | 精确 Luna input/cached/output/reasoning、价格表、dashboard 与历史 benchmark 校准的方向性节省。 | 原生更易用，但每个 subagent 都做独立模型/工具工作，因此通常比单 agent 消耗更多 token。 |
 | 部署 | Plugin + MCP + 独立 Codex CLI + Node；当前原生悬浮窗只在 Windows 测试。 | 当前 Codex 版本内置；自定义 agent 使用项目或个人 TOML。 |
