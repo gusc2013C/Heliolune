@@ -1,7 +1,7 @@
 {
   "name": "luna-pool-orchestrator",
-  "version": "0.5.0-alpha.2",
-  "description": "The first Heliolune adapter: cost-first supervised engineering orchestration through a blocking local MCP boundary.",
+  "version": "0.5.1",
+  "description": "The first Heliolune adapter: cost-first engineering orchestration with bounded Luna workers and a shared reporting leader.",
   "author": {
     "name": "Sicheng Gu"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Heliolune",
     "shortDescription": "Supervise capable models; delegate bounded work cheaply.",
-    "longDescription": "Heliolune's first adapter runs four function-affine Luna/max workers behind one blocking MCP call so Sol can retain architecture, risk, review, and final acceptance while avoiding worker polling and transcript inflation. Built-in usage accounting estimates worker cost and same-token savings.",
+    "longDescription": "Heliolune runs four function-affine Luna/max workers and one adaptive Luna/high operations leader behind a blocking MCP call. Sol retains planning, architecture, risk, review, and final acceptance while large or risky worker bundles are compressed and small tasks avoid leader overhead.",
     "developerName": "Sicheng Gu",
     "category": "Productivity",
     "capabilities": [

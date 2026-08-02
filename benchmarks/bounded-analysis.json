@@ -23,6 +23,9 @@
   "finalization": "auto",
   "synthesisReserveSeconds": 40,
   "synthesisEffort": "high",
+  "reporting": "leader",
+  "leaderEffort": "high",
+  "leaderTimeoutSeconds": 60,
   "maxFiles": 3,
   "maxCommands": 8
 }

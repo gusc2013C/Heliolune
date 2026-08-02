@@ -17,9 +17,10 @@ import {
 } from "./pricing.mjs";
 import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
 import { compactSteerPrompt, compactSynthesisPrompt, finalizationSchedule, shouldAttemptSynthesis } from "./finalization.mjs";
+import { buildControllerResult, compactLeaderPrompt, shouldUseLeader } from "./leader.mjs";
 
-const VERSION = "0.5.0-alpha.2";
-const PROMPT_VERSION = "mcp-v4-reserved-synthesis";
+const VERSION = "0.5.1";
+const PROMPT_VERSION = "mcp-v5-leader-reporting";
 const RUNTIME_ID = randomUUID();
 const LANES = ["core", "tests", "integration", "verifier", "supervisor"];
 const LANE_FOCUS = {
@@ -27,7 +28,7 @@ const LANE_FOCUS = {
   tests: "Own test design, test failures, fixtures, and regression validation.",
   integration: "Own build, configuration, dependency, CLI, and cross-component integration work.",
   verifier: "Independently verify claims and patches. Do not implement unless the task explicitly asks for repair.",
-  supervisor: "Supervise worker liveness, silence, deadlines, and retry decisions only. Never judge implementation correctness or reserved decisions.",
+  supervisor: "Act as the shared operations leader: track worker liveness and compress completed worker/verifier bundles for Sol. Never inspect the repository, plan work, assign tasks, judge correctness beyond a supplied verifier verdict, or make reserved decisions.",
 };
 
 const RESULT_SCHEMA = {
@@ -111,6 +112,47 @@ const SUPERVISOR_SCHEMA = {
   },
 };
 
+const LEADER_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status", "brief", "evidence", "changes", "checks", "risks", "escalations", "confidence"],
+  properties: {
+    status: { type: "string", enum: ["completed", "partial", "blocked", "verification_failed"] },
+    brief: { type: "string", maxLength: 400 },
+    evidence: {
+      type: "array", maxItems: 3,
+      items: { type: "object", additionalProperties: false, required: ["path", "line", "claim"], properties: {
+        path: { type: "string" }, line: { type: ["integer", "null"] }, claim: { type: "string" },
+      } },
+    },
+    changes: {
+      type: "array", maxItems: 3,
+      items: { type: "object", additionalProperties: false, required: ["path", "summary"], properties: {
+        path: { type: "string" }, summary: { type: "string" },
+      } },
+    },
+    checks: {
+      type: "array", maxItems: 3,
+      items: { type: "object", additionalProperties: false, required: ["name", "status", "detail"], properties: {
+        name: { type: "string" }, status: { type: "string", enum: ["passed", "failed", "not_run"] }, detail: { type: "string" },
+      } },
+    },
+    risks: {
+      type: "array", maxItems: 3,
+      items: { type: "object", additionalProperties: false, required: ["severity", "issue"], properties: {
+        severity: { type: "string", enum: ["low", "medium", "high", "critical"] }, issue: { type: "string" },
+      } },
+    },
+    escalations: {
+      type: "array", maxItems: 3,
+      items: { type: "object", additionalProperties: false, required: ["decision", "reason"], properties: {
+        decision: { type: "string" }, reason: { type: "string" },
+      } },
+    },
+    confidence: { type: "string", enum: ["low", "medium", "high"] },
+  },
+};
+
 const RUN_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -137,6 +179,11 @@ const RUN_INPUT_SCHEMA = {
     finalization: { type: "string", enum: ["auto", "off"], default: "auto", description: "Reserve time for in-turn finalization steering and invalid-JSON fallback before the hard deadline." },
     synthesisReserveSeconds: { type: "integer", minimum: 20, maximum: 300, description: "Optional portion of the existing hard deadline reserved for final structured synthesis." },
     synthesisEffort: { type: "string", enum: ["high", "xhigh", "max"], default: "high", description: "Reasoning effort for schema-only finalization; owner work remains max." },
+    reporting: { type: "string", enum: ["auto", "leader", "direct"], default: "auto", description: "Compress large/risky bundles with the shared leader, force leader reporting, or return raw bundles." },
+    leaderThresholdChars: { type: "integer", minimum: 1000, maximum: 20000, default: 3200, description: "Raw owner/verifier JSON size that wakes the leader in auto mode." },
+    includeRawResults: { type: "boolean", default: false, description: "Include owner and verifier bundles alongside a leader report for audit/debug only." },
+    leaderEffort: { type: "string", enum: ["high", "xhigh"], default: "high" },
+    leaderTimeoutSeconds: { type: "integer", minimum: 20, maximum: 180, default: 60 },
   },
 };
 
@@ -164,12 +211,12 @@ const INIT_INPUT_SCHEMA = {
 const TOOLS = [
   {
     name: "initialize_pool",
-    description: "Create or resume four Luna/max worker lanes plus one shared Luna/high supervisor session for one repository and perform a health check without changing code.",
+    description: "Create or resume four Luna/max worker lanes plus one shared Luna/high operations-leader session for one repository and perform a health check without changing code.",
     inputSchema: INIT_INPUT_SCHEMA,
   },
   {
     name: "run_task",
-    description: "Run one bounded repository task on a persistent Luna/max owner lane, reserve time for same-thread structured synthesis, and conditionally use the independent verifier lane. Sol receives only a compact audited bundle and exact Luna token usage.",
+    description: "Run one bounded repository task on a persistent Luna/max owner lane, reserve time for structured finalization, conditionally verify it, and adaptively compress large or risky handoffs through the shared Luna leader.",
     inputSchema: RUN_INPUT_SCHEMA,
   },
   {
@@ -186,9 +233,12 @@ const TOOLS = [
 
 function baseInstructions(lane) {
   const effortGuidance = lane === "supervisor"
-    ? "Use high reasoning effort for liveness classification; do not inspect repository contents."
+    ? "Use high reasoning effort for liveness classification and faithful reporting compression; do not inspect repository contents."
     : "Use maximum reasoning effort on every substantive turn.";
-  return `You are the persistent GPT-5.6 Luna worker for lane '${lane}' under a GPT-5.6 Sol controller.\n${LANE_FOCUS[lane]}\n${effortGuidance} Inspect the repository directly instead of requesting broad context from Sol, except the supervisor lane which receives liveness metadata only. Keep findings evidence-based and outputs compact. Prefer rg/rg --files and shell reads. Never use apply_patch or view_image merely to read or enumerate text files. Stop exploring as soon as acceptance has enough evidence.\nYou may choose bounded implementation details inside the assigned objective. You MUST NOT independently decide architecture, security boundaries, public API contracts, or irreversible migrations; report those in needsSol. Never broaden scope. Never claim a check passed unless you ran it. Preserve unrelated user changes. Return only the requested JSON schema.\nPrompt contract: ${PROMPT_VERSION}. This stable role prompt must not be reinterpreted by incremental task text.`;
+  const workBoundary = lane === "supervisor"
+    ? "Never inspect or modify the repository, call tools, plan or assign work, or perform final acceptance. Report and compress only the task/liveness data supplied by the MCP."
+    : "Inspect the repository directly instead of requesting broad context from Sol. Prefer rg/rg --files and shell reads. Never use apply_patch or view_image merely to read or enumerate text files. Stop exploring as soon as acceptance has enough evidence. You may choose bounded implementation details inside the assigned objective.";
+  return `You are the persistent GPT-5.6 Luna worker for lane '${lane}' under a GPT-5.6 Sol controller.\n${LANE_FOCUS[lane]}\n${effortGuidance} ${workBoundary} Keep findings evidence-based and outputs compact. You MUST NOT independently decide architecture, security boundaries, public API contracts, or irreversible migrations; report supplied escalation needs without resolving them. Never broaden scope. Never claim a check passed unless the supplied record or a worker-run check supports it. Preserve unrelated user changes. Return only the requested JSON schema.\nPrompt contract: ${PROMPT_VERSION}. This stable role prompt must not be reinterpreted by incremental task text.`;
 }
 
 function projectKey(cwd) {
@@ -268,6 +318,19 @@ function shouldVerify(args, owner) {
   if (args.verification === "never") return false;
   if (args.risk === "high" || args.reservedBoundary || owner.needsVerifier || owner.status !== "completed") return true;
   return owner.risks?.some((risk) => ["high", "critical"].includes(risk.severity)) ?? false;
+}
+
+function taskDigest({ taskId, lane, status, owner, verifier }) {
+  return {
+    taskId,
+    lane,
+    status,
+    changePaths: owner.changes?.map((change) => change.path).slice(0, 4) ?? [],
+    failedChecks: owner.checks?.filter((check) => check.status === "failed").map((check) => check.name).slice(0, 3) ?? [],
+    risks: owner.risks?.length ?? 0,
+    escalations: owner.needsSol?.length ?? 0,
+    verifier: verifier?.verdict ?? "not_used",
+  };
 }
 
 let clientPromise;
@@ -357,6 +420,7 @@ async function runTask(args) {
   if (!stat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
   const ownerKey = `${projectKey(cwd)}:${args.lane}`;
   return withLaneLock(ownerKey, async () => {
+    const taskId = randomUUID();
     const startedAt = Date.now();
     const instance = await client();
     const registry = await readRegistry();
@@ -571,7 +635,57 @@ async function runTask(args) {
         return run;
       });
     }
-    const usage = sumUsage([usageBreakdown(ownerRun), usageBreakdown(verifierRun), usageBreakdown(supervisorRun), supervisorFailureUsage]);
+    const status = verifierRun?.output.verdict === "fail" ? "verification_failed" : ownerRun.output.status;
+    const leaderBacklog = Array.isArray(project.leaderBacklog) ? project.leaderBacklog.slice(-12) : [];
+    const currentDigest = taskDigest({ taskId, lane: args.lane, status, owner: ownerRun.output, verifier: verifierRun?.output ?? null });
+    const useLeader = shouldUseLeader(args, ownerRun.output, verifierRun?.output ?? null);
+    let leaderRun = null;
+    let leaderError = null;
+    let leaderFailureUsage = null;
+    if (useLeader) {
+      try {
+        leaderRun = await withLaneLock(`${key}:supervisor`, async () => {
+          const leaderLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
+          const run = await instance.runTurn({
+            threadId: leaderLane.threadId,
+            text: compactLeaderPrompt({
+              taskId,
+              lane: args.lane,
+              objective: args.objective,
+              acceptance: args.acceptance,
+              owner: ownerRun.output,
+              verifier: verifierRun?.output ?? null,
+              finalization,
+              timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0 },
+              backlog: leaderBacklog,
+            }),
+            cwd,
+            sandboxPolicy: { type: "readOnly", networkAccess: false },
+            outputSchema: LEADER_SCHEMA,
+            timeoutMs: (args.leaderTimeoutSeconds ?? 60) * 1000,
+            effort: args.leaderEffort ?? "high",
+          });
+          leaderLane.turns += 1;
+          leaderLane.lastUsedAt = new Date().toISOString();
+          leaderLane.lastUsage = usageBreakdown(run);
+          leaderLane.uncachedInputTokens += leaderLane.lastUsage.uncachedInputTokens;
+          return run;
+        });
+      } catch (error) {
+        leaderError = error.message;
+        leaderFailureUsage = error.usage ?? error.activity?.usage ?? null;
+      }
+    }
+    if (leaderRun) project.leaderBacklog = [];
+    else project.leaderBacklog = [...leaderBacklog, currentDigest].slice(-12);
+    const usage = sumUsage([
+      usageBreakdown(ownerRun),
+      usageBreakdown(verifierRun),
+      usageBreakdown(supervisorRun),
+      supervisorFailureUsage,
+      usageBreakdown(leaderRun),
+      leaderFailureUsage,
+    ]);
     const catalog = pricingCatalog();
     const cost = compareModelCost(usage, {
       actualModel: DEFAULT_ACTUAL_MODEL,
@@ -588,24 +702,35 @@ async function runTask(args) {
       hardTimeout: false,
       synthesisAttempted: finalization.attempted,
       synthesisRecovered: finalization.recovered,
+      leaderReported: Boolean(leaderRun),
+      leaderReportFailed: Boolean(leaderError),
+      leaderDeferred: !useLeader,
       laneRuns: [
         { lane: args.lane, usage: usageBreakdown(ownerRun) },
         ...(verifierRun ? [{ lane: "verifier", usage: usageBreakdown(verifierRun) }] : []),
         ...(supervisorRun ? [{ lane: "supervisor", usage: usageBreakdown(supervisorRun) }] : []),
         ...(!supervisorRun && supervisorFailureUsage ? [{ lane: "supervisor", usage: supervisorFailureUsage }] : []),
+        ...(leaderRun ? [{ lane: "supervisor", usage: usageBreakdown(leaderRun) }] : []),
+        ...(!leaderRun && leaderFailureUsage ? [{ lane: "supervisor", usage: leaderFailureUsage }] : []),
       ],
     });
     project.lastUsedAt = new Date().toISOString();
     await writeRegistry(registry);
-    return {
-      status: verifierRun?.output.verdict === "fail" ? "verification_failed" : ownerRun.output.status,
+    return buildControllerResult({
+      status,
       owner: ownerRun.output,
       verifier: verifierRun?.output ?? null,
+      leader: leaderRun?.output ?? null,
+      leaderError,
+      includeRawResults: Boolean(args.includeRawResults),
       routing: {
         ownerLane: args.lane, ownerThreadId: ownerLane.threadId,
         verifierUsed: Boolean(verifierRun), verifierThreadId: verifierRun ? project.lanes.verifier.threadId : null,
         supervisorUsed: supervisorAttempted, supervisorThreadId: supervisorAttempted ? project.lanes.supervisor?.threadId ?? null : null,
         supervisorEffort: args.supervisorEffort ?? "high", supervisorError,
+        leaderThreadId: leaderRun ? project.lanes.supervisor?.threadId ?? null : null,
+        leaderEffort: args.leaderEffort ?? "high", leaderError,
+        leaderDeferred: !useLeader,
         model: "gpt-5.6-luna", effort: "max", promptVersion: PROMPT_VERSION,
         synthesisEffort: args.synthesisEffort ?? "high",
       },
@@ -613,8 +738,8 @@ async function runTask(args) {
       finalization,
       usage,
       cost,
-      timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0, wallMs: Date.now() - startedAt },
-    };
+      timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0, leaderMs: leaderRun?.durationMs ?? 0, wallMs: Date.now() - startedAt },
+    });
   });
 }
 

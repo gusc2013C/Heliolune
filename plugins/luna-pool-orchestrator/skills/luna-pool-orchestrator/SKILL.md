@@ -1,6 +1,6 @@
 ---
 name: luna-pool-orchestrator
-description: Delegate bounded engineering analysis, implementation, repair, and verification from a GPT-5.6 Sol controller to four function-affine GPT-5.6 Luna workers plus one shared Luna supervisor through the luna-pool-orchestrator MCP, and report compact cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of architecture, security boundaries, public APIs, irreversible migrations, risk decisions, review, and final acceptance.
+description: Delegate bounded engineering analysis, implementation, repair, and verification from a GPT-5.6 Sol controller to four function-affine GPT-5.6 Luna workers plus one shared Luna operations leader through the luna-pool-orchestrator MCP, adaptively compress large handoffs, and report cost dashboards. Use when reducing or measuring Sol token cost matters while preserving Sol ownership of planning, architecture, security boundaries, public APIs, irreversible migrations, risk decisions, review, and final acceptance.
 ---
 
 # Luna Pool Orchestrator
@@ -23,9 +23,9 @@ The runtime-affine sessions are:
 - `tests`: tests, fixtures, and regressions.
 - `integration`: build, dependencies, configuration, CLI, and cross-component work.
 - `verifier`: independent read-only verification only.
-- `supervisor`: shared liveness, silence, timeout, and interruption judgment only.
+- `supervisor`: shared operations leader for liveness, cross-lane outcome tracking, and reporting compression only.
 
-Workers use Luna with `max` effort for repository work. Schema-only finalization uses `high` by default because it must reuse completed reasoning rather than discover anything new; use `xhigh` or `max` only when a measured recovery case needs it. The supervisor uses `high` by default and may use `xhigh`; it never inspects repository contents or decides correctness. Sessions are ephemeral and reused while the MCP process lives, so they should not appear as normal Desktop tasks. A Desktop restart creates a fresh hidden pool.
+Workers use Luna with `max` effort for repository work. Schema-only finalization uses `high` by default because it must reuse completed reasoning rather than discover anything new; use `xhigh` or `max` only when a measured recovery case needs it. The operations leader uses `high` by default and may use `xhigh`; it never inspects repository contents, plans or assigns work, decides correctness beyond a supplied verifier verdict, or accepts results. Sessions are ephemeral and reused while the MCP process lives, so they should not appear as normal Desktop tasks. A Desktop restart creates a fresh hidden pool.
 
 ## Delegate
 
@@ -65,6 +65,8 @@ Make one MCP call and wait for its terminal result. Do not perform periodic stat
 Keep `finalization=auto` and `synthesisEffort=high`. Heliolune reserves part of the existing hard deadline for structured output. If a live work turn consumes its work budget, the MCP steers that active turn to stop tools and emit the schema from evidence already gathered. If a completed turn instead returns invalid JSON, one synthesis-only fallback turn may reuse the same warm thread at `synthesisEffort`. Both paths may report honest `partial` status and neither extends the hard deadline. Use `finalization=off` only for watchdog diagnostics. Narrow `scope`, acceptance criteria, files, and commands before increasing `timeoutSeconds`, `synthesisReserveSeconds`, or finalization effort.
 
 For hard timeouts of at least 90 seconds, keep `supervision=auto` unless the user asks otherwise. At the soft checkpoint, recent app-server events continue deterministically without a model call; sustained silence wakes the shared supervisor once. Use `supervisorEffort=high` normally and `xhigh` only for ambiguous liveness diagnostics. A stale worker is not sent to synthesis because it has no trustworthy fresh work to summarize. The hard deadline remains absolute.
+
+Keep `reporting=auto`. Small low-risk worker bundles return directly and add only a compact lifecycle digest to the leader backlog. Wake the leader for large bundles, verifier results, high risk, reserved boundaries, or actual `needsSol` decisions; it receives deferred digests on its next turn and returns a compressed handoff. Use `reporting=leader` only to force reporting for a benchmark or a genuinely dense bundle, and `reporting=direct` for diagnostics. Keep `includeRawResults=false` except during an audit. The leader reports to Sol but never replaces Sol planning, review, or acceptance.
 
 Sol should inspect only decisive evidence. Re-open repository files or run a compact acceptance check when the result is contradictory, touches a reserved boundary, or the verifier fails. Do not replay Luna's exploration.
 

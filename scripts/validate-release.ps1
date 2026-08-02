@@ -21,17 +21,20 @@ $required = @(
     (Join-Path $pluginRoot 'scripts\pricing.mjs'),
     (Join-Path $pluginRoot 'scripts\supervision.mjs'),
     (Join-Path $pluginRoot 'scripts\finalization.mjs'),
+    (Join-Path $pluginRoot 'scripts\leader.mjs'),
     $skillPath,
     (Join-Path $repoRoot 'README.md'),
     (Join-Path $repoRoot 'LICENSE'),
     (Join-Path $repoRoot 'tests\pricing.test.mjs'),
     (Join-Path $repoRoot 'tests\supervision.test.mjs'),
     (Join-Path $repoRoot 'tests\finalization.test.mjs'),
+    (Join-Path $repoRoot 'tests\leader.test.mjs'),
     (Join-Path $repoRoot 'tests\mcp-smoke.test.mjs'),
     (Join-Path $repoRoot 'tests\app-server-client-watchdog.test.mjs'),
     (Join-Path $repoRoot 'tests\fixtures\fake-app-server.mjs'),
     (Join-Path $repoRoot 'scripts\run-live-benchmark.mjs'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
+    (Join-Path $repoRoot 'benchmarks\bounded-analysis-direct.json'),
     (Join-Path $repoRoot 'benchmarks\forced-finalization.json')
 )
 
@@ -45,7 +48,7 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.name -ne 'luna-pool-orchestrator') {
     throw "Unexpected plugin name: $($manifest.name)"
 }
-if ($manifest.version -notmatch '^0\.5\.0-alpha\.[0-9]+(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.5\.[01](?:-alpha\.[0-9]+)?(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected alpha version: $($manifest.version)"
 }
 if ($manifest.author.name -ne 'Sicheng Gu' -or $manifest.interface.developerName -ne 'Sicheng Gu') {
@@ -69,7 +72,7 @@ if ($skill -notmatch '(?s)^---\s+name:\s*luna-pool-orchestrator\s+description:.+
     throw 'SKILL.md frontmatter is invalid.'
 }
 
-foreach ($script in @('server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs')) {
+foreach ($script in @('server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs', 'leader.mjs')) {
     & node --check (Join-Path $pluginRoot "scripts\$script")
     if ($LASTEXITCODE -ne 0) {
         throw "Node syntax validation failed: $script"

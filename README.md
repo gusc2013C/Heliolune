@@ -6,7 +6,7 @@ Heliolune is an alpha-stage orchestration project for pairing a capable controll
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current release: **`0.5.0-alpha.2`**. Public contracts may change before 1.0.
+> Current release: **`0.5.1`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
@@ -32,11 +32,12 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 
 ## Current capabilities
 
-- Four reusable worker lanes—`core`, `tests`, `integration`, and `verifier`—plus one shared `supervisor` session.
+- Four reusable worker lanes—`core`, `tests`, `integration`, and `verifier`—plus one shared operations-leader session (the compatibility lane name remains `supervisor`).
 - Luna workers use `max` reasoning effort.
 - Worker sessions are ephemeral and normally stay out of the Codex Desktop task list.
 - Related tasks reuse the same function-affine lane while the MCP process lives, improving cache locality.
 - One blocking call replaces controller-side polling.
+- Adaptive Leader reporting compresses large or risky owner/verifier bundles while small tasks defer a compact digest and avoid another model turn.
 - Owner and verifier results use compact, structured contracts.
 - Conditional independent verification based on risk, reserved boundaries, incomplete work, or unresolved high-severity findings.
 - Timed-out turns are interrupted before an error is returned.
@@ -89,7 +90,7 @@ The MCP runtime itself is Node-based. PowerShell is used only by repository vali
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.5.0-alpha.2` |
+| Plugin version | `0.5.1` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -131,9 +132,11 @@ Good tasks have an explicit outcome, one to eight testable acceptance criteria, 
 - `tests`: tests, fixtures, regressions, and test-focused diagnosis.
 - `integration`: build, dependencies, configuration, CLI, and cross-component integration.
 - `verifier`: independent read-only verification; never the implementation owner.
-- `supervisor`: shared liveness and deadline manager; uses `high` by default, accepts `xhigh`, and never judges architecture or implementation correctness.
+- `supervisor`: shared operations leader for liveness, deferred cross-lane tracking, and report compression; uses `high` by default, accepts `xhigh`, and never plans, assigns, inspects the repository, or performs acceptance.
 
 Use `verification=auto` by default. Use `always` for security-sensitive work or decisive correctness claims, and `never` only for low-risk, easily reversible tasks.
+
+Use `reporting=auto` by default. Small low-risk bundles return directly and add a tiny lifecycle digest to the Leader backlog. Large bundles, verifier results, high-risk work, reserved boundaries, and actual Sol decisions wake the shared Leader, which receives deferred digests and returns a smaller controller-facing report. `reporting=leader` forces this path for benchmarks; `reporting=direct` bypasses it. Raw owner/verifier bundles are opt-in with `includeRawResults=true`.
 
 For tasks with hard timeouts of at least 90 seconds, `supervision=auto` schedules one checkpoint at roughly two-thirds of the deadline. Recent events continue deterministically without spending supervisor tokens. Sustained silence wakes the shared supervisor once; the original hard deadline remains absolute. Use `supervision=off` for deterministic timeout-only behavior or `supervision=always` when diagnosing the watchdog itself.
 

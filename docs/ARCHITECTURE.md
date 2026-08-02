@@ -28,7 +28,9 @@ controller review and final acceptance
 
 The first adapter uses GPT-5.6 Sol as controller and four GPT-5.6 Luna/max lanes. It communicates with the official Codex CLI through `app-server`. Sessions are ephemeral to keep them out of the ordinary Desktop task list, but are reused while the MCP server remains alive.
 
-A fifth shared Luna supervisor session runs at `high` by default and is consulted only after a soft timeout with sustained app-server silence. It sees compact liveness metadata rather than repository contents and may recommend continue or interrupt. Recent activity bypasses the model, while the original deterministic hard timeout remains absolute. `xhigh` is available for ambiguous liveness diagnostics without paying `max` on routine supervision.
+A fifth shared Luna operations-leader session runs at `high` by default. It sees compact liveness metadata and structured owner/verifier bundles rather than repository contents. It may recommend continue/interrupt for stale turns and compress dense handoffs, but it cannot plan, assign, judge correctness beyond a verifier verdict, or accept results. Recent activity bypasses the model, while the original deterministic hard timeout remains absolute. `xhigh` is available for ambiguous liveness diagnostics without paying `max` on routine supervision.
+
+Leader reporting is adaptive. Small low-risk results return directly and append a bounded lifecycle digest to a persistent backlog. A large or risky task, verifier result, reserved boundary, or Sol escalation wakes the Leader and includes those deferred digests. This preserves cross-lane operational continuity without paying a fifth model turn for every small task.
 
 Hard timeouts are classified from the final activity snapshot as `hard_timeout_active` or `hard_timeout_stalled`. The registry retains only the compact diagnostic and counters, not the worker transcript.
 
