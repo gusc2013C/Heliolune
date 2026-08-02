@@ -188,6 +188,8 @@ Price-weighted figures are estimates unless billed credits are available. Reposi
 
 The 0.6.2 deterministic coding check reached 12/12 in both arms: Sol-only took 123.532s and the Heliolune engine took 127.451s, with measured Luna worker cost of 0.457633 units. See the [0.6.2 fast-start benchmark](docs/0.6.2-FAST-START-BENCHMARK.md) for the controller-cost caveat and startup-surface measurements.
 
+A larger single-arm frontend application test produced a credible responsive dashboard for 0.450291 Luna worker units, but the writer's completion notification timed out and required deterministic artifact recovery. The [0.6.2 frontend application benchmark](docs/0.6.2-FRONTEND-APPLICATION-BENCHMARK.md) records the visual/interaction acceptance, stale-test and lint failures, and the resulting reliability limits without presenting the recovered run as an automatic success.
+
 ### Default price table
 
 Rates are user-supplied price units per one million tokens. Override the table with `HELIOLUNE_PRICING_JSON` when provider pricing changes or when adding another model.

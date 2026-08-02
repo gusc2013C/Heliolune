@@ -1,0 +1,88 @@
+{
+  "version": "0.6.2",
+  "date": "2026-08-02",
+  "benchmark": "Tokenary responsive AI operations dashboard",
+  "arm": "sol-controller-plus-heliolune",
+  "baselineCommit": "c307ac88b1949a65b92491647946264fbb4ec5f0",
+  "heliolune": {
+    "jobId": "5c82928b-c947-404d-ba14-966e4abb4f03",
+    "status": "partial",
+    "profile": "speed-first",
+    "parallelism": 4,
+    "workerEffort": "max",
+    "leaderEffort": "high",
+    "wallMs": 321804,
+    "workerWallMs": 301565,
+    "workerSumMs": 575429,
+    "leaderMs": 20234,
+    "outcomes": [
+      { "id": "owner", "status": "failed", "durationMs": 300130, "error": "Timed out waiting for app-server notification" },
+      { "id": "contract", "status": "partial", "durationMs": 87333 },
+      { "id": "edges", "status": "completed", "durationMs": 109973 },
+      { "id": "verify", "status": "partial", "durationMs": 77993 }
+    ],
+    "originalIntegration": {
+      "applied": false,
+      "reason": "incomplete-workstreams",
+      "changedPaths": []
+    },
+    "ownerPatch": {
+      "bytes": 40384,
+      "insertions": 289,
+      "deletions": 32,
+      "changedPaths": ["app/globals.css", "app/layout.tsx", "app/page.tsx", "package.json"]
+    },
+    "usage": {
+      "inputTokens": 142257,
+      "cachedInputTokens": 105472,
+      "outputTokens": 7121,
+      "reasoningOutputTokens": 4490,
+      "cacheRate": 0.7414186999585257
+    },
+    "cost": {
+      "lunaWorkerActual": 0.450291,
+      "historicalProjectedSolOnly": 1.8474347,
+      "historicalProjectedSavings": 1.3971437,
+      "historicalProjectedSavingsRate": 0.756261,
+      "sameTokenSolSensitivity": 11.257275
+    }
+  },
+  "deterministicRecovery": {
+    "applied": true,
+    "reason": "safe-apply",
+    "manualCodeAuthorship": false,
+    "packageLockRefreshedWithNpmInstall": true
+  },
+  "acceptance": {
+    "productionBuild": "passed",
+    "windowsPosixEnvDependencyRemoved": true,
+    "legacyTests": { "passed": 0, "total": 2, "cause": "Tests still assert the intentionally removed starter contract; tests were outside the Sol-defined write scope." },
+    "eslint": { "passed": false, "errors": 1, "cause": "react-hooks/set-state-in-effect" },
+    "browserConsoleErrors": 0,
+    "desktopCssWidth": 1440,
+    "mobileCssWidth": 390,
+    "horizontalOverflow": false,
+    "interactions": {
+      "search": "passed",
+      "statusFilter": "passed",
+      "pauseResume": "passed",
+      "themeSwitch": "passed",
+      "preferencePersistenceAfterReload": "passed"
+    },
+    "remainingIssues": [
+      "app/_sites-preview remains in the repository",
+      "legacy tests were not migrated",
+      "one ESLint error remains",
+      "many mobile controls are 26-32 CSS pixels",
+      "the page implementation is concentrated in one dense module"
+    ]
+  },
+  "scores": {
+    "productVisual": 8.5,
+    "clientInteraction": 8.0,
+    "responsiveAccessibility": 6.5,
+    "engineeringCompleteness": 5.0,
+    "autonomousOrchestration": 3.0
+  },
+  "conclusion": "Useful as a low-cost supervised implementation draft generator, but not yet reliable as a hands-off owner for a medium frontend feature."
+}

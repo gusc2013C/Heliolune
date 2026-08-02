@@ -149,6 +149,8 @@ mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓�
 
 0.6.2 确定性代码测试中，Sol-only 与 Heliolune 均达到隐藏测试 12/12；墙钟分别为 123.532 秒与 127.451 秒，Luna worker 实测费用 0.457633 单位。controller 费用边界与启动工具面数据见 [0.6.2 快速启动 benchmark](docs/0.6.2-FAST-START-BENCHMARK.zh-CN.md)。
 
+更大的单臂前端应用测试以 0.450291 Luna worker 费用单位生成了可信的响应式仪表盘，但 writer 完成通知超时，需要确定性恢复补丁。[0.6.2 前端应用 benchmark](docs/0.6.2-FRONTEND-APPLICATION-BENCHMARK.zh-CN.md) 完整记录了视觉/交互验收、旧测试与 lint 失败及可靠性边界，没有把恢复后的结果包装成自动成功。
+
 默认费率为用户提供的每百万 token 价格单位：
 
 | 模型 | 普通输入 | 缓存输入 | 输出 |
