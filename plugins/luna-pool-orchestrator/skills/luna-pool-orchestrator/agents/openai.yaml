@@ -1,0 +1,4 @@
+interface:
+  display_name: "Heliolune"
+  short_description: "Supervise low-cost workers and track savings"
+  default_prompt: "Use $luna-pool-orchestrator to delegate a bounded task, supervise Luna liveness, and report estimated cost savings."

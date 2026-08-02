@@ -1,0 +1,20 @@
+{
+  "name": "heliolune",
+  "interface": {
+    "displayName": "Heliolune"
+  },
+  "plugins": [
+    {
+      "name": "luna-pool-orchestrator",
+      "source": {
+        "source": "local",
+        "path": "./plugins/luna-pool-orchestrator"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
