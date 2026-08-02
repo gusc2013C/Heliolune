@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.5.0-alpha.1";
+const APP_VERSION = "0.5.0-alpha.2";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
 
 function exists(file) {
@@ -207,7 +207,7 @@ export class AppServerClient {
     return response.thread.id;
   }
 
-  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null }) {
+  async runTurn({ threadId, text, cwd, sandboxPolicy, outputSchema, timeoutMs, model = "gpt-5.6-luna", effort = "max", watchdog = null, steer = null }) {
     const startedAt = Date.now();
     const response = await this.request("turn/start", {
       threadId,
@@ -233,8 +233,16 @@ export class AppServerClient {
     });
     let completed;
     let supervision = null;
+    let completionOutcome = null;
+    const steering = {
+      scheduled: Boolean(steer?.afterMs && steer?.text),
+      attempted: false,
+      accepted: false,
+      error: null,
+      skippedReason: null,
+    };
+    let steerTimer = null;
     try {
-      let completionOutcome = null;
       const completion = this.waitFor(
         (message) => message.method === "turn/completed" && message.params.turn.id === turnId,
         timeoutMs,
@@ -242,6 +250,28 @@ export class AppServerClient {
         (message) => (completionOutcome = { kind: "completed", message }),
         (error) => (completionOutcome = { kind: "error", error }),
       );
+      if (steering.scheduled) {
+        steerTimer = setTimeout(async () => {
+          if (completionOutcome) return;
+          if (steer.shouldSteer && !steer.shouldSteer(this.turnSnapshot(turnId))) {
+            steering.skippedReason = "worker_not_active";
+            return;
+          }
+          steering.attempted = true;
+          try {
+            await this.request("turn/steer", {
+              threadId,
+              expectedTurnId: turnId,
+              input: [{ type: "text", text: steer.text }],
+              responsesapiClientMetadata: { orchestrator: APP_NAME, phase: "reserved-finalization" },
+            }, 5_000);
+            steering.accepted = true;
+          } catch (error) {
+            steering.error = error.message;
+          }
+        }, steer.afterMs);
+        steerTimer.unref?.();
+      }
       if (watchdog?.afterMs && watchdog?.onCheck) {
         let softTimer;
         const soft = new Promise((resolve) => {
@@ -265,6 +295,16 @@ export class AppServerClient {
           } else if (completionOutcome?.kind === "error") {
             throw completionOutcome.error;
           } else if (supervision?.action === "interrupt") {
+            if (steering.accepted) {
+              supervision = {
+                ...supervision,
+                action: "continue",
+                originalAction: "interrupt",
+                reason: "The active turn accepted finalization steering after the supervisor snapshot; keep the original hard deadline.",
+              };
+            }
+          }
+          if (!completed && supervision?.action === "interrupt") {
             await this.request("turn/interrupt", { threadId, turnId }, 30_000).catch(() => {});
             const error = new Error(`Luna supervisor interrupted a likely stalled turn: ${supervision.reason}`);
             error.code = "SUPERVISOR_INTERRUPTED";
@@ -287,14 +327,17 @@ export class AppServerClient {
         completed = final.message;
       }
     } catch (error) {
+      clearTimeout(steerTimer);
       await this.request("turn/interrupt", { threadId, turnId }, 30_000).catch(() => {});
       if (error.message === "Timed out waiting for app-server notification") error.code = "TURN_HARD_TIMEOUT";
       error.activity = this.turnSnapshot(turnId);
       error.supervision ??= supervision;
+      error.steering = steering;
       this.latestUsage.delete(turnId);
       this.turnActivity.delete(turnId);
       throw error;
     }
+    clearTimeout(steerTimer);
     const turn = completed.params.turn;
     const usage = this.latestUsage.get(turnId) ?? null;
     this.latestUsage.delete(turnId);
@@ -304,13 +347,23 @@ export class AppServerClient {
     const fallbackItems = turn.items.filter((item) => item.type === "agentMessage");
     const textOutput = (finalItems.at(-1) ?? fallbackItems.at(-1))?.text ?? "";
     if (turn.status !== "completed") {
-      throw new Error(turn.error?.message ?? `Luna turn ended with status ${turn.status}`);
+      const error = new Error(turn.error?.message ?? `Luna turn ended with status ${turn.status}`);
+      error.code = "TURN_NOT_COMPLETED";
+      error.activity = activity;
+      error.usage = usage;
+      error.steering = steering;
+      throw error;
     }
     let structured;
     try {
       structured = JSON.parse(textOutput);
     } catch (error) {
-      throw new Error(`Luna returned invalid JSON: ${error.message}; output=${textOutput.slice(0, 500)}`);
+      const invalid = new Error(`Luna returned invalid JSON: ${error.message}; output=${textOutput.slice(0, 500)}`);
+      invalid.code = "INVALID_STRUCTURED_OUTPUT";
+      invalid.activity = activity;
+      invalid.usage = usage;
+      invalid.steering = steering;
+      throw invalid;
     }
     return {
       turnId,
@@ -318,6 +371,7 @@ export class AppServerClient {
       usage,
       activity,
       supervision,
+      steering,
       output: structured,
     };
   }

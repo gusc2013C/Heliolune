@@ -20,14 +20,19 @@ $required = @(
     (Join-Path $pluginRoot 'scripts\app-server-client.mjs'),
     (Join-Path $pluginRoot 'scripts\pricing.mjs'),
     (Join-Path $pluginRoot 'scripts\supervision.mjs'),
+    (Join-Path $pluginRoot 'scripts\finalization.mjs'),
     $skillPath,
     (Join-Path $repoRoot 'README.md'),
     (Join-Path $repoRoot 'LICENSE'),
     (Join-Path $repoRoot 'tests\pricing.test.mjs'),
     (Join-Path $repoRoot 'tests\supervision.test.mjs'),
+    (Join-Path $repoRoot 'tests\finalization.test.mjs'),
     (Join-Path $repoRoot 'tests\mcp-smoke.test.mjs'),
     (Join-Path $repoRoot 'tests\app-server-client-watchdog.test.mjs'),
-    (Join-Path $repoRoot 'tests\fixtures\fake-app-server.mjs')
+    (Join-Path $repoRoot 'tests\fixtures\fake-app-server.mjs'),
+    (Join-Path $repoRoot 'scripts\run-live-benchmark.mjs'),
+    (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
+    (Join-Path $repoRoot 'benchmarks\forced-finalization.json')
 )
 
 foreach ($path in $required) {
@@ -64,7 +69,7 @@ if ($skill -notmatch '(?s)^---\s+name:\s*luna-pool-orchestrator\s+description:.+
     throw 'SKILL.md frontmatter is invalid.'
 }
 
-foreach ($script in @('server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs')) {
+foreach ($script in @('server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'finalization.mjs')) {
     & node --check (Join-Path $pluginRoot "scripts\$script")
     if ($LASTEXITCODE -ne 0) {
         throw "Node syntax validation failed: $script"

@@ -39,3 +39,11 @@ The installed `0.5.0-alpha.1` plugin was exercised with a six-file read-only Lun
 Across two forced-timeout live regressions, the cumulative dashboard reported 101,698 input tokens, 59,904 cached input tokens, 491 output tokens, estimated Luna worker-boundary cost `0.253652`, and same-token Sol cost `6.3413`: 96% estimated worker-boundary savings at the configured 25:1 rate. These forced timeout runs are diagnostic overhead, not a quality or end-to-end speed benchmark.
 
 The result indicates that broad Luna/max review tasks can remain productive beyond 90–180 seconds while still failing to synthesize their final structured response before the deadline. Prefer narrower scope and smaller acceptance bundles before increasing deadlines. The supervisor diagnoses liveness and bounds failure; it does not replace Sol-owned task decomposition.
+
+## Alpha.2 reserved-finalization regression
+
+The `0.5.0-alpha.1` baseline was a two-file, eight-command Luna/max analysis with a 120-second deadline. It failed as `hard_timeout_active`; the last event was `thread/tokenUsage/updated` with 0ms silence, so the worker was active but had not emitted structured output.
+
+On `0.5.0-alpha.2`, a matched bounded two-file analysis completed directly in 70.411 seconds, before its 80-second work budget. It returned four path-backed evidence items and one concrete reliability risk with no verifier or supervisor model call. Usage was 29,077 input / 26,368 cached / 1,934 output tokens; estimated Luna cost was `0.084749`, same-token Sol cost was `2.118725`, and estimated worker-boundary savings were 96%.
+
+A forced-finalization variant used a 90-second total deadline, 40-second work budget, and 50-second reserved window. App-server accepted the in-turn steer and the same Luna/max turn returned an honest structured `partial` result in 87.991 seconds instead of timing out. It met all three requested evidence/risk criteria, used 30,149 input / 27,392 cached / 767 output tokens, cost an estimated `0.050491` versus `1.262275` at same-token Sol rates, and again showed 96% worker-boundary savings. Earlier experimental interrupt-and-new-turn variants failed at the same 90-second deadline, which is why alpha.2 uses in-turn steering for active work and reserves a new turn only for invalid JSON recovery.

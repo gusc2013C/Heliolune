@@ -54,6 +54,8 @@ test("records raw metrics and renders a compact dashboard", () => {
     verifierUsed: true,
     softTimeout: true,
     supervisorChecked: true,
+    synthesisAttempted: true,
+    synthesisRecovered: true,
     diagnostic: { classification: "hard_timeout_stalled", silentMs: 60_000, lastEvent: "item/completed", supervision: { action: "continue", source: "luna-supervisor" } },
     laneRuns: [
       { lane: "core", usage: { inputTokens: 1000, cachedInputTokens: 800, outputTokens: 100 } },
@@ -65,6 +67,8 @@ test("records raw metrics and renders a compact dashboard", () => {
   assert.equal(data.counts.verifierRuns, 1);
   assert.equal(data.counts.softTimeouts, 1);
   assert.equal(data.counts.supervisorChecks, 1);
+  assert.equal(data.counts.synthesisAttempts, 1);
+  assert.equal(data.counts.synthesisRecoveries, 1);
   assert.equal(data.lastFailure.classification, "hard_timeout_stalled");
   assert.equal(data.lanes.core.runs, 1);
   assert.match(renderDashboard(data), /Estimated worker-boundary savings/);

@@ -7,6 +7,7 @@
 - [ ] Confirm `.agents/plugins/marketplace.json` and the plugin manifest are not ignored.
 - [ ] Run cold initialization, same-lane warm reuse, timeout, and verifier smoke tests.
 - [ ] Exercise recent-activity, sustained-silence, supervisor-race, and hard-timeout watchdog paths.
+- [ ] Exercise active-timeout and invalid-JSON finalization recovery; confirm synthesis does not extend the hard deadline.
 - [ ] Confirm the default price table and run pricing/dashboard regression tests.
 - [ ] Run a matched Sol-only versus controller/worker benchmark when routing behavior changes.
 - [ ] Record exact tokens, cache rate, wall time, quality criteria, and estimated-price assumptions.

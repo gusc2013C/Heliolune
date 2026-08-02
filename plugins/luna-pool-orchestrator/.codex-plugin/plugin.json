@@ -1,6 +1,6 @@
 {
   "name": "luna-pool-orchestrator",
-  "version": "0.5.0-alpha.1",
+  "version": "0.5.0-alpha.2",
   "description": "The first Heliolune adapter: cost-first supervised engineering orchestration through a blocking local MCP boundary.",
   "author": {
     "name": "Sicheng Gu"

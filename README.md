@@ -6,7 +6,7 @@ Heliolune is an alpha-stage orchestration project for pairing a capable controll
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current release: **`0.5.0-alpha.1`**. Public contracts may change before 1.0.
+> Current release: **`0.5.0-alpha.2`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
@@ -41,6 +41,7 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 - Conditional independent verification based on risk, reserved boundaries, incomplete work, or unresolved high-severity findings.
 - Timed-out turns are interrupted before an error is returned.
 - A bounded soft timeout uses app-server activity to distinguish a live worker from sustained silence; only ambiguous stale turns wake the Luna supervisor.
+- A reserved finalization window steers an active over-budget work turn to stop tools and emit structured output without extending the hard deadline.
 - Exact input, cached-input, output, reasoning-output, cache-rate, and wall-time reporting.
 - Built-in price estimates, same-token baselines, cumulative savings, and a compact per-lane cost dashboard.
 - No bundled Codex executable, copied runtime, third-party npm dependency, telemetry service, or remote control plane.
@@ -88,7 +89,7 @@ The MCP runtime itself is Node-based. PowerShell is used only by repository vali
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.5.0-alpha.1` |
+| Plugin version | `0.5.0-alpha.2` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -136,7 +137,9 @@ Use `verification=auto` by default. Use `always` for security-sensitive work or 
 
 For tasks with hard timeouts of at least 90 seconds, `supervision=auto` schedules one checkpoint at roughly two-thirds of the deadline. Recent events continue deterministically without spending supervisor tokens. Sustained silence wakes the shared supervisor once; the original hard deadline remains absolute. Use `supervision=off` for deterministic timeout-only behavior or `supervision=always` when diagnosing the watchdog itself.
 
-At the hard deadline, Heliolune reports `hard_timeout_active` when recent events show the worker was still running, or `hard_timeout_stalled` after sustained silence. The latest classification, event, silence duration, and supervisor decision are retained in the cost dashboard without storing the worker transcript.
+With `finalization=auto` (the default), tasks of at least 60 seconds reserve 40–90 seconds inside that same deadline for final structured synthesis. If the work turn is still active when its budget ends, Heliolune uses app-server `turn/steer` to tell that same Luna/max turn to stop tools and emit the schema from information and changes already present. If a completed turn instead emits invalid JSON, one same-thread fallback turn uses `high` effort by default because new repository reasoning is forbidden. Either path may return `partial` rather than inventing evidence. `synthesisReserveSeconds` and `synthesisEffort` tune this phase without increasing the hard deadline.
+
+At the hard deadline, Heliolune reports `hard_timeout_active` when recent events show the worker was still running, or `hard_timeout_stalled` after sustained silence. The latest classification, event, silence duration, supervisor decision, and finalization outcome are retained in the cost dashboard without storing the worker transcript.
 
 ## Cost and performance
 

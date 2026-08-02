@@ -2,6 +2,20 @@
 
 All notable changes to Heliolune are documented here. The project follows Semantic Versioning.
 
+## [0.5.0-alpha.2] - 2026-08-02
+
+### Fixed
+
+- Reserve 40–90 seconds inside the original task deadline and use app-server `turn/steer` to make active Luna/max work stop tools and emit its final structured result.
+- Preserve and aggregate interrupted-work usage with synthesis usage instead of dropping or double-counting it.
+- Preserve usage and activity metadata when a completed turn returns invalid structured output.
+
+### Changed
+
+- Use one no-tools fallback turn only for completed invalid JSON, and prefer an honest partial result over renewed exploration.
+- Track finalization attempts and recoveries in the cost dashboard.
+- Clarify that scope and acceptance should be narrowed before either timeout or synthesis reserve is increased.
+
 ## [0.5.0-alpha.1] - 2026-08-02
 
 ### Added

@@ -136,6 +136,8 @@ export function emptyMetrics() {
     supervisorChecks: 0,
     supervisorInterrupts: 0,
     hardTimeouts: 0,
+    synthesisAttempts: 0,
+    synthesisRecoveries: 0,
     wallMs: 0,
     usage: normalizeUsage(),
     lanes: {},
@@ -153,6 +155,8 @@ export function recordMetrics(existing, event) {
   metrics.supervisorChecks = nonNegativeNumber(metrics.supervisorChecks);
   metrics.supervisorInterrupts = nonNegativeNumber(metrics.supervisorInterrupts);
   metrics.hardTimeouts = nonNegativeNumber(metrics.hardTimeouts);
+  metrics.synthesisAttempts = nonNegativeNumber(metrics.synthesisAttempts);
+  metrics.synthesisRecoveries = nonNegativeNumber(metrics.synthesisRecoveries);
   metrics.wallMs = nonNegativeNumber(metrics.wallMs);
   if (event.kind === "task") metrics.taskRuns += 1;
   if (event.kind === "health") metrics.healthChecks += 1;
@@ -162,6 +166,8 @@ export function recordMetrics(existing, event) {
   metrics.supervisorChecks += event.supervisorChecked ? 1 : 0;
   metrics.supervisorInterrupts += event.supervisorInterrupted ? 1 : 0;
   metrics.hardTimeouts += event.hardTimeout ? 1 : 0;
+  metrics.synthesisAttempts += event.synthesisAttempted ? 1 : 0;
+  metrics.synthesisRecoveries += event.synthesisRecovered ? 1 : 0;
   metrics.wallMs += nonNegativeNumber(event.wallMs);
   if (event.diagnostic) metrics.lastFailure = structuredClone(event.diagnostic);
   for (const laneRun of event.laneRuns ?? []) {
@@ -197,6 +203,8 @@ export function dashboardData({ cwd, metrics: existing, actualModel = DEFAULT_AC
       supervisorChecks: metrics.supervisorChecks ?? 0,
       supervisorInterrupts: metrics.supervisorInterrupts ?? 0,
       hardTimeouts: metrics.hardTimeouts ?? 0,
+      synthesisAttempts: metrics.synthesisAttempts ?? 0,
+      synthesisRecoveries: metrics.synthesisRecoveries ?? 0,
     },
     wallMs: metrics.wallMs ?? 0,
     usage: normalizeUsage(metrics.usage),
@@ -216,6 +224,7 @@ export function renderDashboard(data) {
     `- Verifier runs: ${data.counts.verifierRuns}`,
     `- Failed runs / hard timeouts: ${data.counts.failedRuns} / ${data.counts.hardTimeouts}`,
     `- Supervisor checks / interrupts: ${data.counts.supervisorChecks} / ${data.counts.supervisorInterrupts}`,
+    `- Reserved synthesis attempts / recoveries: ${data.counts.synthesisAttempts} / ${data.counts.synthesisRecoveries}`,
     `- Worker wall time: ${(data.wallMs / 1000).toFixed(2)}s`,
     `- Input / cached / output tokens: ${data.usage.inputTokens} / ${data.usage.cachedInputTokens} / ${data.usage.outputTokens}`,
     `- Cache rate: ${(data.usage.cacheRate * 100).toFixed(2)}%`,

@@ -16,9 +16,10 @@ import {
   sumUsage,
 } from "./pricing.mjs";
 import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
+import { compactSteerPrompt, compactSynthesisPrompt, finalizationSchedule, shouldAttemptSynthesis } from "./finalization.mjs";
 
-const VERSION = "0.5.0-alpha.1";
-const PROMPT_VERSION = "mcp-v3-ephemeral";
+const VERSION = "0.5.0-alpha.2";
+const PROMPT_VERSION = "mcp-v4-reserved-synthesis";
 const RUNTIME_ID = randomUUID();
 const LANES = ["core", "tests", "integration", "verifier", "supervisor"];
 const LANE_FOCUS = {
@@ -133,6 +134,9 @@ const RUN_INPUT_SCHEMA = {
     softTimeoutSeconds: { type: "integer", minimum: 30, maximum: 3300, description: "Optional supervisor checkpoint before the hard timeout." },
     staleAfterSeconds: { type: "integer", minimum: 15, maximum: 600, default: 45, description: "Silence required before auto supervision consults Luna." },
     supervisorEffort: { type: "string", enum: ["high", "xhigh"], default: "high" },
+    finalization: { type: "string", enum: ["auto", "off"], default: "auto", description: "Reserve time for in-turn finalization steering and invalid-JSON fallback before the hard deadline." },
+    synthesisReserveSeconds: { type: "integer", minimum: 20, maximum: 300, description: "Optional portion of the existing hard deadline reserved for final structured synthesis." },
+    synthesisEffort: { type: "string", enum: ["high", "xhigh", "max"], default: "high", description: "Reasoning effort for schema-only finalization; owner work remains max." },
   },
 };
 
@@ -165,7 +169,7 @@ const TOOLS = [
   },
   {
     name: "run_task",
-    description: "Run one bounded repository task on a persistent Luna/max owner lane, block until completion, and conditionally use the independent verifier lane. Sol receives only a compact audited bundle and exact Luna token usage.",
+    description: "Run one bounded repository task on a persistent Luna/max owner lane, reserve time for same-thread structured synthesis, and conditionally use the independent verifier lane. Sol receives only a compact audited bundle and exact Luna token usage.",
     inputSchema: RUN_INPUT_SCHEMA,
   },
   {
@@ -233,7 +237,7 @@ function compactTask(args) {
       reservedBoundary: args.reservedBoundary ?? false,
       budget: { maxFiles: args.maxFiles ?? 12, maxCommands: args.maxCommands ?? 20 },
     })}`,
-    `Work end-to-end within scope. Inspect exact repository state first. Treat scope entries as hard search boundaries. For analyze mode use shell reads only; do not use apply_patch or view_image. After ${(args.maxCommands ?? 20) - Math.ceil((args.maxCommands ?? 20) * 0.2)} tool calls at latest, stop exploration and synthesize. Set needsSol=[] unless an actual reserved Sol decision blocks or materially conditions the result. Return the schema only.`,
+    `Work end-to-end within scope. Inspect exact repository state first. Treat scope entries as hard search boundaries. For analyze mode use shell reads only; do not use apply_patch or view_image. After ${(args.maxCommands ?? 20) - Math.ceil((args.maxCommands ?? 20) * 0.25)} tool calls at latest, stop exploration and synthesize. If scope is too broad for the budget, return status=partial with the decisive evidence already found instead of broadening or exhausting the deadline. Set needsSol=[] unless an actual reserved Sol decision blocks or materially conditions the result. Return the schema only.`,
   ].join("\n");
 }
 
@@ -362,6 +366,12 @@ async function runTask(args) {
     const ownerLane = await ensureLane(instance, registry, project, args.lane, cwd, sandbox.legacy);
     const timeoutSeconds = args.timeoutSeconds ?? 900;
     const timeoutMs = timeoutSeconds * 1000;
+    const deadlineAt = startedAt + timeoutMs;
+    const finalizationPlan = finalizationSchedule({
+      timeoutSeconds,
+      synthesisReserveSeconds: args.synthesisReserveSeconds,
+      finalization: args.finalization,
+    });
     const schedule = supervisionSchedule({
       timeoutSeconds,
       softTimeoutSeconds: args.softTimeoutSeconds,
@@ -373,11 +383,25 @@ async function runTask(args) {
     let supervisorError = null;
     let supervisorFailureUsage = null;
     let softTimeoutReached = false;
+    let ownerWorkUsage = null;
+    let fallbackTurnAttempted = false;
+    let finalization = {
+      enabled: finalizationPlan.enabled,
+      attempted: false,
+      recovered: false,
+      reserveMs: finalizationPlan.reserveMs,
+      trigger: null,
+    };
     let ownerRun;
     try {
       ownerRun = await instance.runTurn({
         threadId: ownerLane.threadId, text: compactTask(args), cwd,
         sandboxPolicy: sandbox.policy, outputSchema: RESULT_SCHEMA, timeoutMs,
+        steer: finalizationPlan.enabled ? {
+          afterMs: finalizationPlan.workMs,
+          text: compactSteerPrompt({ objective: args.objective, acceptance: args.acceptance }),
+          shouldSteer: (snapshot) => Boolean(snapshot) && snapshot.silentMs < (schedule.staleMs ?? 45_000),
+        } : null,
         watchdog: schedule.enabled ? {
           afterMs: schedule.softMs,
           onCheck: async (rawSnapshot) => {
@@ -416,46 +440,118 @@ async function runTask(args) {
           },
         } : null,
       });
-    } catch (error) {
-      ownerLane.invalidOutputs += 1;
-      const classification = classifyTurnFailure(error, schedule);
-      const diagnostic = {
-        occurredAt: new Date().toISOString(),
-        classification,
-        code: error.code ?? "TURN_ERROR",
-        lastEvent: error.activity?.lastMethod ?? null,
-        silentMs: error.activity?.silentMs ?? null,
-        eventCount: error.activity?.eventCount ?? null,
-        supervision: error.supervision ? {
-          action: error.supervision.action,
-          confidence: error.supervision.confidence,
-          source: error.supervision.source,
-          reason: error.supervision.reason,
-        } : null,
-        supervisorError,
-      };
-      project.metrics = recordMetrics(project.metrics, {
-        kind: "failed",
-        wallMs: Date.now() - startedAt,
-        verifierUsed: false,
-        softTimeout: softTimeoutReached,
-        supervisorChecked: supervisorAttempted,
-        supervisorInterrupted: error.code === "SUPERVISOR_INTERRUPTED",
-        hardTimeout: error.code === "TURN_HARD_TIMEOUT",
-        diagnostic,
-        laneRuns: [
-          ...(error.activity?.usage ? [{ lane: args.lane, usage: error.activity.usage }] : []),
-          ...(supervisorRun ? [{ lane: "supervisor", usage: usageBreakdown(supervisorRun) }] : []),
-          ...(!supervisorRun && supervisorFailureUsage ? [{ lane: "supervisor", usage: supervisorFailureUsage }] : []),
-        ],
-      });
-      await writeRegistry(registry);
-      if (error.code === "TURN_HARD_TIMEOUT") {
-        error.message = `${error.message}; classification=${classification}; lastEvent=${diagnostic.lastEvent ?? "unknown"}; silentMs=${diagnostic.silentMs ?? "unknown"}; supervisor=${diagnostic.supervision?.action ?? "not-used"}`;
+    } catch (initialError) {
+      let error = initialError;
+      if (error.steering?.attempted) {
+        finalization = {
+          ...finalization,
+          attempted: true,
+          trigger: "in_turn_steer",
+          steerAccepted: error.steering.accepted,
+          steerError: error.steering.error,
+        };
       }
-      throw error;
+      const staleMs = schedule.staleMs ?? 45_000;
+      if (shouldAttemptSynthesis(error, finalizationPlan, staleMs)) {
+        fallbackTurnAttempted = true;
+        ownerWorkUsage = error.usage ?? error.activity?.usage ?? null;
+        finalization = {
+          ...finalization,
+          attempted: true,
+          trigger: error.code === "INVALID_STRUCTURED_OUTPUT" ? "invalid_structured_output" : "active_work_budget_exhausted",
+        };
+        const remainingMs = deadlineAt - Date.now();
+        if (remainingMs >= 10_000) {
+          try {
+            const synthesisRun = await instance.runTurn({
+              threadId: ownerLane.threadId,
+              text: compactSynthesisPrompt({
+                mode: args.mode,
+                objective: args.objective,
+                acceptance: args.acceptance,
+                scope: args.scope,
+                activity: error.activity,
+              }),
+              cwd,
+              sandboxPolicy: { type: "readOnly", networkAccess: false },
+              outputSchema: RESULT_SCHEMA,
+              timeoutMs: remainingMs,
+              effort: args.synthesisEffort ?? "high",
+            });
+            ownerRun = {
+              ...synthesisRun,
+              durationMs: (error.activity?.elapsedMs ?? finalizationPlan.workMs) + synthesisRun.durationMs,
+              usage: sumUsage([ownerWorkUsage, usageBreakdown(synthesisRun)]),
+              supervision: error.supervision ?? synthesisRun.supervision,
+            };
+            finalization.recovered = true;
+          } catch (synthesisError) {
+            synthesisError.priorUsage = ownerWorkUsage;
+            synthesisError.finalizationTrigger = finalization.trigger;
+            error = synthesisError;
+          }
+        } else {
+          error.finalizationTrigger = finalization.trigger;
+        }
+      }
+      if (ownerRun) {
+        // The same warm worker thread converted interrupted work into a bounded structured result.
+      } else {
+        ownerLane.invalidOutputs += 1;
+        const classification = classifyTurnFailure(error, schedule);
+        const ownerFailureUsage = sumUsage([error.priorUsage, error.usage ?? error.activity?.usage]);
+        const diagnostic = {
+          occurredAt: new Date().toISOString(),
+          classification,
+          code: error.code ?? "TURN_ERROR",
+          lastEvent: error.activity?.lastMethod ?? null,
+          silentMs: error.activity?.silentMs ?? null,
+          eventCount: error.activity?.eventCount ?? null,
+          supervision: error.supervision ? {
+            action: error.supervision.action,
+            confidence: error.supervision.confidence,
+            source: error.supervision.source,
+            reason: error.supervision.reason,
+          } : null,
+          supervisorError,
+          finalization,
+        };
+        project.metrics = recordMetrics(project.metrics, {
+          kind: "failed",
+          wallMs: Date.now() - startedAt,
+          verifierUsed: false,
+          softTimeout: softTimeoutReached,
+          supervisorChecked: supervisorAttempted,
+          supervisorInterrupted: error.code === "SUPERVISOR_INTERRUPTED",
+          hardTimeout: error.code === "TURN_HARD_TIMEOUT",
+          synthesisAttempted: finalization.attempted,
+          synthesisRecovered: false,
+          diagnostic,
+          laneRuns: [
+            ...(ownerFailureUsage.totalTokens ? [{ lane: args.lane, usage: ownerFailureUsage }] : []),
+            ...(supervisorRun ? [{ lane: "supervisor", usage: usageBreakdown(supervisorRun) }] : []),
+            ...(!supervisorRun && supervisorFailureUsage ? [{ lane: "supervisor", usage: supervisorFailureUsage }] : []),
+          ],
+        });
+        await writeRegistry(registry);
+        if (error.code === "TURN_HARD_TIMEOUT") {
+          error.message = `${error.message}; classification=${classification}; lastEvent=${diagnostic.lastEvent ?? "unknown"}; silentMs=${diagnostic.silentMs ?? "unknown"}; supervisor=${diagnostic.supervision?.action ?? "not-used"}; finalization=${finalization.attempted ? "failed" : "not-attempted"}`;
+        }
+        throw error;
+      }
     }
-    ownerLane.turns += 1;
+    if (ownerRun.steering?.attempted) {
+      finalization = {
+        ...finalization,
+        attempted: true,
+        recovered: ownerRun.steering.accepted,
+        trigger: "in_turn_steer",
+        steerAccepted: ownerRun.steering.accepted,
+        steerError: ownerRun.steering.error,
+        steerSkippedReason: ownerRun.steering.skippedReason,
+      };
+    }
+    ownerLane.turns += fallbackTurnAttempted ? 2 : 1;
     ownerLane.lastUsedAt = new Date().toISOString();
     ownerLane.lastUsage = usageBreakdown(ownerRun);
     ownerLane.uncachedInputTokens += Math.max(0, ownerLane.lastUsage.inputTokens - ownerLane.lastUsage.cachedInputTokens);
@@ -490,6 +586,8 @@ async function runTask(args) {
       supervisorChecked: supervisorAttempted,
       supervisorInterrupted: false,
       hardTimeout: false,
+      synthesisAttempted: finalization.attempted,
+      synthesisRecovered: finalization.recovered,
       laneRuns: [
         { lane: args.lane, usage: usageBreakdown(ownerRun) },
         ...(verifierRun ? [{ lane: "verifier", usage: usageBreakdown(verifierRun) }] : []),
@@ -509,8 +607,10 @@ async function runTask(args) {
         supervisorUsed: supervisorAttempted, supervisorThreadId: supervisorAttempted ? project.lanes.supervisor?.threadId ?? null : null,
         supervisorEffort: args.supervisorEffort ?? "high", supervisorError,
         model: "gpt-5.6-luna", effort: "max", promptVersion: PROMPT_VERSION,
+        synthesisEffort: args.synthesisEffort ?? "high",
       },
       supervision: ownerRun.supervision,
+      finalization,
       usage,
       cost,
       timing: { ownerMs: ownerRun.durationMs, verifierMs: verifierRun?.durationMs ?? 0, wallMs: Date.now() - startedAt },
