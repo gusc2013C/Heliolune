@@ -12,6 +12,10 @@ Heliolune 优化的是 controller 成本，同时不能牺牲验收质量。因�
 - 报告 input、cached input、output、reasoning output、cache rate，以及 planning/execution/acceptance 时间。
 - 未获得实际账单时，价格加权数字必须标为估算。
 
+## 0.7.0 alpha 自适应路由评估
+
+真实匹配运行表明结果依赖任务形态。窄审查中，adaptive 单路相对 0.6.5 四路墙钟降低 29.88%、估算费用降低 86.18%；中等审查中，adaptive 双路估算费用降低 36.97%，但一个 worker 成为长尾，墙钟增加 3.57%。独立的宽任务基线在相同质量下仍支持四路，速度为串行的 3.176 倍。每个 arm 目前只有一个样本，因此证据只支持 alpha 分类器和显式 speed-first 逃生口，不支持普适耗时声明。详见[完整评估](0.7.0-ALPHA.zh-CN.md)与[原始结果](../benchmarks/results/0.7.0-alpha.1-adaptive-r1.json)。
+
 ## 0.5.0 参考
 
 | 测试 | 结果 |

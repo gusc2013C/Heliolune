@@ -123,6 +123,7 @@ test("native panel creates cards for dynamic four/eight-worker burst lanes", asy
   assert.match(script, /unreadableSeconds -ge 5/);
   assert.equal(locales.en.strings.BurstWorker, "Burst worker {0}");
   assert.equal(locales["zh-CN"].lanes["speed-first"], "速度优先");
+  assert.equal(locales["zh-CN"].lanes.adaptive, "自适应");
 });
 
 test("temporary live benchmarks cannot orphan a status window when cleaning their job root", async () => {

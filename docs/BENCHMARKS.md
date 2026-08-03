@@ -12,6 +12,10 @@ Heliolune optimizes for controller-model cost without surrendering acceptance qu
 - Report input, cached input, output, reasoning output, cache rate, and planning/execution/acceptance wall time.
 - Treat price-weighted token calculations as estimates unless billed credits are available.
 
+## 0.7.0 alpha adaptive-routing evaluation
+
+Real matched runs show task-shape-dependent results. On a narrow review, adaptive one-worker routing reduced wall time 29.88% and estimated cost 86.18% versus the 0.6.5 four-worker path. On a moderate review, adaptive two-worker routing reduced estimated cost 36.97% but increased wall time 3.57% after one worker became a straggler. A separate broad independent baseline still favored four-way execution by 3.176x at matched quality. Each arm currently has one sample, so these results support an alpha classifier and explicit speed-first escape hatch—not a universal latency claim. See [the full evaluation](0.7.0-ALPHA.md) and [raw result](../benchmarks/results/0.7.0-alpha.1-adaptive-r1.json).
+
 ## Alpha 0.5.0 reference measurements
 
 These local microbenchmarks are directional, not universal performance claims.

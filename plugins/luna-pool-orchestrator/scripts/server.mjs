@@ -31,9 +31,13 @@ import { appendRunnerDiagnostic, jobDirectory, readJobRecord, removeJobRequest, 
 import { launchJobRunner } from "./job-runner-launch.mjs";
 import { detectSystemLanguage, launchStatusWindow } from "./status-window.mjs";
 import {
+  ADAPTIVE,
   SPEED_FIRST,
   TOKEN_FIRST,
   DEFAULT_PROFILE,
+  adaptiveParallelism,
+  adaptiveParallelWorkstreams,
+  adaptiveRoute,
   adaptiveBudgets,
   batchSupervisionSchedule,
   burstLanes,
@@ -42,9 +46,11 @@ import {
   compactBurstTask,
   defaultParallelWorkstreams,
   mapWithConcurrency,
+  shouldUseBatchLeader,
   speedParallelism,
   validateSpeedWorkstreams,
 } from "./profiles.mjs";
+import { buildTaskTelemetry } from "./task-telemetry.mjs";
 import { contractGuardEscalations, withRecoveryMetadata } from "./orchestration-policy.mjs";
 import {
   batchNeedsWorktrees,
@@ -55,9 +61,9 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-export const VERSION = "0.6.5";
-export const BUILD_ID = "0.6.5-owner-heartbeat-r2";
-const PROMPT_VERSION = "mcp-v15-owner-heartbeat";
+export const VERSION = "0.7.0-alpha.1";
+export const BUILD_ID = "0.7.0-alpha.1-adaptive-shadow-r1";
+const PROMPT_VERSION = "mcp-v16-adaptive-shadow";
 const JOB_HEARTBEAT_INTERVAL_MS = 5_000;
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
@@ -280,7 +286,7 @@ const RUN_INPUT_SCHEMA = {
     scope: { type: "array", minItems: 1, maxItems: 12, items: { type: "string", maxLength: 300 } },
     risk: { type: "string", enum: ["low", "moderate", "high"], default: "moderate" },
     reservedBoundary: { type: "boolean", default: false, description: "True for architecture, security boundary, public API, or irreversible migration." },
-    profile: { type: "string", enum: ["speed-first", "token-first"], default: "speed-first", description: "Use token-first only when isolated writes are unsafe." },
+    profile: { type: "string", enum: ["adaptive", "speed-first", "token-first"], default: "adaptive", description: "Adaptive selects 1/2/4 workers; speed-first forces four; token-first is the isolation fallback." },
     maxFiles: { type: "integer", minimum: 3, maximum: 30 },
     maxCommands: { type: "integer", minimum: 3, maximum: 50 },
   },
@@ -333,8 +339,8 @@ const INIT_INPUT_SCHEMA = {
   required: ["cwd"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
-    priority: { type: "string", enum: ["token-first", "speed-first"], default: "speed-first", description: "Four-way speed-first is the default; token-first is an explicit safety fallback." },
-    parallelism: { type: "integer", enum: [4, 8], default: 4, description: "Only used when priority=speed-first." },
+    priority: { type: "string", enum: ["adaptive", "token-first", "speed-first"], default: "adaptive", description: "Adaptive initializes 1/2/4 burst slots; token-first is the safety fallback; speed-first initializes 4/8." },
+    parallelism: { type: "integer", enum: [1, 2, 4, 8], description: "Adaptive accepts 1/2/4; speed-first accepts 4/8." },
     healthTurn: { type: "boolean", default: false, description: "Run a minimal paid Luna turn on every selected lane. False checks availability and creates/resumes sessions without a model turn." },
     checkpointSeconds: { type: "integer", minimum: 30, maximum: 90, default: 90, description: "First renewable liveness checkpoint for optional paid health turns." },
   },
@@ -354,7 +360,7 @@ const TOOLS = [
   {
     name: "initialize_pool",
     title: "Initialize Heliolune pool",
-    description: "Create or resume the default four/eight-worker speed-first pool or an explicit token-first fallback pool plus one shared Luna/high Leader, without changing code.",
+    description: "Create or resume adaptive 1/2/4-worker lanes, explicit four/eight-way speed-first lanes, or the token-first fallback, without changing code.",
     inputSchema: INIT_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
@@ -368,7 +374,7 @@ const TOOLS = [
   {
     name: "start_task",
     title: "Start Heliolune task",
-    description: "Default: expand one compact task into four Luna/max streams; use token-first only when write isolation is unsafe. Await once.",
+    description: "Default: adapt one compact task to 1/2/4 Luna/max workers; speed-first forces four and token-first handles unsafe isolation. Await once.",
     inputSchema: RUN_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
@@ -568,8 +574,12 @@ async function initializePool(args, context = {}) {
   const project = registry.projects[key] ??= { cwd, lanes: {}, createdAt: new Date().toISOString() };
   const checkpointMs = (args.checkpointSeconds ?? 90) * 1000;
   const priority = args.priority ?? DEFAULT_PROFILE.id;
-  const parallelism = priority === SPEED_FIRST.id ? speedParallelism(args.parallelism) : TOKEN_FIRST.defaultParallelism;
-  const poolLanes = priority === SPEED_FIRST.id ? [...burstLanes(parallelism), "supervisor"] : LANES;
+  const parallelism = priority === SPEED_FIRST.id
+    ? speedParallelism(args.parallelism)
+    : priority === ADAPTIVE.id
+      ? adaptiveParallelism(args.parallelism)
+      : TOKEN_FIRST.defaultParallelism;
+  const poolLanes = priority === TOKEN_FIRST.id ? LANES : [...burstLanes(parallelism), "supervisor"];
   const health = [];
   for (const lane of poolLanes) {
     context.progress?.report(8 + health.length * 84 / poolLanes.length, `Heliolune Leader · initializing ${lane} lane`, { force: true });
@@ -1000,9 +1010,14 @@ async function runBatch(args, context = {}) {
   const cwd = path.resolve(args.cwd);
   const stat = await fs.stat(cwd);
   if (!stat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
-  const workstreams = validateSpeedWorkstreams(args.workstreams);
+  const profile = args.profile ?? SPEED_FIRST.id;
+  const adaptive = profile === ADAPTIVE.id;
+  const workstreams = validateSpeedWorkstreams(args.workstreams, { allowSingle: adaptive });
   const mutatingBatch = batchNeedsWorktrees(workstreams);
-  const parallelism = speedParallelism(args.parallelism);
+  const parallelism = adaptive ? adaptiveParallelism(args.parallelism) : speedParallelism(args.parallelism);
+  if (adaptive && (args.routingPlan?.parallelism !== parallelism || workstreams.length !== parallelism)) {
+    throw new Error(`Adaptive route mismatch: planned ${args.routingPlan?.parallelism ?? "missing"}, requested ${parallelism}, workstreams ${workstreams.length}`);
+  }
   const slots = burstLanes(parallelism);
   const batchId = randomUUID();
   const startedAt = Date.now();
@@ -1016,7 +1031,11 @@ async function runBatch(args, context = {}) {
       slotStates[slot] = await ensureLane(instance, registry, project, slot, cwd, "read-only");
     }
   }
-  const leaderLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
+  let leaderLane = null;
+  const ensureLeaderLane = async () => {
+    leaderLane ??= await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
+    return leaderLane;
+  };
   const worktreeSession = mutatingBatch
     ? await prepareParallelWriteBatch({
       cwd,
@@ -1071,8 +1090,9 @@ async function runBatch(args, context = {}) {
         force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
       });
       try {
+        const activeLeaderLane = await ensureLeaderLane();
         const managerRun = await instance.runTurn({
-          threadId: leaderLane.threadId,
+          threadId: activeLeaderLane.threadId,
           text: compactBatchSupervisorPrompt({ batchId, snapshots, schedule: batchSchedule }),
           cwd,
           sandboxPolicy: { type: "readOnly", networkAccess: false },
@@ -1087,10 +1107,10 @@ async function runBatch(args, context = {}) {
             });
           },
         });
-        leaderLane.turns += 1;
-        leaderLane.lastUsedAt = new Date().toISOString();
-        leaderLane.lastUsage = usageBreakdown(managerRun);
-        leaderLane.uncachedInputTokens += leaderLane.lastUsage.uncachedInputTokens;
+        activeLeaderLane.turns += 1;
+        activeLeaderLane.lastUsedAt = new Date().toISOString();
+        activeLeaderLane.lastUsage = usageBreakdown(managerRun);
+        activeLeaderLane.uncachedInputTokens += activeLeaderLane.lastUsage.uncachedInputTokens;
         managerRuns.push(managerRun);
         context.progress?.report(workerPhaseProgress(), "Heliolune Leader · parallel liveness decisions returned", {
           force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
@@ -1135,15 +1155,17 @@ async function runBatch(args, context = {}) {
       },
     };
   };
-  context.progress?.report(2, `Heliolune Leader · speed-first batch ${batchId.slice(0, 8)} · ${workstreams.length} ${mutatingBatch ? "isolated write" : "read-only"} workstreams · ${parallelism} Luna/max slots`, { force: true });
+  context.progress?.report(2, `Heliolune Leader · ${profile} batch ${batchId.slice(0, 8)} · ${workstreams.length} ${mutatingBatch ? "isolated write" : "read-only"} workstreams · ${parallelism} Luna/max slots`, { force: true });
 
   let executions;
   let patchRecords = [];
   let integration = { applied: true, reason: "not-required", changedPaths: [] };
+  const dispatchStartedAt = Date.now();
   try {
     executions = await mapWithConcurrency(workstreams, parallelism, async (workstream, _itemIndex, slotIndex) => {
     const slot = slots[slotIndex];
     return withLaneLock(`${key}:${slot}`, async () => {
+      const queueWaitMs = Date.now() - dispatchStartedAt;
       const streamStartedAt = Date.now();
       const workerCwd = worktreeSession ? worktreeFor(worktreeSession, workstream.id) : cwd;
       const workerSandbox = sandboxFor(workstream.mode, workerCwd);
@@ -1257,7 +1279,7 @@ async function runBatch(args, context = {}) {
           force: true, workerLane: slot, workerStatus: "completed", workerProgress: 100,
           explanation: run.output.summary,
         });
-        return { id: workstream.id, requestedLane: workstream.lane, slot, status: run.output.status, run, durationMs: Date.now() - streamStartedAt };
+        return { id: workstream.id, requestedLane: workstream.lane, slot, status: run.output.status, run, queueWaitMs, durationMs: Date.now() - streamStartedAt };
       } catch (error) {
         const failureUsage = normalizeUsage(error.usage ?? error.activity?.usage);
         const originalFailure = error.originalFailure ?? error;
@@ -1306,6 +1328,7 @@ async function runBatch(args, context = {}) {
               } : null,
             } : null,
           },
+          queueWaitMs,
           durationMs: Date.now() - streamStartedAt,
         };
       }
@@ -1350,51 +1373,61 @@ async function runBatch(args, context = {}) {
     evidence: [], changes: [], failedChecks: [], risks: [], needsSol: [],
     durationMs: execution.durationMs,
   });
-  context.progress?.report(86, `Heliolune Leader · aggregating ${workstreams.length} speed-first outcomes`, {
-    force: true, workerLane: "supervisor", workerStatus: "reporting", workerProgress: 15,
-  });
+  const useLeader = shouldUseBatchLeader({ profile, workstreams, outcomes: leaderInput, integration });
   let leaderRun = null;
   let leaderError = null;
-  const leaderStartedAt = Date.now();
-  try {
-    leaderRun = await withLaneLock(`${key}:supervisor`, () => instance.runTurn({
-      threadId: leaderLane.threadId,
-      text: compactBatchLeaderPrompt({
-        batchId,
-        workstreams,
-        outcomes: leaderInput,
-        integration: { applied: integration.applied, reason: integration.reason, changedPaths: integration.changedPaths },
-        timing: { workerWallMs },
-      }),
-      cwd,
-      sandboxPolicy: { type: "readOnly", networkAccess: false },
-      outputSchema: BATCH_LEADER_SCHEMA,
-      timeoutMs: (args.leaderTimeoutSeconds ?? 60) * 1000,
-      effort: args.leaderEffort ?? "high",
-      onActivity: (snapshot) => {
-        const update = workerProgress({ lane: "supervisor", snapshot, targetMs: (args.leaderTimeoutSeconds ?? 60) * 1000 });
-        context.progress?.report(86 + update.progress / 100 * 11, update.message, {
-          workerLane: "supervisor", workerStatus: "reporting", workerProgress: update.progress,
-          explanation: update.explanation,
-        });
-      },
-    }));
-    leaderLane.turns += 1;
-    leaderLane.lastUsedAt = new Date().toISOString();
-    leaderLane.lastUsage = usageBreakdown(leaderRun);
-    leaderLane.uncachedInputTokens += leaderLane.lastUsage.uncachedInputTokens;
-    context.progress?.report(98, "Heliolune Leader · speed-first handoff ready for Sol", {
-      force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
-      explanation: leaderRun.output.brief,
+  let leaderMs = 0;
+  if (useLeader) {
+    context.progress?.report(86, `Heliolune Leader · aggregating ${workstreams.length} ${profile} outcomes`, {
+      force: true, workerLane: "supervisor", workerStatus: "reporting", workerProgress: 15,
     });
-  } catch (error) {
-    leaderError = compactStatusExplanation(error.message, 500);
-    context.progress?.report(98, "Heliolune Leader · aggregation failed · returning direct bounded outcomes", {
-      force: true, workerLane: "supervisor", workerStatus: "failed", workerProgress: 100,
-      explanation: leaderError,
+    const leaderStartedAt = Date.now();
+    try {
+      const activeLeaderLane = await ensureLeaderLane();
+      leaderRun = await withLaneLock(`${key}:supervisor`, () => instance.runTurn({
+        threadId: activeLeaderLane.threadId,
+        text: compactBatchLeaderPrompt({
+          batchId,
+          workstreams,
+          outcomes: leaderInput,
+          integration: { applied: integration.applied, reason: integration.reason, changedPaths: integration.changedPaths },
+          timing: { workerWallMs },
+        }),
+        cwd,
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+        outputSchema: BATCH_LEADER_SCHEMA,
+        timeoutMs: (args.leaderTimeoutSeconds ?? 60) * 1000,
+        effort: args.leaderEffort ?? "high",
+        onActivity: (snapshot) => {
+          const update = workerProgress({ lane: "supervisor", snapshot, targetMs: (args.leaderTimeoutSeconds ?? 60) * 1000 });
+          context.progress?.report(86 + update.progress / 100 * 11, update.message, {
+            workerLane: "supervisor", workerStatus: "reporting", workerProgress: update.progress,
+            explanation: update.explanation,
+          });
+        },
+      }));
+      activeLeaderLane.turns += 1;
+      activeLeaderLane.lastUsedAt = new Date().toISOString();
+      activeLeaderLane.lastUsage = usageBreakdown(leaderRun);
+      activeLeaderLane.uncachedInputTokens += activeLeaderLane.lastUsage.uncachedInputTokens;
+      context.progress?.report(98, `Heliolune Leader · ${profile} handoff ready for Sol`, {
+        force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
+        explanation: leaderRun.output.brief,
+      });
+    } catch (error) {
+      leaderError = compactStatusExplanation(error.message, 500);
+      context.progress?.report(98, "Heliolune Leader · aggregation failed · returning direct bounded outcomes", {
+        force: true, workerLane: "supervisor", workerStatus: "failed", workerProgress: 100,
+        explanation: leaderError,
+      });
+    }
+    leaderMs = Date.now() - leaderStartedAt;
+  } else {
+    context.progress?.report(98, "Heliolune scheduler · deterministic bounded handoff ready for Sol", {
+      force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
+      explanation: `${workstreams.length} low-risk outcome${workstreams.length === 1 ? "" : "s"} returned without a reporting model turn.`,
     });
   }
-  const leaderMs = Date.now() - leaderStartedAt;
   const usage = sumUsage([
     ...executions.map((execution) => execution.run ? usageBreakdown(execution.run) : execution.usage),
     ...managerRuns.map(usageBreakdown),
@@ -1412,7 +1445,7 @@ async function runBatch(args, context = {}) {
   const status = failed.length === executions.length ? "blocked" : (incomplete.length || integrationBlocked) ? "partial" : "completed";
   project.metrics = recordMetrics(project.metrics, {
     kind: "task",
-    priority: SPEED_FIRST.id,
+    priority: profile,
     workstreamCount: workstreams.length,
     parallelWrite: mutatingBatch,
     parallelWriteApplied: mutatingBatch && integration.applied,
@@ -1434,24 +1467,34 @@ async function runBatch(args, context = {}) {
   const taskOutcomes = executions.map((execution) => ({
     id: execution.id, lane: execution.requestedLane, slot: execution.slot, status: execution.status,
     mode: workstreams.find((workstream) => workstream.id === execution.id)?.mode,
+    queueWaitMs: execution.queueWaitMs,
     durationMs: execution.durationMs,
     ...(execution.status === "failed" ? { error: execution.error, failure: execution.failure } : {}),
   }));
-  context.progress?.report(100, `Heliolune Leader · speed-first batch complete · ${status} · handing off to Sol`, { force: true });
+  const telemetry = buildTaskTelemetry({
+    profile,
+    route: args.routingPlan,
+    workstreams,
+    executions,
+    workerWallMs,
+    leaderMs,
+  });
+  context.progress?.report(100, `Heliolune Leader · ${profile} batch complete · ${status} · handing off to Sol`, { force: true });
   return {
     status,
-    priority: SPEED_FIRST.id,
+    priority: profile,
     parallelism,
-    reportMode: leaderRun ? "leader" : "direct-fallback",
+    reportMode: leaderRun ? "leader" : leaderError ? "direct-fallback" : "direct",
     ...(leaderRun ? { leader: leaderRun.output } : { outcomes: leaderInput }),
     taskOutcomes,
     routing: {
       workerSlots: slots,
       workstreamCount: workstreams.length,
+      shadowAdaptive: args.routingPlan ?? null,
       model: "gpt-5.6-luna",
       workerEffort: "max",
       leaderEffort: args.leaderEffort ?? "high",
-      cachePolicy: mutatingBatch ? "fresh-isolated-worktrees" : SPEED_FIRST.cachePolicy,
+      cachePolicy: mutatingBatch ? "fresh-isolated-worktrees" : adaptive ? ADAPTIVE.cachePolicy : SPEED_FIRST.cachePolicy,
       readOnly: !mutatingBatch,
       leaderManagementUsed: managerChecks > 0,
       leaderManagementChecks: managerChecks,
@@ -1477,6 +1520,7 @@ async function runBatch(args, context = {}) {
       },
     usage: compactUsage(usage),
     cost: compactCost(cost),
+    telemetry,
     timing: {
       workerWallMs,
       workerSumMs: executions.reduce((sum, execution) => sum + execution.durationMs, 0),
@@ -1494,8 +1538,9 @@ function runtimeInfo() {
     buildId: BUILD_ID,
     runtimeId: RUNTIME_ID,
     promptVersion: PROMPT_VERSION,
-    defaultProfile: SPEED_FIRST.id,
-    defaultParallelism: SPEED_FIRST.defaultParallelism,
+    defaultProfile: DEFAULT_PROFILE.id,
+    defaultParallelism: DEFAULT_PROFILE.defaultParallelism,
+    adaptiveParallelism: ADAPTIVE.allowedParallelism,
     burstThreadsEphemeral: BURST_THREADS_EPHEMERAL,
     appServerWindowHidden: APP_SERVER_WINDOWS_HIDDEN,
     statusSurface: process.platform === "win32" ? "native-window" : "host-progress",
@@ -1650,12 +1695,28 @@ export async function startVisibleJob({
 }
 
 export async function startOwnedTask(args, { store = jobs } = {}) {
-  if ((args.profile ?? DEFAULT_PROFILE.id) === SPEED_FIRST.id) {
+  const profile = args.profile ?? DEFAULT_PROFILE.id;
+  if (profile === SPEED_FIRST.id) {
     const budgets = adaptiveBudgets(args);
     return startOwnedBatch({
       cwd: args.cwd,
+      profile: SPEED_FIRST.id,
       parallelism: SPEED_FIRST.defaultParallelism,
       workstreams: defaultParallelWorkstreams(args),
+      routingPlan: adaptiveRoute(args),
+      maxFiles: budgets.maxFiles,
+      maxCommands: budgets.maxCommands,
+    }, { store });
+  }
+  if (profile === ADAPTIVE.id) {
+    const budgets = adaptiveBudgets(args);
+    const { route, workstreams } = adaptiveParallelWorkstreams(args);
+    return startOwnedBatch({
+      cwd: args.cwd,
+      profile: ADAPTIVE.id,
+      parallelism: route.parallelism,
+      workstreams,
+      routingPlan: route,
       maxFiles: budgets.maxFiles,
       maxCommands: budgets.maxCommands,
     }, { store });
@@ -1670,14 +1731,15 @@ export async function startOwnedTask(args, { store = jobs } = {}) {
 }
 
 export async function startOwnedBatch(args, { store = jobs } = {}) {
-  const parallelism = speedParallelism(args.parallelism);
+  const profile = args.profile ?? SPEED_FIRST.id;
+  const parallelism = profile === ADAPTIVE.id ? adaptiveParallelism(args.parallelism) : speedParallelism(args.parallelism);
   const slots = burstLanes(parallelism);
   const activeLanes = slots.slice(0, Math.min(slots.length, args.workstreams?.length ?? 0));
   return startVisibleJob({
-    lane: SPEED_FIRST.id,
+    lane: profile,
     workerLanes: [...slots, "supervisor"],
     activeLanes,
-    run: (progress) => runBatch({ ...args, parallelism }, { progress }),
+    run: (progress) => runBatch({ ...args, profile, parallelism }, { progress }),
     store,
   });
 }
@@ -1685,9 +1747,12 @@ export async function startOwnedBatch(args, { store = jobs } = {}) {
 async function startDetachedJob(kind, args) {
   const jobId = randomUUID();
   const startedAt = new Date().toISOString();
-  const lane = kind === "batch" || (args.profile ?? DEFAULT_PROFILE.id) === SPEED_FIRST.id
+  const requestedProfile = args.profile ?? DEFAULT_PROFILE.id;
+  const lane = kind === "batch"
     ? SPEED_FIRST.id
-    : args.lane;
+    : requestedProfile === SPEED_FIRST.id || requestedProfile === ADAPTIVE.id
+      ? requestedProfile
+      : args.lane;
   const startingSnapshot = {
     jobId,
     buildId: BUILD_ID,

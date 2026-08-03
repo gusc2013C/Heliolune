@@ -9,8 +9,9 @@ controller / governor
   |  objective + acceptance + narrow scope + budget
   v
 start-once / await-once MCP orchestration boundary
-  |-- token-first: one function-affine owner + optional verifier
-  |-- speed-first: 4/8 Sol-defined isolated burst workers
+  |-- adaptive: 1/2/4 task-classified workers
+  |-- speed-first: explicit 4-way control; custom 2-8 batches
+  |-- token-first: explicit safety fallback
   |-- one shared operations Leader
   v
 compact evidence + changes + checks + risks + usage
@@ -25,12 +26,14 @@ controller review and final acceptance
 - **Worker:** performs bounded exploration or implementation within an explicit scope and command/file budget.
 - **Lane:** a function-affine reusable worker context that improves cache locality.
 - **Verifier:** an independent, read-only worker used only when risk or the requested claim justifies it.
-- **Profile:** a routing policy: four-way parallel speed-first by default, with persistent token-first reserved for explicit safety fallback.
+- **Profile:** a routing policy: adaptive 1/2/4 by default, explicit four-way speed-first for broad independent work, and persistent token-first as a safety fallback.
 - **Adapter:** host/model-specific code that starts sessions, sends turns, evaluates renewable liveness, and records usage.
 
 ## Current Codex adapter
 
-The first adapter uses GPT-5.6 Sol as controller and communicates with the official Codex CLI through `app-server`. Token-first exposes four persistent GPT-5.6 Luna/max lanes. Speed-first exposes four stable-default or eight experimental Luna/max burst slots for Sol-defined independent workstreams. Read-only burst sessions may be reused; mutating workstreams use fresh ephemeral sessions in isolated Git worktrees so checkout context cannot leak between workers. All sessions stay out of the ordinary Desktop task list.
+The first adapter uses GPT-5.6 Sol as controller and communicates with the official Codex CLI through `app-server`. Adaptive `start_task` deterministically selects one, two, or four GPT-5.6 Luna/max burst slots from risk, scope, acceptance, and reserved-boundary signals. Explicit speed-first selects four; custom batches support two through eight; token-first exposes persistent function-affine lanes. Read-only burst sessions may be reused, while mutating workstreams use fresh ephemeral sessions in isolated Git worktrees so checkout context cannot leak between workers. All sessions stay out of the ordinary Desktop task list.
+
+`TASK_NODE_V1` records the executed route, optional shadow route, worker node states, queue wait, active wall time, critical path, utilization, and Leader share. It deliberately marks controller usage, final-acceptance timing, false acceptance, result use, duplicate exploration, and route regret unavailable until those boundaries can be observed directly.
 
 A fifth shared Luna operations-leader session runs at `high` by default. It sees compact liveness metadata and structured owner/verifier bundles rather than repository contents. It may recommend continue/interrupt for stale turns and compress dense handoffs, but it cannot plan, assign, judge correctness beyond a verifier verdict, or accept results. Recent activity bypasses the model and renews execution indefinitely; only a high-confidence stall decision after sustained silence can interrupt. `xhigh` remains available for unusually ambiguous liveness diagnostics without paying `max` on routine supervision.
 

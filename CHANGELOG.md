@@ -4,6 +4,22 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.7.0-alpha.1] - 2026-08-03
+
+### Adaptive routing and observable decisions
+
+- Make `adaptive` the default `start_task` profile, selecting one, two, or four Luna/max workers from deterministic risk, scope, acceptance, and reserved-boundary signals. Keep explicit four-way `speed-first`, advanced custom batches, and token-first safety fallback.
+- Add non-executing shadow adaptive decisions to speed-first runs and versioned `TASK_NODE_V1` telemetry for actual/shadow routing, node state, queue wait, critical path, utilization, and Leader share. Metrics outside the MCP boundary are explicitly unavailable.
+- Allow low-risk completed one/two-worker bundles to return directly while preserving Leader use for high risk, partial work, escalation, unsafe integration, and four-way aggregation.
+- Extend detached-worktree safety and shared-queue scheduling to adaptive one/two-worker write plans.
+
+### Evaluation
+
+- Add classifier, 1/2/4 scheduling, direct-report, telemetry, numeric-slot, and single-writer safe-apply regressions.
+- Run real matched Luna/max arms. A narrow adaptive one-worker review reduced wall time 29.88% and estimated cost 86.18% versus the four-worker 0.6.5 path. A moderate two-worker review reduced estimated cost 36.97% but increased wall time 3.57% because of a straggler; this negative result is retained and the release makes no universal speed claim.
+- Pass 111/111 release tests under Windows PowerShell 5.1 and PowerShell 7.6.4; pass a fresh installed-host adaptive run with native-window auto-close and full process cleanup; and pass a real two-writer detached-worktree safe-apply run.
+- Preserve explicit speed-first after a separate broad independent baseline showed 3.176x four-way speedup at matched quality. See [`docs/0.7.0-ALPHA.md`](docs/0.7.0-ALPHA.md).
+
 ## [0.6.5] - 2026-08-03
 
 ### Detached job ownership and cleanup

@@ -1,0 +1,21 @@
+{
+  "cwd": "D:\\code\\heliolune",
+  "lane": "core",
+  "mode": "analyze",
+  "objective": "Audit the alpha adaptive routing and TASK_NODE telemetry contracts, and identify any concrete mismatch between route selection and reported execution metrics.",
+  "acceptance": [
+    "Inspect only the two scoped files",
+    "Cite the exact one/two/four-worker routing conditions",
+    "Cite how actual parallelism, queue wait, critical path, and unavailable metrics are reported",
+    "Report one concrete mismatch or state that none is supported"
+  ],
+  "scope": [
+    "plugins/luna-pool-orchestrator/scripts/profiles.mjs",
+    "plugins/luna-pool-orchestrator/scripts/task-telemetry.mjs"
+  ],
+  "risk": "moderate",
+  "reservedBoundary": false,
+  "profile": "adaptive",
+  "maxFiles": 3,
+  "maxCommands": 8
+}

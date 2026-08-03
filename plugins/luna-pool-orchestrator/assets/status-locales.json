@@ -29,7 +29,8 @@
       "integration": "Integration",
       "verifier": "Verifier",
       "supervisor": "Leader",
-      "speed-first": "Speed first"
+      "speed-first": "Speed first",
+      "adaptive": "Adaptive"
     },
     "statuses": {
       "idle": "Idle",
@@ -73,7 +74,8 @@
       "integration": "集成工程",
       "verifier": "独立审查",
       "supervisor": "Leader 监督",
-      "speed-first": "速度优先"
+      "speed-first": "速度优先",
+      "adaptive": "自适应"
     },
     "statuses": {
       "idle": "空闲",
