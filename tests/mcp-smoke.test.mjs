@@ -65,12 +65,15 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   ]);
   const runtimeResponse = await request("tools/call", { name: "runtime_info", arguments: {} });
   const runtime = JSON.parse(runtimeResponse.result.content[0].text);
-  assert.equal(runtime.version, "0.7.0-alpha.1");
-  assert.equal(runtime.buildId, "0.7.0-alpha.1-adaptive-shadow-r1");
-  assert.equal(runtime.promptVersion, "mcp-v16-adaptive-shadow");
+  assert.equal(runtime.version, "0.7.0-alpha.2");
+  assert.equal(runtime.buildId, "0.7.0-alpha.2-task-dag-r1");
+  assert.equal(runtime.promptVersion, "mcp-v17-task-dag");
   assert.equal(runtime.defaultProfile, "adaptive");
   assert.equal(runtime.defaultParallelism, 1);
   assert.deepEqual(runtime.adaptiveParallelism, [1, 2, 4]);
+  assert.equal(runtime.taskGraph, "TASK_DAG_V1");
+  assert.equal(runtime.progressiveWidening, true);
+  assert.equal(runtime.affinityScheduling, true);
   assert.equal(runtime.burstThreadsEphemeral, true);
   assert.equal(runtime.appServerWindowHidden, true);
   const startTool = listed.result.tools.find((tool) => tool.name === "start_task");
@@ -86,9 +89,12 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   assert.equal(startTool.inputSchema.properties.verification, undefined);
   assert.equal(initialized.result.capabilities.resources, undefined);
   const batchTool = listed.result.tools.find((tool) => tool.name === "start_batch");
-  assert.deepEqual(batchTool.inputSchema.properties.parallelism.enum, [4, 8]);
+  assert.equal(batchTool.inputSchema.properties.profile.default, "throughput");
+  assert.deepEqual(batchTool.inputSchema.properties.parallelism.enum, [1, 2, 4, 8]);
   assert.equal(batchTool.inputSchema.properties.workstreams.maxItems, 8);
-  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "parallelism", "workstreams", "checkpointSeconds", "maxFiles", "maxCommands"]);
+  assert.equal(batchTool.inputSchema.properties.workstreams.minItems, 1);
+  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "profile", "parallelism", "completionQuorum", "workstreams", "checkpointSeconds", "maxFiles", "maxCommands"]);
+  assert.deepEqual(batchTool.inputSchema.properties.workstreams.items.properties.dependsOn.maxItems, 7);
 
   const dashboardResponse = await request("tools/call", {
     name: "cost_dashboard",

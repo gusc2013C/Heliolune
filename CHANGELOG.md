@@ -4,6 +4,24 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.7.0-alpha.2] - 2026-08-03
+
+### Executable task graphs
+
+- Promote task nodes from telemetry-only records to validated `TASK_DAG_V1` execution with dependency, missing-node, cycle, self-dependency, READY-state, and failure-propagation semantics.
+- Add read/write leases and reject unordered conflicts before any model call. Reject chained writers in alpha.2 because successor worktrees cannot truthfully inherit an unintegrated predecessor patch.
+- Add event-driven adaptive `1 → 2 → 4` widening, explicit full-width `throughput` (`speed-first` remains a legacy alias), deterministic critical-depth/priority/path-affinity assignment, and optional queued-node cancellation after required completion and an explicit quorum.
+- Bind post-patch challenges to the producer's exact detached worktree, base commit, and SHA-256 candidate fingerprint; require a different worker slot, omit owner reasoning, and fail if the candidate changes during review.
+- Extend `TASK_NODE_V1` with graph dependencies, leases, assignments, width transitions, blocked/cancelled states, fingerprints, and DAG-derived critical-path telemetry.
+
+### Validation and measured limits
+
+- Add eight graph-scheduler regressions, including a busy-alternate-slot challenge gate and worker-blocked propagation, plus clean-room dependency-evidence, profile/telemetry/worktree/MCP checks and a real candidate-bound write harness. Align throughput's runtime with its declared 1/2/4/8 schema. The candidate suite passed 121 dependency-free tests before packaging.
+- Complete the final-source real Luna/max `owner → challenge` run in 371.676 seconds with different-slot clean-room review, stable candidate fingerprint, safe unstaged integration, complete temporary-worktree cleanup, and detached-runner exit. Its 337.349-second challenge, versus 140.129 seconds in an earlier corrected run, is retained as explicit quality/latency and long-tail evidence.
+- Run one matched broad adaptive/throughput pair. Adaptive observed 27.19% lower wall time but 25.93% higher estimated cost; both routes opened the same four slots at 0ms, so the result is reported as `n=1` model/output variance rather than a causal DAG speedup.
+- Pass a cachebuster-reinstalled fresh Codex app-server smoke with exact version/build/prompt/DAG identity, a real adaptive Luna/max turn, independent await, Simplified Chinese native-window auto-close, and detached runner/app-server-tree exit.
+- Defer child-task suggestions, speculative straggler hedging, Terra counsel, learning-based routing, and p50/p95 claims. See [`docs/0.7.0-ALPHA.2.md`](docs/0.7.0-ALPHA.2.md).
+
 ## [0.7.0-alpha.1] - 2026-08-03
 
 ### Adaptive routing and observable decisions

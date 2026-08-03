@@ -12,6 +12,12 @@ Heliolune optimizes for controller-model cost without surrendering acceptance qu
 - Report input, cached input, output, reasoning output, cache rate, and planning/execution/acceptance wall time.
 - Treat price-weighted token calculations as estimates unless billed credits are available.
 
+## 0.7.0-alpha.2 DAG evaluation
+
+A real mutating `owner → challenge` graph completed in 174.973 seconds. The owner wrote in `burst-1`; after it completed, adaptive width changed from one to two and a clean-room challenge inspected the exact producer worktree in `burst-2`. The SHA-256 candidate fingerprint remained stable, integration applied only the authorized file, the main index remained unstaged, temporary worktrees were removed, and the detached runner exited. The challenge itself took 140.129 seconds, so this is correctness/isolation evidence rather than a latency win.
+
+One matched broad read-only pair observed adaptive DAG at 338.958 seconds and estimated cost `1.010623`, versus throughput at 465.561 seconds and `0.802499`. Both routes opened four slots at 0ms and assigned nodes in the same order. Consequently the observed -27.19% wall time and +25.93% cost are evidence of Luna tail/output variance at `n=1`, not a causal scheduling gain. The supported performance conclusion is only that READY/lease/affinity validation added no visible startup delay when all four independent nodes were available. See [the full alpha.2 evaluation](0.7.0-ALPHA.2.md) and [raw result](../benchmarks/results/0.7.0-alpha.2-dag-r1.json).
+
 ## 0.7.0 alpha adaptive-routing evaluation
 
 Real matched runs show task-shape-dependent results. On a narrow review, adaptive one-worker routing reduced wall time 29.88% and estimated cost 86.18% versus the 0.6.5 four-worker path. On a moderate review, adaptive two-worker routing reduced estimated cost 36.97% but increased wall time 3.57% after one worker became a straggler. A separate broad independent baseline still favored four-way execution by 3.176x at matched quality. Each arm currently has one sample, so these results support an alpha classifier and explicit speed-first escape hatch—not a universal latency claim. See [the full evaluation](0.7.0-ALPHA.md) and [raw result](../benchmarks/results/0.7.0-alpha.1-adaptive-r1.json).

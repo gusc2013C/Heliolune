@@ -1,0 +1,21 @@
+{
+  "cwd": "D:\\code\\heliolune",
+  "lane": "integration",
+  "mode": "analyze",
+  "profile": "throughput",
+  "objective": "Audit the renewable worker-liveness implementation and identify any concrete path where recent app-server activity could still be stopped by elapsed wall time.",
+  "acceptance": [
+    "Inspect only the scoped orchestration files",
+    "Cite decisive path-backed evidence for completion waiting and repeated liveness checks",
+    "Report any remaining elapsed-time cutoff as a risk without changing files"
+  ],
+  "scope": [
+    "plugins/luna-pool-orchestrator/scripts/app-server-client.mjs",
+    "plugins/luna-pool-orchestrator/scripts/profiles.mjs",
+    "plugins/luna-pool-orchestrator/scripts/job-files.mjs"
+  ],
+  "risk": "moderate",
+  "reservedBoundary": false,
+  "maxFiles": 6,
+  "maxCommands": 10
+}

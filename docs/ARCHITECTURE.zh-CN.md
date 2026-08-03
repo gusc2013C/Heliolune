@@ -9,8 +9,9 @@ Sol controller / governor
   | objective + acceptance + narrow scope + budget
   v
 start-once / await-once MCP orchestration boundary
-  |-- adaptive：按任务分类选择 1/2/4 路 worker
-  |-- speed-first：显式四路对照；自定义 2–8 路 batch
+  |-- TASK_DAG_V1：依赖、lease、READY 状态
+  |-- adaptive：事件驱动 1 -> 2 -> 4 扩宽
+  |-- throughput：满宽控制；自定义 1–8 node 图
   |-- token-first：显式安全回退
   |-- one shared operations leader
   v
@@ -25,20 +26,30 @@ Sol review and final acceptance
 - **Controller**：理解需求、拆分工作、决定保留事项、审查证据并验收。
 - **Worker**：在明确 scope 和预算内探索或实现。
 - **Lane**：按功能固定、可复用的 worker context，用于提高 cache locality。
+- **Task DAG**：由有界 node、显式 predecessor、lease 声明与终态组成的已验证任务图。
+- **Candidate challenge**：在不同槽 clean-room 检查精确 post-patch checkout，并把结果绑定 candidate fingerprint 的只读节点。
 - **Verifier**：风险或关键正确性声明需要时启用的独立只读 worker。
 - **Operations Leader**：只根据 MCP 提供的数据跟踪运行、判断存活并压缩上报。
-- **Profile**：默认使用自适应 1/2/4 路；宽且独立的任务可显式选择四路 speed-first；持久 token-first 作为安全回退。
+- **Profile**：默认使用事件驱动 adaptive 1/2/4；宽且独立的任务可选择满宽 throughput（`speed-first` 是旧别名）；持久 token-first 作为安全回退。
 - **Adapter**：负责 session、turn、可续租存活判断、进度和 usage 的 host/model 适配层。
 
 ## 当前 Codex adapter
 
-Adaptive `start_task` 根据风险、scope、acceptance 与保留边界信号，确定性选择 1、2 或 4 个 Luna/max burst slot；显式 speed-first 使用四路，自定义 batch 支持 2–8 路，token-first 保留 function-affine 持久 lane。只读 burst session 可以复用；mutating workstream 在隔离 Git worktree 中使用 fresh ephemeral session，避免 checkout context 跨 worker 泄漏。兼容名为 `supervisor` 的 Luna/high session 作为共享 Operations Leader。所有 session 都不会显示为普通 Desktop task。
+Adaptive `start_task` 根据风险、scope、acceptance 与保留边界信号，确定性生成 1、2 或 4 node 图；显式 throughput 立即开放四槽，自定义图支持 1–8 node 与 1/2/4/8 slot，token-first 保留 function-affine 持久 lane。只读 burst session 可以复用；mutating workstream 在隔离 Git worktree 中使用 fresh ephemeral session，避免 checkout context 跨 worker 泄漏。兼容名为 `supervisor` 的 Luna/high session 作为共享 Operations Leader。所有 session 都不会显示为普通 Desktop task。
 
-`TASK_NODE_V1` 记录实际路由、可选 shadow 路由、worker node 状态、排队时间、活动墙钟、关键路径、利用率与 Leader 占比。controller usage、最终验收耗时、错误验收、结果采用、重复探索与 route regret 在能被直接观测前一律明确标为 unavailable。
+`TASK_NODE_V1` 记录实际图、依赖与 lease、worker node 状态、slot assignment score、宽度变化、排队、活动墙钟、阻断/取消、关键路径、利用率与 Leader 占比。controller usage、最终验收耗时、错误验收、结果采用、重复探索与 route regret 在能被直接观测前一律明确标为 unavailable。
+
+## 任务图与调度器
+
+`TASK_DAG_V1` 在 client 或模型启动前完成规范化。缺失依赖、自依赖、环、无序 read/write 冲突及不支持的链式 writer 都会失败关闭；read lease 可并发。只有所有 required predecessor 完成，node 才进入 READY；前驱失败会确定性阻断后继。READY 集合内按 critical depth、显式 priority、preferred affinity、仓库路径重叠评分，最后以声明顺序确定 tie-break。
+
+Adaptive 从一个可见槽开始，只在存在独立 READY 容量时扩到两路或四路。post-patch candidate challenge 可在 producer 完成后开放第二槽，确保 challenge 不复用 producer thread。Throughput 从请求的最大宽度开始。全部 required node 与显式 `completionQuorum` 完成后，尚未开始的 optional node 被取消；活动 node 不做 speculative interrupt。
+
+Candidate challenge 接收 producer 的精确 detached worktree、解析后的 base commit、依赖证据，以及完整 candidate patch 的 SHA-256 fingerprint；不接收 owner reasoning，并强制使用不同槽。Challenge 结束后 Heliolune 重新计算 fingerprint，任何变更都会使该节点失败。Alpha.2 故意拒绝链式 writer，因为后继 worktree 尚不能在语义真实的前提下继承未集成的前驱 patch。
 
 Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和结构化 owner/verifier bundle。近期活动会直接续租，不唤醒 Leader；持续静默时 Leader 可以上报 continue/interrupt，但只有高置信度 stall 判断才能中止。它不能规划、分配、决定保留边界或最终验收。
 
-对 speed-first 而言，90 秒是 workstream 尺寸目标与首次共享管理检查点，不是截止时间。每个 worker 持有可续租 lease；近期活动会无限续租，持续静默才交给共享 Leader。模糊或不可用的判断会继续续租，但连续 4 次检查都无 app-server 活动时，本地高置信度熔断会 interrupt，保证静默卡死最终收口。workstream 来自共享队列，任一空闲 slot 会立刻领取下一项，而不等待长尾 sibling。Leader 不得规划或重新分配；确定性调度器只执行 Sol 已经定义的队列。
+对 DAG workstream 而言，90 秒是尺寸目标与首次共享管理检查点，不是截止时间。每个 worker 持有可续租 liveness lease，它与任务图的仓库 read/write lease 不同；近期活动会无限续租，持续静默才交给共享 Leader。模糊或不可用的判断会继续续租，但连续 4 次检查都无 app-server 活动时，本地高置信度熔断会 interrupt，保证静默卡死最终收口。任一空闲 slot 会立刻领取评分最高的 READY node，而不等待长尾 sibling。Leader 不得规划或重新分配；确定性调度器只执行 Sol 已验证的图。
 
 ## 结构化输出恢复
 
@@ -50,7 +61,7 @@ Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和
 
 ## 并行写隔离
 
-Speed-first 实现和修复要求干净 Git 根目录，以及窄、非重叠、仓库相对的 scope。Adapter 解析精确 `HEAD` commit，为每个 workstream 创建原生 detached worktree；不会假设默认分支名是 `main`，也不会复制源码树或 ignored 文件。
+Mutating DAG 执行要求干净 Git 根目录，以及窄、非重叠、仓库相对的 scope。Adapter 解析精确 `HEAD` commit，为每个 node 创建原生 detached worktree；不会假设默认分支名是 `main`，也不会复制源码树或 ignored 文件。
 
 每个 worker 只能修改自己的 worktree sandbox。全部 turn 到达终态后，adapter 只在一次性 worktree 内 staging，用于生成 full-index binary patch，从而覆盖 tracked、删除、rename、binary 与 untracked 变更。随后检查：
 
@@ -64,7 +75,7 @@ Speed-first 实现和修复要求干净 Git 根目录，以及窄、非重叠、
 
 ## 可见进度边界
 
-Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，原子写入 starting request，启动 detached job runner，并在创建原生状态界面后返回。runner 独占 claim 完整 request，并持有 standalone app-server 直到终态清理。`luna-await.await_task` 再阻塞读取原子替换的结果文件。拆分 server 与分离所有权可避免 host stdio 生命周期清理误杀活动工作。
+Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开已验证任务图，原子写入 starting request，启动 detached job runner，并在创建原生状态界面后返回。runner 独占 claim 完整 request，并持有 standalone app-server 直到终态清理。`luna-await.await_task` 再阻塞读取原子替换的结果文件。拆分 server 与分离所有权可避免 host stdio 生命周期清理误杀活动工作。
 
 运行中记录包含 detached runner PID、进程启动时间和每 5 秒独立刷新一次的心跳，但没有 worker 墙钟过期时间。`luna-await` 在阻塞时验证精确 build 身份与 owner 心跳；若 owner 退出或心跳陈旧 30 秒，就把记录原子转换为失败。原生窗口执行相同检查，并让过期启动、终态 snapshot 陈旧及记录消失都进入关闭倒计时。Windows 读取启用 delete sharing，writer 对瞬时共享冲突错峰重试。终态清理关闭 app-server 进程树、确认退出、删除 claim、释放 runner keepalive，最后让 runner 自行退出。
 
@@ -72,7 +83,7 @@ Codex MCP 配置要求 transport 使用有限保护值，但 Heliolune 内部 aw
 
 Windows 使用系统自带 WSH/Windows PowerShell 启动唯一的 WPF 悬浮窗，不再同时提供内联 task 面板。`HELIOLUNE_STATUS_WINDOW=off` 可手工关闭。原生窗口实际渲染后才写 ready 标记；状态和终态文件原子写入用户本地 Codex 数据目录。
 
-悬浮窗根据当前 job 动态创建卡片，可显示固定 token-first lane 或 4/8 个 burst slot 与 `supervisor`。自然语言说明只采集 Codex `item/reasoning/summaryTextDelta`，它是模型生成的 reasoning summary，而不是 raw reasoning；持久化前会截断。raw reasoning、命令输出、工具结果和完整 worker transcript 不会进入状态界面。Luna 尚未给出 summary 时使用确定性 lifecycle 标签。
+悬浮窗根据当前 job 动态创建卡片，可显示固定 token-first lane 或当前可见的 DAG burst slot 与 `supervisor`。自然语言说明只采集 Codex `item/reasoning/summaryTextDelta`，它是模型生成的 reasoning summary，而不是 raw reasoning；持久化前会截断。raw reasoning、命令输出、工具结果和完整 worker transcript 不会进入状态界面。Luna 尚未给出 summary 时使用确定性 lifecycle 标签。
 
 能附带 MCP progress token 的 host 还可从 start 调用接收基于同一 watchdog snapshot 的单调、限频标准 `notifications/progress`；模型侧 contract 仍是启动一次、等待一次。
 
@@ -86,4 +97,4 @@ registry 保存原始 usage 和计数，不保存 transcript。价格在读取 d
 
 ## 通用化方向
 
-未来将 app-server 实现抽象为 provider-neutral adapter，允许配置 controller/worker 身份，并为隔离 worktree 增加确定性依赖 setup hook；紧凑 MCP contract 与 controller-owned trust boundary 保持不变。
+未来将 app-server 实现抽象为 provider-neutral adapter，允许配置 controller/worker 身份，并为隔离 worktree 增加确定性依赖 setup hook。Child-task suggestion、straggler hedge 与学习型路由只有在保持精确 scope、candidate identity 和 controller-owned acceptance 时才会继续推进；紧凑 MCP contract 与信任边界保持不变。

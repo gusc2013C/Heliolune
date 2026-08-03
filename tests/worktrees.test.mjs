@@ -79,10 +79,16 @@ test("adaptive single-writer worktree applies one completed scoped patch", async
   const session = await prepareParallelWriteBatch({ cwd: root, batchId: "adaptive-one", workstreams, artifactDirectory: artifacts });
   t.after(() => cleanupParallelWriteBatch(session));
   await writeFile(path.join(worktreeFor(session, "owner"), "a.txt"), "adaptive\n");
+  const first = await collectWorktreePatch(session, workstreams[0]);
+  const stable = await collectWorktreePatch(session, workstreams[0]);
+  assert.match(first.candidateFingerprint, /^[0-9a-f]{64}$/);
+  assert.equal(stable.candidateFingerprint, first.candidateFingerprint);
+  await writeFile(path.join(worktreeFor(session, "owner"), "a.txt"), "adaptive-final\n");
   const patch = await collectWorktreePatch(session, workstreams[0]);
+  assert.notEqual(patch.candidateFingerprint, first.candidateFingerprint);
   const integration = await integrateParallelWriteBatch(session, [patch], [{ id: "owner", status: "completed" }]);
   assert.equal(integration.applied, true);
-  assert.equal((await readFile(path.join(root, "a.txt"), "utf8")).replaceAll("\r\n", "\n"), "adaptive\n");
+  assert.equal((await readFile(path.join(root, "a.txt"), "utf8")).replaceAll("\r\n", "\n"), "adaptive-final\n");
   assert.equal(await git(root, ["diff", "--cached", "--name-only"]), "");
 });
 

@@ -59,3 +59,27 @@ test("task telemetry treats numeric slot zero as an active slot", () => {
   assert.equal(telemetry.routing.actualParallelism, 1);
   assert.equal(telemetry.metrics.slotUtilization, 1);
 });
+
+test("DAG telemetry sums dependent nodes on the critical path and exposes scheduling decisions", () => {
+  const workstreams = [
+    { id: "owner", mode: "repair", dependsOn: [], objective: "Fix", acceptance: ["Pass"], scope: ["a.mjs"] },
+    { id: "challenge", mode: "analyze", dependsOn: ["owner"], candidateFrom: "owner", objective: "Challenge", acceptance: ["Verify"], scope: ["a.mjs"] },
+  ];
+  const telemetry = buildTaskTelemetry({
+    profile: "adaptive",
+    route: { parallelism: 2, taskClass: "bounded-review", reason: "test" },
+    workstreams,
+    graph: { nodes: workstreams },
+    scheduling: { initialWidth: 1, peakWidth: 2, widthTransitions: [{ from: 1, to: 2 }] },
+    executions: [
+      { id: "owner", slot: "burst-1", status: "completed", durationMs: 80, assignmentScore: 100 },
+      { id: "challenge", slot: "burst-2", status: "completed", durationMs: 40, assignmentScore: 90 },
+    ],
+    workerWallMs: 120,
+    leaderMs: 0,
+  });
+  assert.equal(telemetry.metrics.criticalPathMs, 120);
+  assert.equal(telemetry.metrics.nonCriticalWorkerMs, 0);
+  assert.ok(telemetry.nodes.every(({ criticalPath }) => criticalPath));
+  assert.equal(telemetry.routing.peakWidth, 2);
+});

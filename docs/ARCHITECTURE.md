@@ -9,8 +9,9 @@ controller / governor
   |  objective + acceptance + narrow scope + budget
   v
 start-once / await-once MCP orchestration boundary
-  |-- adaptive: 1/2/4 task-classified workers
-  |-- speed-first: explicit 4-way control; custom 2-8 batches
+  |-- TASK_DAG_V1: dependencies, leases, READY states
+  |-- adaptive: event-driven 1 -> 2 -> 4 widening
+  |-- throughput: full-width control; custom 1-8 node graphs
   |-- token-first: explicit safety fallback
   |-- one shared operations Leader
   v
@@ -25,25 +26,35 @@ controller review and final acceptance
 - **Controller:** understands requirements, decomposes work, owns reserved decisions, reviews evidence, and accepts results.
 - **Worker:** performs bounded exploration or implementation within an explicit scope and command/file budget.
 - **Lane:** a function-affine reusable worker context that improves cache locality.
+- **Task DAG:** a validated graph of bounded nodes, explicit predecessors, lease declarations, and terminal states.
+- **Candidate challenge:** a clean-room read-only node that inspects an exact post-patch checkout on a different slot and binds its result to a candidate fingerprint.
 - **Verifier:** an independent, read-only worker used only when risk or the requested claim justifies it.
-- **Profile:** a routing policy: adaptive 1/2/4 by default, explicit four-way speed-first for broad independent work, and persistent token-first as a safety fallback.
+- **Profile:** a routing policy: adaptive event-driven 1/2/4 by default, full-width throughput for broad independent work (`speed-first` is a legacy alias), and persistent token-first as a safety fallback.
 - **Adapter:** host/model-specific code that starts sessions, sends turns, evaluates renewable liveness, and records usage.
 
 ## Current Codex adapter
 
-The first adapter uses GPT-5.6 Sol as controller and communicates with the official Codex CLI through `app-server`. Adaptive `start_task` deterministically selects one, two, or four GPT-5.6 Luna/max burst slots from risk, scope, acceptance, and reserved-boundary signals. Explicit speed-first selects four; custom batches support two through eight; token-first exposes persistent function-affine lanes. Read-only burst sessions may be reused, while mutating workstreams use fresh ephemeral sessions in isolated Git worktrees so checkout context cannot leak between workers. All sessions stay out of the ordinary Desktop task list.
+The first adapter uses GPT-5.6 Sol as controller and communicates with the official Codex CLI through `app-server`. Adaptive `start_task` deterministically builds a one-, two-, or four-node graph from risk, scope, acceptance, and reserved-boundary signals. Explicit throughput opens four slots immediately; custom graphs support one through eight nodes on one, two, four, or eight slots; token-first exposes persistent function-affine lanes. Read-only burst sessions may be reused, while mutating workstreams use fresh ephemeral sessions in isolated Git worktrees so checkout context cannot leak between workers. All sessions stay out of the ordinary Desktop task list.
 
-`TASK_NODE_V1` records the executed route, optional shadow route, worker node states, queue wait, active wall time, critical path, utilization, and Leader share. It deliberately marks controller usage, final-acceptance timing, false acceptance, result use, duplicate exploration, and route regret unavailable until those boundaries can be observed directly.
+`TASK_NODE_V1` records the executed graph, dependency and lease declarations, worker node states, slot assignment scores, width transitions, queue wait, active wall time, blocked/cancelled outcomes, critical path, utilization, and Leader share. It deliberately marks controller usage, final-acceptance timing, false acceptance, result use, duplicate exploration, and route regret unavailable until those boundaries can be observed directly.
+
+## Task graph and scheduler
+
+`TASK_DAG_V1` is normalized before a client or model is started. Missing dependencies, self-dependencies, cycles, unordered read/write conflicts, and unsupported chained writers fail closed. Read leases may overlap. A node becomes READY only after all required predecessors complete; failed predecessors deterministically block descendants. Within the READY set, the scheduler scores critical depth, explicit priority, preferred affinity, and repository-path overlap, then uses declaration order as the final tie-break.
+
+Adaptive runs begin with one visible slot and widen to two or four only when independent READY capacity exists. A post-patch candidate challenge may open the second slot after its producer completes so the challenge cannot reuse the producer thread. Throughput runs begin at the requested maximum width. When all required nodes and an explicit `completionQuorum` complete, optional nodes that have not started are cancelled; active nodes are not speculatively interrupted.
+
+Candidate challenges receive the producer's exact detached worktree, the resolved base commit, dependency evidence, and the SHA-256 fingerprint of the complete candidate patch. They do not receive owner reasoning and must execute on a different slot. Heliolune recomputes the candidate fingerprint after the challenge; any mutation fails the node. Alpha.2 deliberately rejects chained writers because a successor worktree cannot yet inherit an unintegrated predecessor patch with truthful dependency semantics.
 
 A fifth shared Luna operations-leader session runs at `high` by default. It sees compact liveness metadata and structured owner/verifier bundles rather than repository contents. It may recommend continue/interrupt for stale turns and compress dense handoffs, but it cannot plan, assign, judge correctness beyond a verifier verdict, or accept results. Recent activity bypasses the model and renews execution indefinitely; only a high-confidence stall decision after sustained silence can interrupt. `xhigh` remains available for unusually ambiguous liveness diagnostics without paying `max` on routine supervision.
 
-For speed-first workstreams, 90 seconds is a sizing target and first shared management checkpoint, never a deadline. Each active worker holds a renewable lease. One shared Leader session coalesces sustained-silence checks into a turn containing current active-slot snapshots and returns per-slot continue/interrupt recommendations. Ambiguous or unavailable decisions keep the lease active for another check. Workstreams are consumed from a shared queue, so the first idle slot immediately claims the next item while slower siblings continue. The Leader does not plan or redistribute work; the deterministic scheduler executes Sol's existing queue. Completed siblings remain isolated from a failed or slow slot, and the same Leader thread later aggregates every terminal outcome for Sol.
+For DAG workstreams, 90 seconds is a sizing target and first shared management checkpoint, never a deadline. Each active worker holds a renewable liveness lease, distinct from the graph's repository read/write leases. One shared Leader session coalesces sustained-silence checks into a turn containing current active-slot snapshots and returns per-slot continue/interrupt recommendations. Ambiguous or unavailable decisions keep the liveness lease active for another check. READY nodes are consumed from a shared queue, so the first idle slot immediately claims the highest-ranked node while slower siblings continue. The Leader does not plan or redistribute work; the deterministic scheduler executes Sol's validated graph. Completed siblings remain isolated from a failed or slow slot, and the same Leader thread later aggregates every terminal outcome for Sol.
 
 Leader reporting is adaptive. Small low-risk results return directly and append a bounded lifecycle digest to a persistent backlog. A large or risky task, verifier result, reserved boundary, or Sol escalation wakes the Leader and includes those deferred digests. This preserves cross-lane operational continuity without paying a fifth model turn for every small task.
 
 ## Parallel write isolation
 
-Speed-first implementation and repair require a clean Git repository root and narrow, non-overlapping, repository-relative scopes. The adapter resolves the exact `HEAD` commit and creates one native detached worktree per workstream; it never assumes the default branch is named `main`, and it does not copy the source tree or ignored files.
+Mutating DAG execution requires a clean Git repository root and narrow, non-overlapping, repository-relative scopes. The adapter resolves the exact `HEAD` commit and creates one native detached worktree per node; it never assumes the default branch is named `main`, and it does not copy the source tree or ignored files.
 
 Each worker can modify only its worktree sandbox. After every turn reaches a terminal state, the adapter stages inside those disposable worktrees solely to build full-index binary patches that include tracked, deleted, renamed, binary, and untracked changes. It then checks:
 
@@ -57,7 +68,7 @@ Only then are all patches applied and immediately unstaged for Sol review. If an
 
 ## Visible progress boundary
 
-Codex Desktop uses two stdio MCP servers. The normal path is one compact `luna-pool.start_task` call; the pool server deterministically expands it into four workstreams, atomically writes a starting request, launches a detached job runner, and returns after creating the native status surface. The runner exclusively claims the complete request and owns the standalone app-server until terminal cleanup. `luna-await.await_task` then blocks on an atomically replaced result file. Splitting the servers and detaching ownership prevents host stdio lifecycle cleanup from orphaning active work.
+Codex Desktop uses two stdio MCP servers. The normal path is one compact `luna-pool.start_task` call; the pool server deterministically expands it into a validated task graph, atomically writes a starting request, launches a detached job runner, and returns after creating the native status surface. The runner exclusively claims the complete request and owns the standalone app-server until terminal cleanup. `luna-await.await_task` then blocks on an atomically replaced result file. Splitting the servers and detaching ownership prevents host stdio lifecycle cleanup from orphaning active work.
 
 Running records carry the detached-runner PID, process start, and an independently refreshed five-second heartbeat, but no worker wall-clock expiry. `luna-await` verifies both the exact build identity and owner heartbeat while blocked; if the owner exits or its heartbeat is stale for 30 seconds before a terminal write, it atomically converts the record to failure. The native window performs the same checks and also converges expired startup, stale terminal-snapshot, and missing-record states on its close countdown. On Windows it reads with delete-sharing enabled, while the writer uses staggered transient-sharing retries. Terminal cleanup closes the app-server tree, confirms its exit, removes the claim, releases the runner keepalive, and lets the runner exit.
 
@@ -65,7 +76,7 @@ Codex MCP configuration requires a finite transport guard even though Heliolune'
 
 Windows uses one WPF panel launched through the inbox WSH/Windows PowerShell runtime. Heliolune no longer provides a second inline task panel. The native window can be disabled with `HELIOLUNE_STATUS_WINDOW=off`. It publishes a short-lived ready marker only after rendering; task snapshots and results are written atomically under the user's local Codex data directory.
 
-The panel builds cards from the active job, so it can show fixed token-first lanes or four/eight burst slots plus `supervisor`. Activity explanations come only from Codex `item/reasoning/summaryTextDelta`, which is a model-produced reasoning summary, not raw reasoning content. Text is bounded before persistence. Raw reasoning, command output, tool results, and worker transcripts are not forwarded. Deterministic lifecycle labels remain the fallback until Luna emits a summary.
+The panel builds cards from the active job, so it can show fixed token-first lanes or the currently visible DAG burst slots plus `supervisor`. Activity explanations come only from Codex `item/reasoning/summaryTextDelta`, which is a model-produced reasoning summary, not raw reasoning content. Text is bounded before persistence. Raw reasoning, command output, tool results, and worker transcripts are not forwarded. Deterministic lifecycle labels remain the fallback until Luna emits a summary.
 
 Hosts that attach an MCP progress token may also receive monotonically increasing, rate-limited standard `notifications/progress` from the start call's watchdog snapshots. The model-visible contract remains start once and await once.
 
@@ -77,7 +88,7 @@ Workers must not independently decide architecture, security or trust boundaries
 
 ## Generalization path
 
-Future work should extract the app-server implementation behind a provider-neutral adapter interface, make controller/worker model identities configurable, and add deterministic setup hooks for dependencies needed inside isolated worktrees. The compact MCP contract and controller-owned trust boundary should remain stable across adapters.
+Future work should extract the app-server implementation behind a provider-neutral adapter interface, make controller/worker model identities configurable, and add deterministic setup hooks for dependencies needed inside isolated worktrees. Child-task suggestions, straggler hedging, and learning-based routing remain experiments until they preserve exact scope, candidate identity, and controller-owned acceptance. The compact MCP contract and controller-owned trust boundary should remain stable across adapters.
 
 ## Usage and pricing data
 

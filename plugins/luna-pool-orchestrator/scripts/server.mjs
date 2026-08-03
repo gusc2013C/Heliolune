@@ -44,12 +44,14 @@ import {
   compactBatchLeaderPrompt,
   compactBatchSupervisorPrompt,
   compactBurstTask,
+  compactDependencyEvidence,
   defaultParallelWorkstreams,
-  mapWithConcurrency,
   shouldUseBatchLeader,
   speedParallelism,
+  throughputParallelism,
   validateSpeedWorkstreams,
 } from "./profiles.mjs";
+import { normalizeTaskDag, runTaskDag, TASK_DAG_VERSION } from "./task-dag.mjs";
 import { buildTaskTelemetry } from "./task-telemetry.mjs";
 import { contractGuardEscalations, withRecoveryMetadata } from "./orchestration-policy.mjs";
 import {
@@ -61,9 +63,9 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-export const VERSION = "0.7.0-alpha.1";
-export const BUILD_ID = "0.7.0-alpha.1-adaptive-shadow-r1";
-const PROMPT_VERSION = "mcp-v16-adaptive-shadow";
+export const VERSION = "0.7.0-alpha.2";
+export const BUILD_ID = "0.7.0-alpha.2-task-dag-r1";
+const PROMPT_VERSION = "mcp-v17-task-dag";
 const JOB_HEARTBEAT_INTERVAL_MS = 5_000;
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
@@ -286,7 +288,7 @@ const RUN_INPUT_SCHEMA = {
     scope: { type: "array", minItems: 1, maxItems: 12, items: { type: "string", maxLength: 300 } },
     risk: { type: "string", enum: ["low", "moderate", "high"], default: "moderate" },
     reservedBoundary: { type: "boolean", default: false, description: "True for architecture, security boundary, public API, or irreversible migration." },
-    profile: { type: "string", enum: ["adaptive", "speed-first", "token-first"], default: "adaptive", description: "Adaptive selects 1/2/4 workers; speed-first forces four; token-first is the isolation fallback." },
+    profile: { type: "string", enum: ["adaptive", "throughput", "speed-first", "token-first"], default: "adaptive", description: "Adaptive uses DAG widening; throughput forces four; speed-first is its legacy alias; token-first is the isolation fallback." },
     maxFiles: { type: "integer", minimum: 3, maximum: 30 },
     maxCommands: { type: "integer", minimum: 3, maximum: 50 },
   },
@@ -298,9 +300,11 @@ const BATCH_INPUT_SCHEMA = {
   required: ["cwd", "workstreams"],
   properties: {
     cwd: { type: "string", description: "Absolute repository path." },
-    parallelism: { type: "integer", enum: [4, 8], default: 4, description: "Eight is experimental and has higher tail variance." },
+    profile: { type: "string", enum: ["adaptive", "throughput", "speed-first"], default: "throughput", description: "Adaptive widens up to the requested maximum; throughput opens 1/2/4/8 immediately; speed-first is the legacy 4/8 alias." },
+    parallelism: { type: "integer", enum: [1, 2, 4, 8], default: 4, description: "Maximum active slots; eight always remains explicit." },
+    completionQuorum: { type: "integer", minimum: 1, maximum: 8, description: "Cancel only queued optional nodes after every required node and this many total nodes complete." },
     workstreams: {
-      type: "array", minItems: 2, maxItems: 8, description: "Independent Sol-defined streams; writes need clean Git and disjoint scopes.",
+      type: "array", minItems: 1, maxItems: 8, description: "Sol-defined TASK_DAG_V1 nodes; dependencies and leases are validated before paid work.",
       items: {
         type: "object", additionalProperties: false,
         required: ["id", "lane", "objective", "acceptance", "scope"],
@@ -314,6 +318,14 @@ const BATCH_INPUT_SCHEMA = {
           repoState: { type: "string", maxLength: 500 },
           risk: { type: "string", enum: ["low", "moderate", "high"], default: "moderate" },
           reservedBoundary: { type: "boolean", default: false },
+          kind: { type: "string", enum: ["inspect", "plan", "implement", "test", "challenge", "repair", "integrate", "summarize"] },
+          dependsOn: { type: "array", maxItems: 7, items: { type: "string", minLength: 1, maxLength: 80 } },
+          readLease: { type: "array", maxItems: 4, items: { type: "string", minLength: 1, maxLength: 300 } },
+          writeLease: { type: "array", maxItems: 4, items: { type: "string", minLength: 1, maxLength: 300 } },
+          candidateFrom: { type: "string", minLength: 1, maxLength: 80, description: "Mutating dependency whose exact post-patch worktree this read-only challenge must inspect." },
+          preferredAffinity: { type: "string", maxLength: 300 },
+          priority: { type: "integer", minimum: 0, maximum: 100, default: 50 },
+          optional: { type: "boolean", default: false },
         },
       },
     },
@@ -367,7 +379,7 @@ const TOOLS = [
   {
     name: "start_batch",
     title: "Start default parallel Heliolune batch",
-    description: "Advanced: run 2-8 Sol-defined streams on four or eight Luna/max slots. Writes use isolated Git worktrees. Await once.",
+    description: "Advanced TASK_DAG_V1: run 1-8 dependent nodes with READY, leases, adaptive widening or throughput slots. Writes use isolated Git worktrees. Await once.",
     inputSchema: BATCH_INPUT_SCHEMA,
     annotations: LOCAL_WORK_ANNOTATIONS,
   },
@@ -1010,14 +1022,23 @@ async function runBatch(args, context = {}) {
   const cwd = path.resolve(args.cwd);
   const stat = await fs.stat(cwd);
   if (!stat.isDirectory()) throw new Error(`cwd is not a directory: ${cwd}`);
-  const profile = args.profile ?? SPEED_FIRST.id;
+  const profile = args.profile ?? "throughput";
   const adaptive = profile === ADAPTIVE.id;
-  const workstreams = validateSpeedWorkstreams(args.workstreams, { allowSingle: adaptive });
+  const workstreams = validateSpeedWorkstreams(args.workstreams, { allowSingle: true });
   const mutatingBatch = batchNeedsWorktrees(workstreams);
-  const parallelism = adaptive ? adaptiveParallelism(args.parallelism) : speedParallelism(args.parallelism);
-  if (adaptive && (args.routingPlan?.parallelism !== parallelism || workstreams.length !== parallelism)) {
-    throw new Error(`Adaptive route mismatch: planned ${args.routingPlan?.parallelism ?? "missing"}, requested ${parallelism}, workstreams ${workstreams.length}`);
+  const parallelism = adaptive
+    ? adaptiveParallelism(args.parallelism)
+    : profile === "throughput"
+      ? throughputParallelism(args.parallelism)
+      : speedParallelism(args.parallelism);
+  if (adaptive && args.routingPlan && args.routingPlan.parallelism !== parallelism) {
+    throw new Error(`Adaptive route mismatch: planned ${args.routingPlan.parallelism}, requested ${parallelism}`);
   }
+  const graph = normalizeTaskDag(workstreams, {
+    profile: adaptive ? ADAPTIVE.id : "throughput",
+    maxParallelism: parallelism,
+    completionQuorum: args.completionQuorum,
+  });
   const slots = burstLanes(parallelism);
   const batchId = randomUUID();
   const startedAt = Date.now();
@@ -1044,6 +1065,9 @@ async function runBatch(args, context = {}) {
       artifactDirectory: path.join(jobDirectory(), "patches", batchId),
     })
     : null;
+  if (worktreeSession) {
+    for (const node of graph.nodes) node.baseRef ??= worktreeSession.baseCommit;
+  }
   const checkpointSeconds = args.checkpointSeconds ?? 90;
   const checkpointMs = checkpointSeconds * 1000;
   const batchSchedule = batchSupervisionSchedule(checkpointSeconds);
@@ -1158,16 +1182,39 @@ async function runBatch(args, context = {}) {
   context.progress?.report(2, `Heliolune Leader · ${profile} batch ${batchId.slice(0, 8)} · ${workstreams.length} ${mutatingBatch ? "isolated write" : "read-only"} workstreams · ${parallelism} Luna/max slots`, { force: true });
 
   let executions;
+  let dagScheduling = null;
   let patchRecords = [];
   let integration = { applied: true, reason: "not-required", changedPaths: [] };
-  const dispatchStartedAt = Date.now();
   try {
-    executions = await mapWithConcurrency(workstreams, parallelism, async (workstream, _itemIndex, slotIndex) => {
-    const slot = slots[slotIndex];
-    return withLaneLock(`${key}:${slot}`, async () => {
-      const queueWaitMs = Date.now() - dispatchStartedAt;
+    const dagRun = await runTaskDag({
+      graph,
+      slots,
+      profile: adaptive ? ADAPTIVE.id : "throughput",
+      onState: (event) => {
+        if (event.type === "width") {
+          context.progress?.report(workerPhaseProgress(), `Heliolune scheduler · adaptive width expanded to ${event.to}`, { force: true });
+        }
+      },
+      runNode: async (workstream, slot, { queueWaitMs, dependencyExecutions }) => withLaneLock(`${key}:${slot}`, async () => {
       const streamStartedAt = Date.now();
-      const workerCwd = worktreeSession ? worktreeFor(worktreeSession, workstream.id) : cwd;
+      const candidateProducer = workstream.candidateFrom
+        ? workstreams.find((candidate) => candidate.id === workstream.candidateFrom)
+        : null;
+      const candidateRecord = worktreeSession && candidateProducer
+        ? await collectWorktreePatch(worktreeSession, candidateProducer)
+        : null;
+      const workerCwd = worktreeSession
+        ? worktreeFor(worktreeSession, candidateProducer?.id ?? workstream.id)
+        : cwd;
+      const dependencyEvidence = compactDependencyEvidence(dependencyExecutions, {
+        candidateProducerId: candidateProducer?.id,
+        candidateFingerprint: candidateRecord?.candidateFingerprint,
+      });
+      const effectiveWorkstream = {
+        ...workstream,
+        candidateFingerprint: candidateRecord?.candidateFingerprint,
+        dependencyEvidence,
+      };
       const workerSandbox = sandboxFor(workstream.mode, workerCwd);
       const laneState = worktreeSession
         ? await startEphemeralLane(instance, slot, workerCwd, workerSandbox.legacy)
@@ -1183,7 +1230,7 @@ async function runBatch(args, context = {}) {
         try {
           run = await instance.runTurn({
             threadId: laneState.threadId,
-            text: compactBurstTask(workstream, { maxFiles, maxCommands }),
+            text: compactBurstTask(effectiveWorkstream, { maxFiles, maxCommands }),
             cwd: workerCwd,
             sandboxPolicy: workerSandbox.policy,
             outputSchema,
@@ -1251,6 +1298,13 @@ async function runBatch(args, context = {}) {
           needsVerifier: false,
           ...run.output,
         };
+        if (candidateRecord) {
+          const currentCandidate = await collectWorktreePatch(worktreeSession, candidateProducer);
+          if (currentCandidate.candidateFingerprint !== candidateRecord.candidateFingerprint) {
+            throw new Error(`Candidate fingerprint changed during challenge ${workstream.id}`);
+          }
+          run.output.candidateFingerprint = candidateRecord.candidateFingerprint;
+        }
         const escalations = contractGuardEscalations(workstream.id, run.output);
         if (escalations.length) {
           contractEscalation = escalations;
@@ -1332,8 +1386,13 @@ async function runBatch(args, context = {}) {
           durationMs: Date.now() - streamStartedAt,
         };
       }
+      }),
     });
-    });
+    dagScheduling = dagRun.scheduling;
+    executions = dagRun.executions.map((execution) => ({
+      ...execution,
+      requestedLane: workstreams.find((workstream) => workstream.id === execution.id)?.lane,
+    }));
     if (worktreeSession) {
       context.progress?.report(84, "Heliolune Leader · validating isolated patches before main-worktree integration", { force: true });
       patchRecords = await Promise.all(workstreams.map((workstream) => collectWorktreePatch(worktreeSession, workstream)));
@@ -1368,8 +1427,8 @@ async function runBatch(args, context = {}) {
     id: execution.id,
     lane: execution.requestedLane,
     slot: execution.slot,
-    status: "failed",
-    summary: execution.error,
+    status: execution.status,
+    summary: execution.error ?? `DAG node ${execution.status}`,
     evidence: [], changes: [], failedChecks: [], risks: [], needsSol: [],
     durationMs: execution.durationMs,
   });
@@ -1439,8 +1498,10 @@ async function runBatch(args, context = {}) {
     baselineModel: args.baselineModel ?? DEFAULT_BASELINE_MODEL,
     catalog: pricingCatalog(),
   });
-  const failed = executions.filter((execution) => execution.status === "failed");
-  const incomplete = executions.filter((execution) => execution.status !== "completed");
+  const failed = executions.filter((execution) => ["failed", "blocked"].includes(execution.status));
+  const optionalById = new Map(graph.nodes.map((node) => [node.id, node.optional]));
+  const incomplete = executions.filter((execution) => execution.status !== "completed"
+    && !(execution.status === "cancelled" && optionalById.get(execution.id)));
   const integrationBlocked = mutatingBatch && !integration.applied;
   const status = failed.length === executions.length ? "blocked" : (incomplete.length || integrationBlocked) ? "partial" : "completed";
   project.metrics = recordMetrics(project.metrics, {
@@ -1467,9 +1528,13 @@ async function runBatch(args, context = {}) {
   const taskOutcomes = executions.map((execution) => ({
     id: execution.id, lane: execution.requestedLane, slot: execution.slot, status: execution.status,
     mode: workstreams.find((workstream) => workstream.id === execution.id)?.mode,
+    kind: graph.nodes.find((node) => node.id === execution.id)?.kind,
+    dependsOn: graph.nodes.find((node) => node.id === execution.id)?.dependsOn,
     queueWaitMs: execution.queueWaitMs,
+    assignmentScore: execution.assignmentScore,
+    candidateFingerprint: execution.run?.output?.candidateFingerprint,
     durationMs: execution.durationMs,
-    ...(execution.status === "failed" ? { error: execution.error, failure: execution.failure } : {}),
+    ...(execution.error ? { error: execution.error, failure: execution.failure } : {}),
   }));
   const telemetry = buildTaskTelemetry({
     profile,
@@ -1478,6 +1543,8 @@ async function runBatch(args, context = {}) {
     executions,
     workerWallMs,
     leaderMs,
+    graph,
+    scheduling: dagScheduling,
   });
   context.progress?.report(100, `Heliolune Leader · ${profile} batch complete · ${status} · handing off to Sol`, { force: true });
   return {
@@ -1490,6 +1557,7 @@ async function runBatch(args, context = {}) {
     routing: {
       workerSlots: slots,
       workstreamCount: workstreams.length,
+      dag: dagScheduling,
       shadowAdaptive: args.routingPlan ?? null,
       model: "gpt-5.6-luna",
       workerEffort: "max",
@@ -1541,6 +1609,10 @@ function runtimeInfo() {
     defaultProfile: DEFAULT_PROFILE.id,
     defaultParallelism: DEFAULT_PROFILE.defaultParallelism,
     adaptiveParallelism: ADAPTIVE.allowedParallelism,
+    profiles: ["adaptive", "throughput", "speed-first", "token-first"],
+    taskGraph: TASK_DAG_VERSION,
+    progressiveWidening: true,
+    affinityScheduling: true,
     burstThreadsEphemeral: BURST_THREADS_EPHEMERAL,
     appServerWindowHidden: APP_SERVER_WINDOWS_HIDDEN,
     statusSurface: process.platform === "win32" ? "native-window" : "host-progress",
@@ -1696,11 +1768,11 @@ export async function startVisibleJob({
 
 export async function startOwnedTask(args, { store = jobs } = {}) {
   const profile = args.profile ?? DEFAULT_PROFILE.id;
-  if (profile === SPEED_FIRST.id) {
+  if (profile === SPEED_FIRST.id || profile === "throughput") {
     const budgets = adaptiveBudgets(args);
     return startOwnedBatch({
       cwd: args.cwd,
-      profile: SPEED_FIRST.id,
+      profile,
       parallelism: SPEED_FIRST.defaultParallelism,
       workstreams: defaultParallelWorkstreams(args),
       routingPlan: adaptiveRoute(args),
@@ -1731,10 +1803,16 @@ export async function startOwnedTask(args, { store = jobs } = {}) {
 }
 
 export async function startOwnedBatch(args, { store = jobs } = {}) {
-  const profile = args.profile ?? SPEED_FIRST.id;
-  const parallelism = profile === ADAPTIVE.id ? adaptiveParallelism(args.parallelism) : speedParallelism(args.parallelism);
+  const profile = args.profile ?? "throughput";
+  const parallelism = profile === ADAPTIVE.id
+    ? adaptiveParallelism(args.parallelism)
+    : profile === "throughput"
+      ? throughputParallelism(args.parallelism)
+      : speedParallelism(args.parallelism);
   const slots = burstLanes(parallelism);
-  const activeLanes = slots.slice(0, Math.min(slots.length, args.workstreams?.length ?? 0));
+  const activeLanes = profile === ADAPTIVE.id
+    ? slots.slice(0, Math.min(1, args.workstreams?.length ?? 0))
+    : slots.slice(0, Math.min(slots.length, args.workstreams?.length ?? 0));
   return startVisibleJob({
     lane: profile,
     workerLanes: [...slots, "supervisor"],
@@ -1747,10 +1825,10 @@ export async function startOwnedBatch(args, { store = jobs } = {}) {
 async function startDetachedJob(kind, args) {
   const jobId = randomUUID();
   const startedAt = new Date().toISOString();
-  const requestedProfile = args.profile ?? DEFAULT_PROFILE.id;
+  const requestedProfile = args.profile ?? (kind === "batch" ? "throughput" : DEFAULT_PROFILE.id);
   const lane = kind === "batch"
-    ? SPEED_FIRST.id
-    : requestedProfile === SPEED_FIRST.id || requestedProfile === ADAPTIVE.id
+    ? requestedProfile
+    : requestedProfile === SPEED_FIRST.id || requestedProfile === "throughput" || requestedProfile === ADAPTIVE.id
       ? requestedProfile
       : args.lane;
   const startingSnapshot = {

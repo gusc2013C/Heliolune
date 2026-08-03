@@ -26,6 +26,7 @@ $required = @(
     (Join-Path $pluginRoot 'scripts\leader.mjs'),
     (Join-Path $pluginRoot 'scripts\profiles.mjs'),
     (Join-Path $pluginRoot 'scripts\task-telemetry.mjs'),
+    (Join-Path $pluginRoot 'scripts\task-dag.mjs'),
     (Join-Path $pluginRoot 'scripts\worktrees.mjs'),
     (Join-Path $pluginRoot 'scripts\progress.mjs'),
     (Join-Path $pluginRoot 'scripts\jobs.mjs'),
@@ -64,12 +65,16 @@ $required = @(
     (Join-Path $repoRoot 'docs\0.7.0-ALPHA.md'),
     (Join-Path $repoRoot 'docs\0.7.0-ALPHA.zh-CN.md'),
     (Join-Path $repoRoot 'benchmarks\results\0.7.0-alpha.1-adaptive-r1.json'),
+    (Join-Path $repoRoot 'docs\0.7.0-ALPHA.2.md'),
+    (Join-Path $repoRoot 'docs\0.7.0-ALPHA.2.zh-CN.md'),
+    (Join-Path $repoRoot 'benchmarks\results\0.7.0-alpha.2-dag-r1.json'),
     (Join-Path $repoRoot 'tests\pricing.test.mjs'),
     (Join-Path $repoRoot 'tests\supervision.test.mjs'),
     (Join-Path $repoRoot 'tests\schema-recovery.test.mjs'),
     (Join-Path $repoRoot 'tests\leader.test.mjs'),
     (Join-Path $repoRoot 'tests\profiles.test.mjs'),
     (Join-Path $repoRoot 'tests\task-telemetry.test.mjs'),
+    (Join-Path $repoRoot 'tests\task-dag.test.mjs'),
     (Join-Path $repoRoot 'tests\worktrees.test.mjs'),
     (Join-Path $repoRoot 'tests\progress.test.mjs'),
     (Join-Path $repoRoot 'tests\jobs.test.mjs'),
@@ -89,14 +94,16 @@ $required = @(
     (Join-Path $repoRoot 'scripts\measure-tool-schema.mjs'),
     (Join-Path $repoRoot 'scripts\run-speed-batch-smoke.mjs'),
     (Join-Path $repoRoot 'scripts\run-parallel-write-smoke.mjs'),
+    (Join-Path $repoRoot 'scripts\run-dag-write-smoke.mjs'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis-direct.json'),
     (Join-Path $repoRoot 'benchmarks\renewable-liveness.json'),
+    (Join-Path $repoRoot 'benchmarks\0.7-alpha2-renewable-throughput.json'),
     (Join-Path $repoRoot 'benchmarks\token-first-job-owner.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6-parallel-cold-r1.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6-parallel-cold-r2.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6.2-fast-start-code-r1.json'),
-    (Join-Path $repoRoot 'benchmarks\results\0.6.3-backend-diagnostic-r5.json')
+    (Join-Path $repoRoot 'benchmarks\results\0.6.3-backend-diagnostic-r5.json'),
     (Join-Path $repoRoot 'benchmarks\results\0.6.4-renewable-fast-start-r1.json')
 )
 
@@ -110,7 +117,7 @@ $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | Convert
 if ($manifest.name -ne 'luna-pool-orchestrator') {
     throw "Unexpected plugin name: $($manifest.name)"
 }
-if ($manifest.version -notmatch '^0\.7\.0-alpha\.1(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.7\.0-alpha\.2(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 if ($manifest.author.name -ne 'Sicheng Gu' -or $manifest.interface.developerName -ne 'Sicheng Gu') {
@@ -159,7 +166,7 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
     throw 'README versions do not match the plugin manifest.'
 }
 
-foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'schema-recovery.mjs', 'orchestration-policy.mjs', 'leader.mjs', 'profiles.mjs', 'task-telemetry.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'job-runner.mjs', 'job-runner-launch.mjs', 'status-window.mjs')) {
+foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'schema-recovery.mjs', 'orchestration-policy.mjs', 'leader.mjs', 'profiles.mjs', 'task-dag.mjs', 'task-telemetry.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'job-runner.mjs', 'job-runner-launch.mjs', 'status-window.mjs')) {
     & node --check (Join-Path $pluginRoot "scripts\$script")
     if ($LASTEXITCODE -ne 0) {
         throw "Node syntax validation failed: $script"
