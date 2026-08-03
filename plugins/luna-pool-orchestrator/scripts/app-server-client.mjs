@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 
 const APP_NAME = "luna-pool-orchestrator";
-const APP_VERSION = "0.6.4";
+const APP_VERSION = "0.6.5";
 const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlled by another model. Work directly in the assigned repository using available local tools. Inspect before changing, preserve unrelated edits, keep scope narrow, and validate claims with evidence. Obey the active sandbox and approval policy. Do not contact external systems or delegate work. Your final response must satisfy the supplied JSON schema exactly.`;
 
 export const APP_SERVER_WINDOWS_HIDDEN = true;
@@ -75,10 +75,20 @@ export async function resolveCodexExecutable() {
 }
 
 export class AppServerClient {
-  constructor({ executable, executableArgs = [], log = () => {} }) {
+  constructor({
+    executable,
+    executableArgs = [],
+    log = () => {},
+    spawnImpl = spawn,
+    platform = process.platform,
+    closeTimeoutMs = 5_000,
+  }) {
     this.executable = executable;
     this.executableArgs = executableArgs;
     this.log = log;
+    this.spawnImpl = spawnImpl;
+    this.platform = platform;
+    this.closeTimeoutMs = closeTimeoutMs;
     this.nextId = 1;
     this.pending = new Map();
     this.waiters = new Set();
@@ -91,7 +101,7 @@ export class AppServerClient {
   async start() {
     if (this.child) return;
     const safePath = workerShellPath();
-    this.child = spawn(this.executable, [
+    this.child = this.spawnImpl(this.executable, [
       ...this.executableArgs,
       "-c", `shell_environment_policy.set.PATH=${JSON.stringify(safePath)}`,
       "-c", "mcp_servers.node_repl.enabled=false",
@@ -481,8 +491,37 @@ export class AppServerClient {
     };
   }
 
-  close() {
-    this.child?.kill();
+  async close() {
+    const child = this.child;
     this.child = null;
+    if (!child || child.pid == null || child.exitCode != null) return;
+    if (this.platform === "win32") {
+      await new Promise((resolve) => {
+        const killer = this.spawnImpl("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        killer.once?.("error", resolve);
+        killer.once?.("exit", resolve);
+      });
+      return;
+    }
+    await new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      child.once("exit", done);
+      child.once("close", done);
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        done();
+      }, this.closeTimeoutMs);
+      child.kill();
+      if (child.exitCode != null) done();
+    });
   }
 }

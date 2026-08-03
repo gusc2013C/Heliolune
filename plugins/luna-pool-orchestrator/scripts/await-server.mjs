@@ -1,7 +1,7 @@
 import readline from "node:readline";
 import { waitForJobRecord } from "./job-files.mjs";
 
-const VERSION = "0.6.4";
+const VERSION = "0.6.5";
 const TOOL = {
   name: "await_task",
   title: "Await Heliolune task",

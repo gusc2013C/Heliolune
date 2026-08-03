@@ -8,7 +8,7 @@ Heliolune is an alpha-stage orchestration project for pairing a capable controll
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current release: **`0.6.4`**. Public contracts may change before 1.0.
+> Current release: **`0.6.5`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
@@ -104,7 +104,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.6.4` |
+| Plugin version | `0.6.5` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -193,6 +193,8 @@ A larger single-arm frontend application test produced a credible responsive das
 The 0.6.3 backend diagnostic reproduced a stale serial runtime, fixed the runtime identity and hidden-window gate, then safely integrated a two-file Python implementation through the default four-way route. The final run took 337.050s for 0.584154 Luna worker price units and passed 12/12 public plus 8/8 repository-external hidden tests. See the [0.6.3 runtime diagnostic](docs/0.6.3-RUNTIME-DIAGNOSTIC.md); it is evidence of cost-first application value, not a Sol-only speed comparison.
 
 The 0.6.4 renewable-liveness regression completed a five-workstream/four-slot real Luna run with a 30-second first checkpoint. Two workers naturally finished after that checkpoint, and the first idle slot claimed the queued fifth workstream before the slowest sibling completed. See the [0.6.4 renewable-liveness validation](docs/0.6.4-RENEWABLE-LIVENESS.md).
+
+The 0.6.5 release gate reran the installed plugin through the Codex host, native-window auto-close, token-first lifecycle audit, queued four-slot scheduling, opt-in eight-way concurrency, and isolated parallel writes. All final runs completed, every smoke proved runner cleanup, and the process audit found zero standalone Heliolune app-servers. See the [0.6.5 real-demo validation](docs/0.6.5-REAL-DEMO.md).
 
 ### Default price table
 
@@ -307,7 +309,7 @@ Check that both arms use matched warmups and identical response schemas. Accept 
 - Add reproducible multi-repository benchmark fixtures.
 - Stabilize the MCP contract before 1.0.
 
-See the [0.6 engineering report](docs/0.6-RESEARCH.md), [Heliolune vs Codex subagents](docs/HELIOLUNE-VS-CODEX-SUBAGENTS.md), [Architecture](docs/ARCHITECTURE.md), [Benchmark methodology](docs/BENCHMARKS.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), [Changelog](CHANGELOG.md), and the [Release checklist](RELEASE_CHECKLIST.md). Chinese versions are linked from [简体中文 README](README.zh-CN.md).
+See the [0.6.5 real-demo validation](docs/0.6.5-REAL-DEMO.md), [0.6 engineering report](docs/0.6-RESEARCH.md), [Heliolune vs Codex subagents](docs/HELIOLUNE-VS-CODEX-SUBAGENTS.md), [Architecture](docs/ARCHITECTURE.md), [Benchmark methodology](docs/BENCHMARKS.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), [Changelog](CHANGELOG.md), and the [Release checklist](RELEASE_CHECKLIST.md). Chinese versions are linked from [简体中文 README](README.zh-CN.md).
 
 ## License
 

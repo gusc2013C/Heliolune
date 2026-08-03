@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import {
   APP_SERVER_WINDOWS_HIDDEN,
   AppServerClient,
@@ -25,8 +26,9 @@ import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, 
 import { compactSchemaRecoveryPrompt } from "./schema-recovery.mjs";
 import { buildControllerResult, compactCost, compactLeaderPrompt, compactUsage, shouldUseLeader } from "./leader.mjs";
 import { createProgressReporter, weightedWorkstreamProgress, workerProgress } from "./progress.mjs";
-import { JobStore } from "./jobs.mjs";
-import { jobDirectory, writeJobRecord } from "./job-files.mjs";
+import { createJobAwareShutdown, JobStore } from "./jobs.mjs";
+import { appendRunnerDiagnostic, jobDirectory, readJobRecord, removeJobRequest, writeJobRecord, writeJobRequest } from "./job-files.mjs";
+import { launchJobRunner } from "./job-runner-launch.mjs";
 import { detectSystemLanguage, launchStatusWindow } from "./status-window.mjs";
 import {
   SPEED_FIRST,
@@ -53,10 +55,11 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-const VERSION = "0.6.4";
-const PROMPT_VERSION = "mcp-v13-renewable-liveness";
+const VERSION = "0.6.5";
+const PROMPT_VERSION = "mcp-v14-job-aware-shutdown";
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
+const SERVER_IS_MAIN = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 const STATUS_LANGUAGE = detectSystemLanguage() === "zh-CN"
   ? "Simplified Chinese"
   : "English";
@@ -495,7 +498,10 @@ let clientPromise;
 async function client() {
   if (!clientPromise) clientPromise = (async () => {
     const executable = await resolveCodexExecutable();
-    const instance = new AppServerClient({ executable, log: (message) => process.stderr.write(`[luna-pool] ${message}\n`) });
+    const instance = new AppServerClient({ executable, log: (message) => {
+      appendRunnerDiagnostic("app-server-log", { message });
+      process.stderr.write(`[luna-pool] ${message}\n`);
+    } });
     await instance.start();
     const models = await instance.request("model/list", { limit: 100 });
     const list = models.data ?? models.models ?? [];
@@ -503,6 +509,14 @@ async function client() {
     return instance;
   })();
   return clientPromise;
+}
+
+export async function closeClient() {
+  const pending = clientPromise;
+  clientPromise = null;
+  if (!pending) return;
+  const instance = await pending.catch(() => null);
+  await instance?.close();
 }
 
 const laneLocks = new Map();
@@ -1504,7 +1518,7 @@ async function poolStatus(args) {
   return project ?? { cwd: path.resolve(args.cwd), lanes: {}, initialized: false };
 }
 
-async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
+async function startVisibleJob({ lane, workerLanes, activeLanes, run, store = jobs, showStatusWindow = false }) {
   let jobId;
   let latestSnapshot = null;
   let persistence = Promise.resolve();
@@ -1513,7 +1527,7 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
     persistence = persistence.catch(() => {}).then(() => writeJobRecord(record.snapshot?.jobId ?? jobId, record));
     return persistence;
   };
-  const started = jobs.start({
+  const started = store.start({
     lane,
     effort: "max",
     workerLanes,
@@ -1584,10 +1598,9 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
   });
   jobId = started.jobId;
   await persistence;
-  const display = launchStatusWindow({
-    jobId,
-    jobRoot: jobDirectory(),
-  });
+  const display = showStatusWindow
+    ? launchStatusWindow({ jobId, jobRoot: jobDirectory() })
+    : { launched: false };
   return {
     ...started,
     display: {
@@ -1597,26 +1610,27 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run }) {
   };
 }
 
-async function startTask(args) {
+export async function startOwnedTask(args, { store = jobs } = {}) {
   if ((args.profile ?? DEFAULT_PROFILE.id) === SPEED_FIRST.id) {
     const budgets = adaptiveBudgets(args);
-    return startBatch({
+    return startOwnedBatch({
       cwd: args.cwd,
       parallelism: SPEED_FIRST.defaultParallelism,
       workstreams: defaultParallelWorkstreams(args),
       maxFiles: budgets.maxFiles,
       maxCommands: budgets.maxCommands,
-    });
+    }, { store });
   }
   return startVisibleJob({
     lane: args.lane,
     workerLanes: LANES,
     activeLanes: [args.lane],
     run: (progress) => runTask(args, { progress }),
+    store,
   });
 }
 
-async function startBatch(args) {
+export async function startOwnedBatch(args, { store = jobs } = {}) {
   const parallelism = speedParallelism(args.parallelism);
   const slots = burstLanes(parallelism);
   const activeLanes = slots.slice(0, Math.min(slots.length, args.workstreams?.length ?? 0));
@@ -1625,7 +1639,99 @@ async function startBatch(args) {
     workerLanes: [...slots, "supervisor"],
     activeLanes,
     run: (progress) => runBatch({ ...args, parallelism }, { progress }),
+    store,
   });
+}
+
+async function startDetachedJob(kind, args) {
+  const jobId = randomUUID();
+  const startedAt = new Date().toISOString();
+  const lane = kind === "batch" || (args.profile ?? DEFAULT_PROFILE.id) === SPEED_FIRST.id
+    ? SPEED_FIRST.id
+    : args.lane;
+  const startingSnapshot = {
+    jobId,
+    status: "starting",
+    lane,
+    effort: "max",
+    progress: 0,
+    message: "Heliolune Leader · detached job runner starting",
+    sequence: 0,
+    startedAt,
+    updatedAt: startedAt,
+    elapsedMs: 0,
+    updates: [],
+    workers: [],
+    resultStatus: null,
+    usage: null,
+    cost: null,
+    error: null,
+  };
+  const request = { version: VERSION, kind, args, createdAt: startedAt };
+  await writeJobRecord(jobId, {
+    status: "starting",
+    startedAt,
+    startupDeadline: new Date(Date.now() + 30_000).toISOString(),
+    lane,
+    snapshot: startingSnapshot,
+  });
+  try {
+    await writeJobRequest(jobId, request);
+  } catch (error) {
+    const completedAt = new Date().toISOString();
+    const message = `Unable to persist the detached Heliolune runner request: ${error.message}`;
+    await writeJobRecord(jobId, {
+      status: "failed",
+      startedAt,
+      completedAt,
+      lane,
+      error: message,
+      snapshot: { ...startingSnapshot, status: "failed", progress: 100, message, updatedAt: completedAt, error: message },
+    });
+    throw error;
+  }
+  const failStartup = async (error) => {
+    const current = await readJobRecord(jobId);
+    if (current?.status !== "starting") return;
+    const completedAt = new Date().toISOString();
+    const message = `Unable to launch the detached Heliolune job runner: ${error.message}`;
+    try {
+      await writeJobRecord(jobId, {
+        ...current,
+        status: "failed",
+        completedAt,
+        error: message,
+        snapshot: { ...startingSnapshot, status: "failed", progress: 100, message, updatedAt: completedAt, error: message },
+      });
+    } finally {
+      await removeJobRequest(jobId);
+    }
+  };
+  try {
+    const runnerLaunch = launchJobRunner({ jobId });
+    await runnerLaunch.ready;
+    let display;
+    try { display = launchStatusWindow({ jobId, jobRoot: jobDirectory() }); }
+    catch (error) { display = { launched: false, reason: `status-window-error: ${error.message}` }; }
+    return {
+      ...startingSnapshot,
+      display: {
+        mode: display.launched ? "native-window" : "silent",
+        fallbackLaunched: display.launched,
+      },
+    };
+  } catch (error) {
+    await failStartup(error);
+    throw error;
+  }
+}
+
+async function startTask(args) {
+  return startDetachedJob("task", args);
+}
+
+async function startBatch(args) {
+  return startDetachedJob("batch", args);
 }
 
 async function callTool(name, args, context = {}) {
@@ -1690,13 +1796,19 @@ async function handle(message) {
   }
 }
 
-readline.createInterface({ input: process.stdin }).on("line", (line) => {
-  if (!line.trim()) return;
-  let message;
-  try { message = JSON.parse(line); }
-  catch { return; }
-  void handle(message);
-});
+if (SERVER_IS_MAIN) {
+  readline.createInterface({ input: process.stdin }).on("line", (line) => {
+    if (!line.trim()) return;
+    let message;
+    try { message = JSON.parse(line); }
+    catch { return; }
+    void handle(message);
+  });
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+  const requestShutdown = createJobAwareShutdown({
+    store: jobs,
+    log: (message) => process.stderr.write(`[luna-pool] ${message}\n`),
+  });
+  process.on("SIGINT", () => void requestShutdown("SIGINT"));
+  process.on("SIGTERM", () => void requestShutdown("SIGTERM"));
+}

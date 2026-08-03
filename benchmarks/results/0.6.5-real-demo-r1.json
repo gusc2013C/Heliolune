@@ -1,0 +1,57 @@
+{
+  "version": "0.6.5",
+  "testedAt": "2026-08-03",
+  "platform": "Windows",
+  "automated": {
+    "passed": 93,
+    "failed": 0,
+    "powershell": "5.1"
+  },
+  "realDemoMatrix": {
+    "installedHost": {
+      "jobId": "e458ca6a-620b-418a-ad8f-019b1fa40fd4",
+      "wallMs": 188979,
+      "completedWorkers": 4,
+      "runtimeVersion": "0.6.5",
+      "awaitStatus": "completed",
+      "windowLanguage": "zh-CN",
+      "windowAutoClosed": true,
+      "runnerAutoExited": true
+    },
+    "tokenFirstLifecycleAudit": {
+      "jobId": "6b23ae28-6cd8-4f68-8caf-a17c8469a437",
+      "wallMs": 259334,
+      "status": "completed",
+      "mediumHighCriticalRisks": 0,
+      "runnerAutoExited": true
+    },
+    "queuedFourSlot": {
+      "jobId": "f8898fda-7624-4548-ba69-5b2becd6934f",
+      "wallMs": 71609,
+      "completedWorkstreams": 5,
+      "parallelism": 4,
+      "queuedClaimSlot": "burst-2",
+      "runnerAutoExited": true
+    },
+    "eightWay": {
+      "jobId": "65a69de5-2254-460b-be7b-f429c89cbdb5",
+      "wallMs": 80492,
+      "completedWorkstreams": 8,
+      "parallelism": 8,
+      "runnerAutoExited": true
+    },
+    "parallelWrites": {
+      "jobId": "1a8338e2-f2af-469e-a13d-2be5bf41b167",
+      "wallMs": 51814,
+      "completedWriters": 2,
+      "integration": "safe-apply",
+      "stagedPaths": 0,
+      "remainingWorktrees": 1,
+      "runnerAutoExited": true
+    }
+  },
+  "residualProcesses": {
+    "jobRunners": 0,
+    "standaloneAppServers": 0
+  }
+}

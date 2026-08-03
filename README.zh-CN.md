@@ -6,7 +6,7 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 自动展开为带 detached-worktree 写隔离的 4 路 Luna/max worker。
 
-> 当前发布版本：**`0.6.4`**。1.0 之前公共接口仍可能调整。
+> 当前发布版本：**`0.6.5`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -158,6 +158,8 @@ mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓�
 0.6.3 后端诊断复现了旧串行运行时，修复运行时身份与隐藏窗口 gate，并通过默认 4 路路由安全集成两个 Python 文件。最终运行用时 337.050 秒、Luna worker 费用 0.584154，公开测试 12/12、仓库外隐藏测试 8/8。详见 [0.6.3 运行时诊断](docs/0.6.3-RUNTIME-DIAGNOSTIC.zh-CN.md)；该结果说明费用优先的应用价值，不是与 Sol-only 的速度对照。
 
 0.6.4 可续租存活回归使用 30 秒首次检查点完成了真实 5 workstream / 4 slot Luna 运行。两个 worker 在检查点后自然完成，第一个空闲 slot 在最慢 sibling 结束前领取第五项。详见 [0.6.4 可续租存活验证](docs/0.6.4-RENEWABLE-LIVENESS.zh-CN.md)。
+
+0.6.5 发布门禁用最终安装插件完整重跑 Codex 宿主、原生窗口自动关闭、token-first 生命周期审计、4 路排队、8 路最大并发和隔离并行写。全部最终运行完成，每个 smoke 都验证 runner 回收，进程审计未发现 Heliolune standalone app-server 残留。详见 [0.6.5 真实 demo 验证](docs/0.6.5-REAL-DEMO.zh-CN.md)。
 
 默认费率为用户提供的每百万 token 价格单位：
 

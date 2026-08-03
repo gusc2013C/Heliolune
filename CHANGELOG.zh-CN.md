@@ -4,6 +4,27 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.6.5] - 2026-08-03
+
+### 独立 job owner 与资源回收
+
+- 先持久化 starting record 与 request，再把执行权交给隐藏的 detached runner，不再由短生命周期 MCP stdio 进程持有 job。完整 claim 文档通过独占硬链接原子发布，独立 await server 继续交付终态。
+- runner 在 job 终态前保持引用，活动工作期间延后 `SIGINT`/`SIGTERM`，并显式关闭 standalone app-server 进程树。Windows 等待 `taskkill /T`；POSIX 等待 `exit`/`close`，仅在有界宽限后强制结束。
+- 增加按需 runner 生命周期诊断；全部真实 smoke 都必须等待 runner PID 退出。由此修复完成任务后 app-server 子进程累积、最终诱发随机 orphan 的泄漏。
+
+### 原生状态窗可靠性
+
+- 保留终态后 15 秒自动关闭倒计时，并由 Codex-host smoke 直接验证窗口 PID 自动退出。
+- 状态窗用 Windows `ReadWrite|Delete` 共享模式读取 snapshot；原子替换对瞬时 `EPERM`、`EBUSY`、`EACCES` 做有界重试。真实测试中发现的“刷新窗口时终态写入失败”竞态已消除。
+
+### 真实 demo 验证
+
+- 通过已安装 0.6.4 的 `runtime_info` → `start_task` → 独立 `await_task` 复现：四路 demo 约运行 5 分 48 秒后 owner 退出。后续 0.6.5 候选轮次又暴露了完成进程泄漏、claim 非原子发布、POSIX 关闭缺口及 Windows 状态窗读取竞态；每项都先落成聚焦回归，再重启完整矩阵。
+- 93 项无依赖自动化测试及 PowerShell 5.1 发布校验全部通过。
+- 最终安装态宿主运行用时 188.979 秒，4/4 Luna/max 完成；中文原生状态、独立 await、窗口自动关闭、runner/app-server 自动退出全部通过。
+- 259.334 秒 token-first 生命周期审计无任何 medium/high/critical 风险；5 workstream / 4 slot 排队运行 71.609 秒；8 workstream / 8 slot 运行 80.492 秒；双 writer safe-apply 运行 51.814 秒。
+- 最终匹配到的 runner 与 standalone app-server 残留进程均为 0。完整证据见 [`docs/0.6.5-REAL-DEMO.zh-CN.md`](docs/0.6.5-REAL-DEMO.zh-CN.md) 与 [`benchmarks/results/0.6.5-real-demo-r1.json`](benchmarks/results/0.6.5-real-demo-r1.json)。
+
 ## [0.6.4] - 2026-08-03
 
 ### 可续租 worker 存活机制

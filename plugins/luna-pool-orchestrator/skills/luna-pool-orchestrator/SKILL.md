@@ -11,7 +11,7 @@ Sol plans once, sends one compact delta, blocks without generating, then reviews
 
 Before repository exploration, require `luna-pool.runtime_info`, `luna-pool.start_task`, and `luna-await.await_task`. Call `runtime_info` once and require:
 
-- `version=0.6.4`, `defaultProfile=speed-first`, `defaultParallelism=4`;
+- `version=0.6.5`, `defaultProfile=speed-first`, `defaultParallelism=4`;
 - `burstThreadsEphemeral=true`, `appServerWindowHidden=true`;
 - on Windows, `statusSurface=native-window`.
 

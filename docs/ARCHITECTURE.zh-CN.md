@@ -61,9 +61,9 @@ Speed-first 实现和修复要求干净 Git 根目录，以及窄、非重叠、
 
 ## 可见进度边界
 
-Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，创建后台 job 与原生状态界面后立即返回。`luna-await.await_task` 再阻塞读取原子写入的终态文件。拆分是因为同一 server 的阻塞请求会串行化其他调用；原生窗口可继续读取本地 snapshot，又不增加 Sol turn 或模型 session。
+Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，原子写入 starting request，启动 detached job runner，并在创建原生状态界面后返回。runner 独占 claim 完整 request，并持有 standalone app-server 直到终态清理。`luna-await.await_task` 再阻塞读取原子替换的结果文件。拆分 server 与分离所有权可避免 host stdio 生命周期清理误杀活动工作。
 
-运行中记录包含 pool server PID、进程启动时间和心跳，但没有墙钟过期时间。`luna-await` 在阻塞时验证 owner；若 owner 在写入终态前退出，就把陈旧记录原子转换为失败。原生窗口也执行相同 owner 检查，因此既不会误杀活动工作，也不会让被遗弃的 `running` 快照永久挂起。
+运行中记录包含 detached runner PID、进程启动时间和心跳，但没有墙钟过期时间。`luna-await` 在阻塞时验证 owner；若 owner 在写入终态前退出，就把陈旧记录原子转换为失败。原生窗口也执行相同 owner 检查；Windows 读取启用 delete sharing，writer 只对瞬时共享冲突重试。终态清理关闭 app-server 进程树、删除 claim、释放 runner keepalive，最后让 runner 自行退出。
 
 Codex MCP 配置要求 transport 使用有限保护值，但 Heliolune 内部 await 没有截止。随附 `luna-await` 保护为 24 小时；即使 host 请求本身到达该保护，由独立 owner 持有的后台 job 仍会继续，保护值不会传给 worker，也不会中止其 app-server turn。
 

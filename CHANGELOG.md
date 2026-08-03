@@ -4,6 +4,27 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.5] - 2026-08-03
+
+### Detached job ownership and cleanup
+
+- Persist a starting record and request, then transfer execution to a hidden detached runner instead of letting the short-lived MCP stdio process own the job. A complete claim document is published atomically with an exclusive hard link, and the independent await server continues to deliver the terminal result.
+- Keep the runner referenced until its job is terminal, defer `SIGINT`/`SIGTERM` while work is active, and explicitly close the standalone app-server process tree. Windows waits for `taskkill /T`; POSIX waits for `exit`/`close` and escalates only after a bounded grace period.
+- Add opt-in runner lifecycle diagnostics and make every real smoke wait for the runner PID to exit. This closes the completed-run process leak that accumulated app-server children and eventually caused intermittent orphan failures.
+
+### Native status reliability
+
+- Keep the native panel's 15-second terminal countdown and make the Codex-host smoke prove that the window PID exits automatically.
+- Read job snapshots with Windows `ReadWrite|Delete` sharing and retry transient `EPERM`, `EBUSY`, or `EACCES` atomic replacements. This removes the observed race where a panel refresh could make an otherwise successful job fail while writing its terminal record.
+
+### Real demo validation
+
+- Reproduce the installed 0.6.4 failure through `runtime_info` → `start_task` → independent `await_task`: the four-way demo ran about 5 minutes 48 seconds before its owner exited. Additional 0.6.5 candidate runs exposed the completed-process leak, non-atomic claim publication, POSIX shutdown gap, and Windows panel/read race; each became a focused regression before the matrix was restarted.
+- Pass 93 dependency-free automated tests and the PowerShell 5.1 release validator.
+- Pass the final installed-host run in 188.979 seconds with 4/4 Luna/max workers, Chinese native status, independent await delivery, window auto-close, and runner/app-server auto-exit.
+- Pass a 259.334-second token-first lifecycle audit with no medium/high/critical risks; a five-workstream/four-slot queued run in 71.609 seconds; an eight-workstream/eight-slot run in 80.492 seconds; and a two-writer safe-apply run in 51.814 seconds.
+- Finish with zero matching runner or standalone app-server processes. The retained evidence is documented in [`docs/0.6.5-REAL-DEMO.md`](docs/0.6.5-REAL-DEMO.md) and [`benchmarks/results/0.6.5-real-demo-r1.json`](benchmarks/results/0.6.5-real-demo-r1.json).
+
 ## [0.6.4] - 2026-08-03
 
 ### Renewable worker liveness

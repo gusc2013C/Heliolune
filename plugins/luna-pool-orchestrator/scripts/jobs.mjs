@@ -41,6 +41,22 @@ export class JobStore {
     this.retentionMs = retentionMs;
     this.minimumIntervalMs = minimumIntervalMs;
     this.jobs = new Map();
+    this.idleWaiters = new Set();
+  }
+
+  hasRunningJobs() {
+    return [...this.jobs.values()].some((job) => job.status === "running");
+  }
+
+  waitForIdle() {
+    if (!this.hasRunningJobs()) return Promise.resolve();
+    return new Promise((resolve) => this.idleWaiters.add(resolve));
+  }
+
+  #resolveIdleWaiters() {
+    if (this.hasRunningJobs()) return;
+    for (const resolve of this.idleWaiters) resolve();
+    this.idleWaiters.clear();
   }
 
   #prune() {
@@ -150,6 +166,7 @@ export class JobStore {
           try { subscriber(snapshot); } catch { /* status observers cannot affect the worker */ }
         }
         job.subscribers.clear();
+        this.#resolveIdleWaiters();
       });
     return publicSnapshot(job, this.now);
   }
@@ -169,4 +186,34 @@ export class JobStore {
     if (job.status === "failed") throw new Error(job.error);
     return job.result;
   }
+}
+
+export function createJobAwareShutdown({ store, exit = (code) => process.exit(code), log = () => {} }) {
+  let shutdownPromise = null;
+  return function requestShutdown(signal) {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      if (store.hasRunningJobs()) {
+        try { log(`${signal} received; deferring Heliolune shutdown until active jobs reach a terminal state.`); }
+        catch { /* shutdown logging must not affect job ownership */ }
+        await store.waitForIdle();
+      }
+      exit(0);
+    })();
+    return shutdownPromise;
+  };
+}
+
+export function createProcessKeepAlive({
+  setIntervalImpl = setInterval,
+  clearIntervalImpl = clearInterval,
+  intervalMs = 1_000,
+} = {}) {
+  const handle = setIntervalImpl(() => {}, intervalMs);
+  let released = false;
+  return function releaseKeepAlive() {
+    if (released) return;
+    released = true;
+    clearIntervalImpl(handle);
+  };
 }

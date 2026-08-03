@@ -11,6 +11,7 @@ import {
   launchStatusWindow,
   shouldLaunchStatusWindow,
 } from "../plugins/luna-pool-orchestrator/scripts/status-window.mjs";
+import { launchJobRunner } from "../plugins/luna-pool-orchestrator/scripts/job-runner-launch.mjs";
 
 const execFileAsync = promisify(execFile);
 const statusScript = fileURLToPath(new URL("../plugins/luna-pool-orchestrator/scripts/status-window.ps1", import.meta.url));
@@ -56,11 +57,55 @@ test("launcher uses the bundled WSH bridge without a console window", () => {
   assert.equal(invocation.options.stdio, "ignore");
 });
 
+test("job runner uses a hidden detached WSH bridge on Windows", () => {
+  let invocation;
+  const child = { pid: 84, on() {}, unref() {} };
+  const result = launchJobRunner({
+    jobId: "11111111-1111-4111-8111-111111111111",
+    platform: "win32",
+    env: { SystemRoot: "C:\\Windows" },
+    nodeExecutable: "C:\\Program Files\\nodejs\\node.exe",
+    runnerScript: "C:\\plugin\\job-runner.mjs",
+    spawnImpl(command, args, options) {
+      invocation = { command, args, options };
+      return child;
+    },
+  });
+  assert.equal(result.mode, "wsh-detached");
+  assert.ok(invocation.command.toLowerCase().endsWith("system32\\wscript.exe"));
+  assert.ok(invocation.args[0].endsWith("job-runner-launcher.vbs"));
+  assert.equal(invocation.args.at(-1), "11111111-1111-4111-8111-111111111111");
+  assert.equal(invocation.options.detached, true);
+  assert.equal(invocation.options.windowsHide, true);
+  assert.equal(invocation.options.stdio, "ignore");
+});
+
+test("job runner reports asynchronous bridge launch failures", async () => {
+  let errorHandler;
+  const expected = new Error("bridge unavailable");
+  let observed;
+  const launch = launchJobRunner({
+    jobId: "11111111-1111-4111-8111-111111111111",
+    platform: "linux",
+    onError: (error) => { observed = error; },
+    spawnImpl() {
+      return {
+        once(event, handler) { if (event === "error") errorHandler = handler; },
+        unref() {},
+      };
+    },
+  });
+  errorHandler(expected);
+  await assert.rejects(launch.ready, /bridge unavailable/);
+  assert.equal(observed, expected);
+});
+
 test("native panel creates cards for dynamic four/eight-worker burst lanes", async () => {
   const script = await readFile(statusScript, "utf8");
   const locales = JSON.parse(await readFile(statusLocales, "utf8"));
   assert.match(script, /function Add-WorkerCard/);
   assert.match(script, /snapshot\.workers \| ForEach-Object/);
+  assert.match(script, /FileShare\]::ReadWrite -bor \[System\.IO\.FileShare\]::Delete/);
   assert.equal(locales.en.strings.BurstWorker, "Burst worker {0}");
   assert.equal(locales["zh-CN"].lanes["speed-first"], "速度优先");
 });

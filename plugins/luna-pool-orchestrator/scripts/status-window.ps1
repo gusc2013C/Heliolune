@@ -47,7 +47,19 @@ function Read-HelioluneSnapshot {
         return $null
     }
     try {
-        $record = Get-Content -LiteralPath $jobFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $stream = [System.IO.File]::Open(
+            $jobFile,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+        )
+        try {
+            $reader = New-Object System.IO.StreamReader($stream)
+            try { $json = $reader.ReadToEnd() }
+            finally { $reader.Dispose() }
+        }
+        finally { $stream.Dispose() }
+        $record = $json | ConvertFrom-Json
         if ($null -ne $record.snapshot) {
             if (($record.status -eq 'running') -and ($null -ne $record.ownerPid)) {
                 $ownerAlive = $null -ne (Get-Process -Id ([int]$record.ownerPid) -ErrorAction SilentlyContinue)

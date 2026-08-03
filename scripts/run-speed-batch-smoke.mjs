@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { waitForJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
+import { readJobRecord, waitForJobRecord, waitForProcessExit } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(repoRoot, "plugins", "luna-pool-orchestrator", "scripts", "server.mjs");
@@ -182,6 +182,8 @@ try {
   if (response.result?.isError) throw new Error(response.result.content?.[0]?.text ?? `${invocation.name} failed`);
   const started = response.result.structuredContent;
   const result = await waitForJobRecord(started.jobId);
+  const finalRecord = await readJobRecord(started.jobId);
+  const runnerAutoExited = await waitForProcessExit(finalRecord?.ownerPid);
   if (result.priority !== "speed-first" || result.parallelism !== parallelism) throw new Error("Unexpected speed-first routing result");
   if (result.taskOutcomes?.length !== (fastStart ? 4 : workstreams.length)) throw new Error("Not every workstream reached a terminal outcome");
   if (!result.usage || !result.cost || !result.timing) throw new Error("Missing usage, cost, or timing telemetry");
@@ -198,6 +200,7 @@ try {
     display: started.display,
     entrypoint: invocation.name,
     taskRoot,
+    runnerAutoExited,
   }, null, 2)}\n`);
 } catch (error) {
   error.message = `${error.message}; server stderr=${stderr}`;

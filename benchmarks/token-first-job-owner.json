@@ -1,0 +1,26 @@
+{
+  "cwd": "D:\\code\\heliolune",
+  "lane": "integration",
+  "mode": "analyze",
+  "profile": "token-first",
+  "objective": "Audit how Heliolune detaches an active job owner from the short-lived MCP stdio process and preserves terminal delivery through luna-await.",
+  "acceptance": [
+    "Inspect only the scoped runner, job-file, and server paths",
+    "Cite path-backed evidence for atomic request handoff and detached Windows launch",
+    "Confirm how terminal status reaches the independent await server",
+    "Confirm claim metadata is published atomically and app-server shutdown waits for termination on Windows and POSIX",
+    "Return no medium, high, or critical lifecycle risk; report any concrete defect without proposing a public API change"
+  ],
+  "scope": [
+    "plugins/luna-pool-orchestrator/scripts/job-runner-launch.mjs",
+    "plugins/luna-pool-orchestrator/scripts/job-runner.mjs",
+    "plugins/luna-pool-orchestrator/scripts/app-server-client.mjs",
+    "plugins/luna-pool-orchestrator/scripts/job-files.mjs",
+    "plugins/luna-pool-orchestrator/scripts/await-server.mjs",
+    "plugins/luna-pool-orchestrator/scripts/server.mjs"
+  ],
+  "risk": "moderate",
+  "reservedBoundary": false,
+  "maxFiles": 6,
+  "maxCommands": 12
+}

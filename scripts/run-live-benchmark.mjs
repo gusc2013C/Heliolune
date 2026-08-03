@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { waitForJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
+import { readJobRecord, waitForJobRecord, waitForProcessExit } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "..");
@@ -16,11 +16,16 @@ const tasks = await Promise.all(taskFiles.map(async (taskFile) => ({
   task: JSON.parse(await readFile(path.resolve(taskFile), "utf8")),
 })));
 const localAppData = await mkdtemp(path.join(os.tmpdir(), "heliolune-live-benchmark-"));
+const runnerDiagnosticFile = path.join(localAppData, "runner-diagnostics.jsonl");
 const child = spawn(process.execPath, [serverPath], {
   cwd: repoRoot,
   stdio: ["pipe", "pipe", "pipe"],
   windowsHide: true,
-  env: { ...process.env, LOCALAPPDATA: localAppData },
+  env: {
+    ...process.env,
+    LOCALAPPDATA: localAppData,
+    HELIOLUNE_RUNNER_DIAGNOSTIC_FILE: runnerDiagnosticFile,
+  },
 });
 
 let nextId = 1;
@@ -74,6 +79,8 @@ try {
     const payload = await waitForJobRecord(started.jobId, {
       root: localAppData,
     });
+    const finalRecord = await readJobRecord(started.jobId, localAppData);
+    const runnerAutoExited = await waitForProcessExit(finalRecord?.ownerPid);
     runs.push({
       taskFile,
       wallMs: Date.now() - runStartedAt,
@@ -81,6 +88,7 @@ try {
       isError: false,
       progress: progressByToken.get(progressToken) ?? [],
       payload,
+      runnerAutoExited,
     });
   }
   const result = {
@@ -90,6 +98,10 @@ try {
     ...(runs.length === 1 ? runs[0] : { runs }),
   };
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+} catch (error) {
+  const diagnostics = await readFile(runnerDiagnosticFile, "utf8").catch(() => "no runner diagnostics were written");
+  error.message = `${error.message}\nRunner diagnostics:\n${diagnostics}`;
+  throw error;
 } finally {
   child.kill();
   await rm(localAppData, { recursive: true, force: true });
