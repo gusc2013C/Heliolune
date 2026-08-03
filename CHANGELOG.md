@@ -4,6 +4,35 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.6.5] - 2026-08-03
+
+### Detached job ownership and cleanup
+
+- Persist a starting record and request, then transfer execution to a hidden detached runner instead of letting the short-lived MCP stdio process own the job. A complete claim document is published atomically with an exclusive hard link, and the independent await server continues to deliver the terminal result.
+- Keep the runner referenced until its job is terminal, defer `SIGINT`/`SIGTERM` while work is active, and explicitly close the standalone app-server process tree. Windows now waits for both `taskkill /T` and the app-server's own exit confirmation; POSIX waits for `exit`/`close` and escalates only after a bounded grace period.
+- Add opt-in runner lifecycle diagnostics and make every real smoke wait for the runner PID to exit. This closes the completed-run process leak that accumulated app-server children and eventually caused intermittent orphan failures.
+
+### Runtime identity and bounded stall convergence
+
+- Add exact build identity `0.6.5-owner-heartbeat-r2` alongside semantic version and prompt identity. The pool preflight, detached request, runner, and required await argument all agree on this value, so a stale same-version pool or await MCP fails closed after plugin reinstall.
+- Persist an owner heartbeat every five seconds independently of model progress. Await and the native panel fail a running job after 30 seconds without an owner heartbeat, which also protects against PID reuse and a silent detached owner.
+- Keep renewable execution for active workers, but interrupt after four consecutive liveness checks with no app-server activity. Any event resets the circuit breaker, so long active work has no fixed deadline while a truly silent worker cannot renew forever.
+
+### Native status reliability
+
+- Keep the native panel's 15-second terminal countdown and make the Codex-host smoke prove that the window PID exits automatically.
+- Read job snapshots with Windows `ReadWrite|Delete` sharing and use a longer staggered retry window for transient `EPERM`, `EBUSY`, or `EACCES` atomic replacements. This removes the observed race where a panel or await refresh could make an otherwise successful job fail while writing its terminal record.
+- Force a terminal record to override any stale running snapshot; turn expired startup leases, dead owners, and stale heartbeats into a failed terminal UI; and close after a job record remains unavailable. The live benchmark is explicitly headless so deleting its temporary job root cannot orphan a panel.
+- Canonicalize Git roots and compare Windows paths case-insensitively before parallel-write isolation, fixing GitHub Actions failures caused by equivalent runner paths with different casing or representation.
+
+### Real demo validation
+
+- Reproduce the installed 0.6.4 failure through `runtime_info` → `start_task` → independent `await_task`: the four-way demo ran about 5 minutes 48 seconds before its owner exited. Additional 0.6.5 candidate runs exposed the completed-process leak, non-atomic claim publication, POSIX shutdown gap, and Windows panel/read race; each became a focused regression before the matrix was restarted.
+- Pass 103 dependency-free automated tests and the PowerShell 5.1 release validator.
+- Pass the final installed-host r2 run in 240.018 seconds with 4/4 Luna/max workers, exact pool/await build identity, Chinese native status, independent await delivery, window auto-close, and runner/app-server auto-exit.
+- Pass a 238.658-second token-first lifecycle audit with no medium/high/critical risks; fix its one low-risk Windows exit-confirmation finding; then pass a five-workstream/four-slot queued run in 99.535 seconds, an eight-workstream/eight-slot run in 94.892 seconds, and a two-writer safe-apply run in 70.085 seconds.
+- Reproduce the reported stuck panel as benchmark job `993ad283`: the job and runner were terminal, but temporary state cleanup removed the record before the panel saw it. Close that exact process, add harness and panel regressions, and finish with zero matching pool/await MCP, runner, status-window, or standalone app-server processes. The retained evidence is documented in [`docs/0.6.5-REAL-DEMO.md`](docs/0.6.5-REAL-DEMO.md) and [`benchmarks/results/0.6.5-real-demo-r1.json`](benchmarks/results/0.6.5-real-demo-r1.json).
+
 ## [0.6.4] - 2026-08-03
 
 ### Renewable worker liveness

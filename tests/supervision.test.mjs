@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "../plugins/luna-pool-orchestrator/scripts/supervision.mjs";
+import { classifyTurnFailure, compactSupervisorPrompt, createInactivityCircuitBreaker, shouldConsultSupervisor, supervisionSchedule } from "../plugins/luna-pool-orchestrator/scripts/supervision.mjs";
 
 test("short compatibility values become renewable liveness checkpoints", () => {
   assert.deepEqual(supervisionSchedule({ checkpointSeconds: 60 }), {
@@ -10,8 +10,24 @@ test("short compatibility values become renewable liveness checkpoints", () => {
     repeatMs: 30_000,
     staleMs: 45_000,
     supervisorTimeoutMs: 30_000,
+    maxSilentChecks: 4,
     sizingTargetMs: 90_000,
   });
+});
+
+test("renewable liveness resets on activity and terminates a persistently silent stall", () => {
+  const schedule = supervisionSchedule({ checkpointSeconds: 60 });
+  const observe = createInactivityCircuitBreaker(schedule);
+  assert.equal(observe({ silentMs: 60_000 }), null);
+  assert.equal(observe({ silentMs: 80_000 }), null);
+  assert.equal(observe({ silentMs: 1_000 }), null);
+  assert.equal(observe({ silentMs: 60_000 }), null);
+  assert.equal(observe({ silentMs: 90_000 }), null);
+  assert.equal(observe({ silentMs: 120_000 }), null);
+  const decision = observe({ silentMs: 150_000 });
+  assert.equal(decision.action, "interrupt");
+  assert.equal(decision.confidence, "high");
+  assert.equal(decision.source, "inactivity-circuit-breaker");
 });
 
 test("caps the first checkpoint at the preferred 90-second workstream size", () => {

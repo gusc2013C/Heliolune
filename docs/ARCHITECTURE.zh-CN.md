@@ -35,7 +35,7 @@ Token-first 使用 `core`、`tests`、`integration` 与 `verifier` 四个持久 
 
 Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和结构化 owner/verifier bundle。近期活动会直接续租，不唤醒 Leader；持续静默时 Leader 可以上报 continue/interrupt，但只有高置信度 stall 判断才能中止。它不能规划、分配、决定保留边界或最终验收。
 
-对 speed-first 而言，90 秒是 workstream 尺寸目标与首次共享管理检查点，不是截止时间。每个 worker 持有可续租 lease；近期活动会无限续租，持续静默才交给共享 Leader。模糊或不可用的判断继续续租，只有高置信度 stall 才 interrupt。workstream 来自共享队列，任一空闲 slot 会立刻领取下一项，而不等待长尾 sibling。Leader 不得规划或重新分配；确定性调度器只执行 Sol 已经定义的队列。
+对 speed-first 而言，90 秒是 workstream 尺寸目标与首次共享管理检查点，不是截止时间。每个 worker 持有可续租 lease；近期活动会无限续租，持续静默才交给共享 Leader。模糊或不可用的判断会继续续租，但连续 4 次检查都无 app-server 活动时，本地高置信度熔断会 interrupt，保证静默卡死最终收口。workstream 来自共享队列，任一空闲 slot 会立刻领取下一项，而不等待长尾 sibling。Leader 不得规划或重新分配；确定性调度器只执行 Sol 已经定义的队列。
 
 ## 结构化输出恢复
 
@@ -61,9 +61,9 @@ Speed-first 实现和修复要求干净 Git 根目录，以及窄、非重叠、
 
 ## 可见进度边界
 
-Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，创建后台 job 与原生状态界面后立即返回。`luna-await.await_task` 再阻塞读取原子写入的终态文件。拆分是因为同一 server 的阻塞请求会串行化其他调用；原生窗口可继续读取本地 snapshot，又不增加 Sol turn 或模型 session。
+Codex Desktop 使用两个 stdio MCP server。常规路径只调用一次紧凑 `luna-pool.start_task`；pool server 在内部确定性展开四路 workstream，原子写入 starting request，启动 detached job runner，并在创建原生状态界面后返回。runner 独占 claim 完整 request，并持有 standalone app-server 直到终态清理。`luna-await.await_task` 再阻塞读取原子替换的结果文件。拆分 server 与分离所有权可避免 host stdio 生命周期清理误杀活动工作。
 
-运行中记录包含 pool server PID、进程启动时间和心跳，但没有墙钟过期时间。`luna-await` 在阻塞时验证 owner；若 owner 在写入终态前退出，就把陈旧记录原子转换为失败。原生窗口也执行相同 owner 检查，因此既不会误杀活动工作，也不会让被遗弃的 `running` 快照永久挂起。
+运行中记录包含 detached runner PID、进程启动时间和每 5 秒独立刷新一次的心跳，但没有 worker 墙钟过期时间。`luna-await` 在阻塞时验证精确 build 身份与 owner 心跳；若 owner 退出或心跳陈旧 30 秒，就把记录原子转换为失败。原生窗口执行相同检查，并让过期启动、终态 snapshot 陈旧及记录消失都进入关闭倒计时。Windows 读取启用 delete sharing，writer 对瞬时共享冲突错峰重试。终态清理关闭 app-server 进程树、确认退出、删除 claim、释放 runner keepalive，最后让 runner 自行退出。
 
 Codex MCP 配置要求 transport 使用有限保护值，但 Heliolune 内部 await 没有截止。随附 `luna-await` 保护为 24 小时；即使 host 请求本身到达该保护，由独立 owner 持有的后台 job 仍会继续，保护值不会传给 worker，也不会中止其 app-server turn。
 

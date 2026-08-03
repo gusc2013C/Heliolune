@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { waitForJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
+import { readJobRecord, waitForJobRecord, waitForProcessExit } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(repoRoot, "plugins", "luna-pool-orchestrator", "scripts", "server.mjs");
@@ -93,6 +93,8 @@ try {
   if (startedResponse.result?.isError) throw new Error(startedResponse.result.content?.[0]?.text ?? "start_batch failed");
   const started = startedResponse.result.structuredContent;
   const result = await waitForJobRecord(started.jobId, { root: localAppData });
+  const finalRecord = await readJobRecord(started.jobId, localAppData);
+  const runnerAutoExited = await waitForProcessExit(finalRecord?.ownerPid);
   const alpha = (await readFile(path.join(fixture, "alpha.txt"), "utf8")).replaceAll("\r\n", "\n");
   const beta = (await readFile(path.join(fixture, "beta.txt"), "utf8")).replaceAll("\r\n", "\n");
   const staged = await command("git", ["diff", "--cached", "--name-only"], fixture);
@@ -112,6 +114,7 @@ try {
     timing: result.timing,
     stagedPaths: staged,
     remainingWorktrees: 1,
+    runnerAutoExited,
   }, null, 2)}\n`);
 } finally {
   child.kill();

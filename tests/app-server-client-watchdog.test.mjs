@@ -214,3 +214,74 @@ test("invalid structured output preserves usage for bounded recovery", async (t)
     (error) => error.code === "INVALID_STRUCTURED_OUTPUT" && error.usage.last.inputTokens === 100,
   );
 });
+
+test("Windows close terminates the standalone app-server process tree", async () => {
+  const invocations = [];
+  const killer = {
+    once(event, listener) {
+      if (event === "exit") queueMicrotask(() => listener(0, null));
+      return this;
+    },
+  };
+  const client = new AppServerClient({
+    executable: "codex.exe",
+    platform: "win32",
+    spawnImpl(command, args, options) {
+      invocations.push({ command, args, options });
+      return killer;
+    },
+  });
+  client.child = {
+    pid: 4242,
+    exitCode: null,
+    once(event, listener) {
+      if (event === "exit") queueMicrotask(() => { this.exitCode = 0; listener(0, null); });
+      return this;
+    },
+  };
+  await client.close();
+  assert.deepEqual(invocations, [{
+    command: "taskkill.exe",
+    args: ["/PID", "4242", "/T", "/F"],
+    options: { stdio: "ignore", windowsHide: true },
+  }]);
+  assert.equal(client.child, null);
+});
+
+test("Windows close fails loudly when the app-server never confirms exit", async () => {
+  const killer = {
+    once(event, listener) {
+      if (event === "exit") queueMicrotask(() => listener(0, null));
+      return this;
+    },
+  };
+  const client = new AppServerClient({
+    executable: "codex.exe",
+    platform: "win32",
+    closeTimeoutMs: 10,
+    spawnImpl: () => killer,
+  });
+  client.child = { pid: 4242, exitCode: null, once() { return this; } };
+  await assert.rejects(client.close(), /did not confirm exit/);
+  assert.equal(client.child, null);
+});
+
+test("POSIX close waits for the standalone app-server exit event", async () => {
+  const listeners = new Map();
+  const signals = [];
+  const child = {
+    pid: 4242,
+    exitCode: null,
+    once(event, listener) { listeners.set(event, listener); return this; },
+    kill(signal) {
+      signals.push(signal ?? "SIGTERM");
+      queueMicrotask(() => listeners.get("exit")?.(0, signal ?? "SIGTERM"));
+      return true;
+    },
+  };
+  const client = new AppServerClient({ executable: "codex", platform: "linux", closeTimeoutMs: 100 });
+  client.child = child;
+  await client.close();
+  assert.deepEqual(signals, ["SIGTERM"]);
+  assert.equal(client.child, null);
+});

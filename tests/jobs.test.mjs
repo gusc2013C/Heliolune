@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { JobStore } from "../plugins/luna-pool-orchestrator/scripts/jobs.mjs";
+import { createJobAwareShutdown, createProcessKeepAlive, JobStore } from "../plugins/luna-pool-orchestrator/scripts/jobs.mjs";
 
 test("job store starts immediately, publishes bounded status, and awaits the result", async () => {
   let resolveRun;
@@ -70,4 +70,57 @@ test("batch jobs can expose active workers without a synthetic profile card", as
   finish({ status: "completed" });
   await store.wait("batch-job");
   assert.equal(store.status("batch-job").status, "completed");
+});
+
+test("job store exposes a renewable idle barrier for process shutdown", async () => {
+  let finish;
+  let idle = false;
+  const store = new JobStore({ idFactory: () => "drain-job" });
+  store.start({ lane: "integration", run: () => new Promise((resolve) => { finish = resolve; }) });
+  assert.equal(store.hasRunningJobs(), true);
+  const waiting = store.waitForIdle().then(() => { idle = true; });
+  await Promise.resolve();
+  assert.equal(idle, false);
+  finish({ status: "completed" });
+  await waiting;
+  assert.equal(store.hasRunningJobs(), false);
+  assert.equal(idle, true);
+});
+
+test("shutdown waits for an active job instead of orphaning it", async () => {
+  let finish;
+  const exits = [];
+  const messages = [];
+  const store = new JobStore({ idFactory: () => "signal-job" });
+  store.start({ lane: "integration", run: () => new Promise((resolve) => { finish = resolve; }) });
+  const shutdown = createJobAwareShutdown({
+    store,
+    exit: (code) => exits.push(code),
+    log: (message) => messages.push(message),
+  });
+  const pending = shutdown("SIGTERM");
+  await Promise.resolve();
+  assert.deepEqual(exits, []);
+  assert.match(messages[0], /deferring Heliolune shutdown/);
+  finish({ status: "completed" });
+  await pending;
+  assert.deepEqual(exits, [0]);
+});
+
+test("runner keepalive remains referenced until terminal cleanup releases it", () => {
+  const handle = { referenced: true };
+  const cleared = [];
+  const release = createProcessKeepAlive({
+    intervalMs: 250,
+    setIntervalImpl(callback, intervalMs) {
+      assert.equal(typeof callback, "function");
+      assert.equal(intervalMs, 250);
+      return handle;
+    },
+    clearIntervalImpl(value) { cleared.push(value); },
+  });
+  assert.deepEqual(cleared, []);
+  release();
+  release();
+  assert.deepEqual(cleared, [handle]);
 });

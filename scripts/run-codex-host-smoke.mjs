@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { resolveCodexExecutable } from "../plugins/luna-pool-orchestrator/scripts/app-server-client.mjs";
-import { jobDirectory, readJobRecord } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
+import { jobDirectory, processIsAlive, readJobRecord, waitForProcessExit } from "../plugins/luna-pool-orchestrator/scripts/job-files.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(process.argv[2] ?? path.join(scriptDirectory, ".."));
@@ -77,6 +77,16 @@ async function waitForNativeWindow(jobId, timeoutMs = 10_000) {
   throw new Error(`Native status window did not render: ${diagnostic}`);
 }
 
+async function waitForNativeWindowClose(pid, timeoutMs = 25_000) {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error(`Native status window did not report a valid PID: ${pid}`);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processIsAlive(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Native status window process ${pid} did not auto-close within ${timeoutMs}ms of terminal status.`);
+}
+
 async function stopChildTree() {
   output.close();
   child.stdin.destroy();
@@ -111,7 +121,7 @@ const taskArguments = {
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.6.4" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.6.5" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");
@@ -128,6 +138,21 @@ try {
   });
   stage(`ephemeral host thread started: ${thread.thread.id}`);
 
+  const runtimeResponse = await request("mcpServer/tool/call", {
+    threadId: thread.thread.id,
+    server: "luna-pool",
+    tool: "runtime_info",
+    arguments: {},
+  }, 30_000);
+  const runtimeText = runtimeResponse.content?.find((item) => item.type === "text")?.text;
+  const runtime = runtimeResponse.structuredContent ?? JSON.parse(runtimeText ?? "null");
+  if (runtime?.version !== "0.6.5" || runtime.buildId !== "0.6.5-owner-heartbeat-r2" || runtime.promptVersion !== "mcp-v15-owner-heartbeat"
+      || runtime.defaultProfile !== "speed-first" || runtime.defaultParallelism !== 4
+      || runtime.burstThreadsEphemeral !== true || runtime.appServerWindowHidden !== true || runtime.statusSurface !== "native-window") {
+    throw new Error(`Installed Heliolune runtime gate failed: ${JSON.stringify(runtime)}`);
+  }
+  stage(`runtime gate passed: ${runtime.version} / ${runtime.defaultProfile} / ${runtime.defaultParallelism}-way`);
+
   const startedAt = Date.now();
   const startResponse = await request("mcpServer/tool/call", {
     threadId: thread.thread.id,
@@ -137,6 +162,7 @@ try {
   }, 60_000);
   const started = startResponse.structuredContent;
   if (!started?.jobId) throw new Error(`start_task did not return a jobId: ${JSON.stringify(startResponse)}`);
+  if (started.buildId !== runtime.buildId) throw new Error(`start_task build identity mismatch: ${JSON.stringify(started)}`);
   if (started.display?.mode !== "native-window") {
     throw new Error(`No visible status surface was selected: ${JSON.stringify(started.display)}`);
   }
@@ -150,7 +176,7 @@ try {
     threadId: thread.thread.id,
     server: "luna-await",
     tool: "await_task",
-    arguments: { jobId: started.jobId },
+    arguments: { jobId: started.jobId, buildId: started.buildId },
   }, null);
   stage("await_task is blocking on the independent server");
   const awaited = await awaitResponse;
@@ -177,8 +203,13 @@ try {
   if (visibleCost.profile !== "alpha-0.5.0-matched" || Math.abs(visibleCost.savingsPercent - 75.6261) > 0.01) {
     throw new Error(`Visible savings did not use the matched historical profile: ${JSON.stringify(visibleCost)}`);
   }
+  const windowAutoClosed = windowReady ? await waitForNativeWindowClose(windowReady.pid) : null;
+  if (windowAutoClosed) stage(`native status window ${windowReady.pid} auto-closed after terminal status`);
+  const runnerAutoExited = await waitForProcessExit(finalRecord.ownerPid);
+  if (runnerAutoExited) stage(`detached runner ${finalRecord.ownerPid} released its app-server tree and exited`);
   process.stdout.write(`${JSON.stringify({
     server: "Codex app-server",
+    runtime,
     wallMs: Date.now() - startedAt,
     jobId: started.jobId,
     displayMode: started.display.mode,
@@ -187,6 +218,8 @@ try {
     cost: visibleCost,
     finalProgress: finalRecord.snapshot?.progress,
     awaitStatus: "completed",
+    windowAutoClosed,
+    runnerAutoExited,
   }, null, 2)}\n`);
 } finally {
   await stopChildTree();

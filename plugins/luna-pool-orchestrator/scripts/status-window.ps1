@@ -42,26 +42,73 @@ foreach ($property in $locale.lanes.PSObject.Properties) { $laneNames[$property.
 $statusNames = @{}
 foreach ($property in $locale.statuses.PSObject.Properties) { $statusNames[$property.Name] = [string]$property.Value }
 
+function ConvertTo-HelioluneUtcTime($value) {
+    if ($null -eq $value) { return $null }
+    $parsed = [DateTimeOffset]::MinValue
+    if ([DateTimeOffset]::TryParse([string]$value, [ref]$parsed)) { return $parsed.UtcDateTime }
+    return $null
+}
+
+function Set-HelioluneProperty($target, [string]$name, $value) {
+    if ($null -ne $target.PSObject.Properties[$name]) { $target.$name = $value }
+    else { $target | Add-Member -MemberType NoteProperty -Name $name -Value $value }
+}
+
+function Set-HelioluneTerminalSnapshot($snapshot, [string]$status, [string]$message) {
+    Set-HelioluneProperty $snapshot 'status' $status
+    Set-HelioluneProperty $snapshot 'progress' 100
+    if (-not [string]::IsNullOrWhiteSpace($message)) { Set-HelioluneProperty $snapshot 'message' $message }
+    foreach ($worker in @($snapshot.workers)) {
+        if (($worker.status -ne 'idle') -and ($worker.status -ne 'completed') -and ($worker.status -ne 'failed')) {
+            Set-HelioluneProperty $worker 'status' $status
+            Set-HelioluneProperty $worker 'progress' 100
+            if (-not [string]::IsNullOrWhiteSpace($message)) { Set-HelioluneProperty $worker 'explanation' $message }
+        }
+    }
+}
+
 function Read-HelioluneSnapshot {
     if (-not (Test-Path -LiteralPath $jobFile -PathType Leaf)) {
         return $null
     }
     try {
-        $record = Get-Content -LiteralPath $jobFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $stream = [System.IO.File]::Open(
+            $jobFile,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            ([System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+        )
+        try {
+            $reader = New-Object System.IO.StreamReader($stream)
+            try { $json = $reader.ReadToEnd() }
+            finally { $reader.Dispose() }
+        }
+        finally { $stream.Dispose() }
+        $record = $json | ConvertFrom-Json
         if ($null -ne $record.snapshot) {
-            if (($record.status -eq 'running') -and ($null -ne $record.ownerPid)) {
-                $ownerAlive = $null -ne (Get-Process -Id ([int]$record.ownerPid) -ErrorAction SilentlyContinue)
-                if (-not $ownerAlive) {
-                    $record.snapshot.status = 'failed'
-                    $record.snapshot.progress = 100
-                    $record.snapshot.message = $strings.OrchestratorExited
-                    foreach ($worker in @($record.snapshot.workers)) {
-                        if (($worker.status -ne 'idle') -and ($worker.status -ne 'completed') -and ($worker.status -ne 'failed')) {
-                            $worker.status = 'failed'
-                            $worker.progress = 100
-                            $worker.explanation = $strings.OrchestratorExited
-                        }
-                    }
+            $recordStatus = [string]$record.status
+            $nowUtc = [DateTime]::UtcNow
+            if (($recordStatus -eq 'completed') -or ($recordStatus -eq 'failed')) {
+                $terminalMessage = if ($recordStatus -eq 'completed') { $strings.Complete } elseif (-not [string]::IsNullOrWhiteSpace([string]$record.error)) { [string]$record.error } else { $strings.Failed }
+                Set-HelioluneTerminalSnapshot $record.snapshot $recordStatus $terminalMessage
+            }
+            elseif ($recordStatus -eq 'starting') {
+                $startupDeadline = ConvertTo-HelioluneUtcTime $record.startupDeadline
+                if (($null -eq $startupDeadline) -and ($null -ne $record.startedAt)) {
+                    $startedAt = ConvertTo-HelioluneUtcTime $record.startedAt
+                    if ($null -ne $startedAt) { $startupDeadline = $startedAt.AddSeconds(30) }
+                }
+                if (($null -ne $startupDeadline) -and ($nowUtc -ge $startupDeadline)) {
+                    Set-HelioluneTerminalSnapshot $record.snapshot 'failed' $strings.OrchestratorExited
+                }
+            }
+            elseif ($recordStatus -eq 'running') {
+                $ownerAlive = ($null -ne $record.ownerPid) -and ($null -ne (Get-Process -Id ([int]$record.ownerPid) -ErrorAction SilentlyContinue))
+                $heartbeatValue = if ($null -ne $record.heartbeatAt) { $record.heartbeatAt } elseif ($null -ne $record.snapshot.updatedAt) { $record.snapshot.updatedAt } elseif ($null -ne $record.ownerStartedAt) { $record.ownerStartedAt } else { $record.startedAt }
+                $heartbeatAt = ConvertTo-HelioluneUtcTime $heartbeatValue
+                $heartbeatStale = ($null -eq $heartbeatAt) -or (($nowUtc - $heartbeatAt).TotalSeconds -ge 30)
+                if ((-not $ownerAlive) -or $heartbeatStale) {
+                    Set-HelioluneTerminalSnapshot $record.snapshot 'failed' $strings.OrchestratorExited
                 }
             }
             return $record.snapshot
@@ -84,6 +131,7 @@ function Read-HelioluneSnapshot {
         }
     }
     catch {
+        if ($Probe) { throw }
         return $null
     }
 }
@@ -288,12 +336,27 @@ function Set-BadgeStyle($controls, [string]$status) {
 
 $script:completedAt = $null
 $script:lastSnapshot = $null
+$script:lastReadableAt = [DateTime]::UtcNow
 $timer = New-Object System.Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromMilliseconds(750)
 $timer.Add_Tick({
     $snapshot = Read-HelioluneSnapshot
     if ($null -eq $snapshot) {
-        return
+        $unreadableSeconds = ([DateTime]::UtcNow - $script:lastReadableAt).TotalSeconds
+        if ($null -ne $script:lastSnapshot -and $unreadableSeconds -ge 5) {
+            $snapshot = $script:lastSnapshot
+            Set-HelioluneTerminalSnapshot $snapshot 'failed' $strings.OrchestratorExited
+        }
+        elseif ($null -eq $script:lastSnapshot -and $unreadableSeconds -ge 30) {
+            $window.Close()
+            return
+        }
+        else {
+            return
+        }
+    }
+    else {
+        $script:lastReadableAt = [DateTime]::UtcNow
     }
     $script:lastSnapshot = $snapshot
     $overallValue = [Math]::Max(0, [Math]::Min(100, [int][Math]::Round([double]$snapshot.progress)))

@@ -148,6 +148,7 @@ export function batchSupervisionSchedule(requestedCheckpointSeconds) {
     repeatMs: 30_000,
     staleMs: 45_000,
     leaderTimeoutMs: 30_000,
+    maxSilentChecks: 4,
     sizingTargetMs: 90_000,
   };
 }

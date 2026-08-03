@@ -4,6 +4,35 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.6.5] - 2026-08-03
+
+### 独立 job owner 与资源回收
+
+- 先持久化 starting record 与 request，再把执行权交给隐藏的 detached runner，不再由短生命周期 MCP stdio 进程持有 job。完整 claim 文档通过独占硬链接原子发布，独立 await server 继续交付终态。
+- runner 在 job 终态前保持引用，活动工作期间延后 `SIGINT`/`SIGTERM`，并显式关闭 standalone app-server 进程树。Windows 现在同时等待 `taskkill /T` 与 app-server 自身退出确认；POSIX 等待 `exit`/`close`，仅在有界宽限后强制结束。
+- 增加按需 runner 生命周期诊断；全部真实 smoke 都必须等待 runner PID 退出。由此修复完成任务后 app-server 子进程累积、最终诱发随机 orphan 的泄漏。
+
+### 运行时身份与卡死收口
+
+- 在语义版本和 prompt 身份外增加精确构建身份 `0.6.5-owner-heartbeat-r2`。pool 预检、detached request、runner 与 await 必填参数必须一致，因此插件重装后遗留的同版本旧 pool/await MCP 会失败关闭。
+- 每 5 秒独立于模型进度持久化 owner 心跳。await 与原生窗口会把 30 秒无 owner 心跳的 running job 转为失败，同时防住 PID 复用与 detached owner 静默卡死。
+- 活动 worker 仍可无限续租；但连续 4 次存活检查都没有 app-server 活动时会中断。任一事件都会重置熔断，因此长任务没有固定截止，真正静默的 worker 也不能永久续租。
+
+### 原生状态窗可靠性
+
+- 保留终态后 15 秒自动关闭倒计时，并由 Codex-host smoke 直接验证窗口 PID 自动退出。
+- 状态窗用 Windows `ReadWrite|Delete` 共享模式读取 snapshot；原子替换对瞬时 `EPERM`、`EBUSY`、`EACCES` 使用更长且错峰的重试。由窗口或 await 刷新导致终态写入失败的竞态已消除。
+- 终态 record 强制覆盖旧 running snapshot；过期启动租约、死亡 owner、陈旧心跳都进入失败终态 UI；job record 持续不可用也会自动关闭。live benchmark 明确 headless，删除临时 job root 不再遗留窗口。
+- Git root 先 canonicalize，并在 Windows 下忽略大小写比较，修复 GitHub Actions 因等价 runner 路径表示不同而失败的问题。
+
+### 真实 demo 验证
+
+- 通过已安装 0.6.4 的 `runtime_info` → `start_task` → 独立 `await_task` 复现：四路 demo 约运行 5 分 48 秒后 owner 退出。后续 0.6.5 候选轮次又暴露了完成进程泄漏、claim 非原子发布、POSIX 关闭缺口及 Windows 状态窗读取竞态；每项都先落成聚焦回归，再重启完整矩阵。
+- 103 项无依赖自动化测试及 PowerShell 5.1 发布校验全部通过。
+- 最终安装态 r2 宿主运行用时 240.018 秒，4/4 Luna/max 完成；pool/await 精确构建身份、中文原生状态、独立 await、窗口自动关闭、runner/app-server 自动退出全部通过。
+- 238.658 秒 token-first 生命周期审计无 medium/high/critical 风险；修复其唯一低风险 Windows 退出确认项；随后 5 workstream / 4 slot 排队运行 99.535 秒，8 workstream / 8 slot 运行 94.892 秒，双 writer safe-apply 运行 70.085 秒。
+- 将用户报告的卡住窗口复现为 benchmark job `993ad283`：job 与 runner 已终态，但临时状态清理早于窗口读取终态。精确关闭该进程，增加 harness 与窗口回归，最终 pool/await MCP、runner、状态窗及 standalone app-server 残留均为 0。完整证据见 [`docs/0.6.5-REAL-DEMO.zh-CN.md`](docs/0.6.5-REAL-DEMO.zh-CN.md) 与 [`benchmarks/results/0.6.5-real-demo-r1.json`](benchmarks/results/0.6.5-real-demo-r1.json)。
+
 ## [0.6.4] - 2026-08-03
 
 ### 可续租 worker 存活机制

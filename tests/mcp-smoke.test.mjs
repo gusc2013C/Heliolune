@@ -65,7 +65,9 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   ]);
   const runtimeResponse = await request("tools/call", { name: "runtime_info", arguments: {} });
   const runtime = JSON.parse(runtimeResponse.result.content[0].text);
-  assert.equal(runtime.version, "0.6.4");
+  assert.equal(runtime.version, "0.6.5");
+  assert.equal(runtime.buildId, "0.6.5-owner-heartbeat-r2");
+  assert.equal(runtime.promptVersion, "mcp-v15-owner-heartbeat");
   assert.equal(runtime.defaultProfile, "speed-first");
   assert.equal(runtime.defaultParallelism, 4);
   assert.equal(runtime.burstThreadsEphemeral, true);

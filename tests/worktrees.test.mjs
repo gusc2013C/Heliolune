@@ -9,6 +9,7 @@ import {
   collectWorktreePatch,
   integrateParallelWriteBatch,
   prepareParallelWriteBatch,
+  sameFilesystemPath,
   worktreeFor,
 } from "../plugins/luna-pool-orchestrator/scripts/worktrees.mjs";
 
@@ -43,6 +44,11 @@ function streams() {
     { id: "b", mode: "repair", scope: ["b.txt", "new.txt"] },
   ];
 }
+
+test("repository-root comparison is Windows case and separator insensitive", () => {
+  assert.equal(sameFilesystemPath("C:\\Work\\Heliolune", "c:/work/heliolune", { platform: "win32" }), true);
+  assert.equal(sameFilesystemPath("/work/Heliolune", "/work/heliolune", { platform: "linux" }), false);
+});
 
 test("parallel write worktrees apply disjoint tracked and untracked changes without staging", async (t) => {
   const root = await repository(t);
