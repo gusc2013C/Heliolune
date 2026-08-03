@@ -2,15 +2,17 @@ import readline from "node:readline";
 import { waitForJobRecord } from "./job-files.mjs";
 
 const VERSION = "0.6.5";
+const BUILD_ID = "0.6.5-owner-heartbeat-r2";
 const TOOL = {
   name: "await_task",
   title: "Await Heliolune task",
   description: "Block once on a job returned by luna-pool.start_task or start_batch and return its compact terminal bundle to Sol. Never call more than once for the same job.",
   inputSchema: {
     type: "object", additionalProperties: false,
-    required: ["jobId"],
+    required: ["jobId", "buildId"],
     properties: {
       jobId: { type: "string", minLength: 36, maxLength: 36 },
+      buildId: { type: "string", const: BUILD_ID },
     },
   },
   annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false, idempotentHint: true },
@@ -41,6 +43,9 @@ async function handle(message) {
     }
     if (message.method === "tools/call" && message.params?.name === "await_task") {
       const args = message.params.arguments ?? {};
+      if (args.buildId !== BUILD_ID) {
+        throw new Error(`Stale Heliolune await runtime: expected buildId ${BUILD_ID}. Restart Codex before awaiting this task.`);
+      }
       const result = await waitForJobRecord(args.jobId);
       send({ jsonrpc: "2.0", id: message.id, result: {
         content: [{ type: "text", text: JSON.stringify(result) }],

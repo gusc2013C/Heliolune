@@ -231,13 +231,38 @@ test("Windows close terminates the standalone app-server process tree", async ()
       return killer;
     },
   });
-  client.child = { pid: 4242, exitCode: null };
+  client.child = {
+    pid: 4242,
+    exitCode: null,
+    once(event, listener) {
+      if (event === "exit") queueMicrotask(() => { this.exitCode = 0; listener(0, null); });
+      return this;
+    },
+  };
   await client.close();
   assert.deepEqual(invocations, [{
     command: "taskkill.exe",
     args: ["/PID", "4242", "/T", "/F"],
     options: { stdio: "ignore", windowsHide: true },
   }]);
+  assert.equal(client.child, null);
+});
+
+test("Windows close fails loudly when the app-server never confirms exit", async () => {
+  const killer = {
+    once(event, listener) {
+      if (event === "exit") queueMicrotask(() => listener(0, null));
+      return this;
+    },
+  };
+  const client = new AppServerClient({
+    executable: "codex.exe",
+    platform: "win32",
+    closeTimeoutMs: 10,
+    spawnImpl: () => killer,
+  });
+  client.child = { pid: 4242, exitCode: null, once() { return this; } };
+  await assert.rejects(client.close(), /did not confirm exit/);
   assert.equal(client.child, null);
 });
 

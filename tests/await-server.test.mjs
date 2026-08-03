@@ -37,7 +37,11 @@ test("dedicated await MCP reads a completed job without blocking the status serv
   assert.equal(initialized.result.serverInfo.name, "heliolune-await");
   const listed = await request("tools/list");
   assert.deepEqual(listed.result.tools.map((tool) => tool.name), ["await_task"]);
-  assert.deepEqual(Object.keys(listed.result.tools[0].inputSchema.properties), ["jobId"]);
-  const response = await request("tools/call", { name: "await_task", arguments: { jobId } });
+  assert.deepEqual(Object.keys(listed.result.tools[0].inputSchema.properties), ["jobId", "buildId"]);
+  assert.deepEqual(listed.result.tools[0].inputSchema.required, ["jobId", "buildId"]);
+  const stale = await request("tools/call", { name: "await_task", arguments: { jobId, buildId: "0.6.5-stale" } });
+  assert.equal(stale.result.isError, true);
+  assert.match(JSON.parse(stale.result.content[0].text).message, /Stale Heliolune await runtime/);
+  const response = await request("tools/call", { name: "await_task", arguments: { jobId, buildId: "0.6.5-owner-heartbeat-r2" } });
   assert.equal(JSON.parse(response.result.content[0].text).summary, "ok");
 });

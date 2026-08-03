@@ -35,7 +35,7 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 ## Current capabilities
 
 - One compact `start_task` fast path deterministically creates an exact-scope owner plus contract, edge/test, and correctness-risk reviews.
-- A no-model `runtime_info` preflight fails closed before paid work when the loaded MCP is stale, serial, visible, or otherwise mismatched with the installed skill.
+- A no-model `runtime_info` preflight requires the exact semantic version, build ID, and prompt identity, so a stale same-version MCP fails closed before paid work.
 - Four-way speed-first is the default profile; custom 2–8 stream batches are advanced, and token-first remains an explicit safety fallback.
 - Luna workers use `max` reasoning effort.
 - Worker sessions are ephemeral and normally stay out of the Codex Desktop task list.
@@ -44,12 +44,12 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 - One asynchronous start plus one blocking await replaces controller-side polling; Sol stops generating until the terminal result returns.
 - Adaptive Leader reporting compresses large or risky owner/verifier bundles while small tasks defer a compact digest and avoid another model turn.
 - Token-free live status uses one automatic Windows WPF panel. It dynamically shows every active persistent or burst lane, compact natural-language Luna reasoning summaries, and a history-calibrated Sol-only cost / savings projection while Sol is blocked.
-- Workers use renewable liveness leases: recent app-server activity keeps them running without a fixed cutoff, while sustained silence wakes one shared Luna/high Leader for a high-confidence stall decision.
+- Workers use renewable liveness leases: recent app-server activity keeps them running without a fixed cutoff, while sustained silence wakes one shared Luna/high Leader. Four consecutive app-server-silent checks trip a local high-confidence circuit breaker, so a wedged worker cannot renew forever.
 - Ninety seconds is a decomposition target and first liveness checkpoint, not a deadline. In custom batches, every idle slot immediately claims the next queued workstream while slower siblings continue.
 - Parallel implementation and repair use fresh Luna sessions in detached Git worktrees. Patches reach the main worktree only after clean-HEAD, completion, scope, overlap, and Git apply gates pass.
 - Owner and verifier results use compact, structured contracts.
 - Conditional independent verification based on risk, reserved boundaries, incomplete work, or unresolved high-severity findings.
-- Only sustained silence can lead to interruption; ambiguous evidence, recent activity, an unavailable Leader, or a low/medium-confidence interrupt recommendation renews the worker for another check.
+- Only sustained silence can lead to interruption; ambiguous evidence, recent activity, an unavailable Leader, or a low/medium-confidence interrupt recommendation renews the worker for another check until the four-check silent-stall circuit opens.
 - Completed turns with invalid JSON may use one same-thread Luna/high schema-repair turn; active work is never steered merely because wall time elapsed.
 - Codex bundled Python, Node, and Git paths are preferred through the shell environment policy, avoiding stale virtual-environment shims while retaining host PATH fallbacks.
 - Exact input, cached-input, output, reasoning-output, cache-rate, and wall-time reporting.
@@ -74,15 +74,15 @@ Workers may inspect or modify only the scope granted by the host and task contra
 
 | Tool | Purpose |
 |---|---|
-| `runtime_info` | No-model identity preflight for version, default parallelism, ephemeral workers, hidden app-server, and status surface. |
+| `runtime_info` | No-model identity preflight for semantic/build/prompt identity, default parallelism, ephemeral workers, hidden app-server, and status surface. |
 | `start_task` | Default fast path: expand one compact Sol brief into four Luna/max workstreams; `profile=token-first` is the safety fallback. |
 | `start_batch` | Advanced custom route for 2–8 Sol-defined workstreams on four or eight Luna/max workers. |
-| `await_task` (`luna-await`) | Block once on a started job and return the compact terminal bundle. |
+| `await_task` (`luna-await`) | Block once using the returned job/build identity and return the compact terminal bundle. |
 | `cost_dashboard` | Return cumulative cost, history-calibrated Sol-only projections, cache, timing, and per-lane totals without invoking a model. |
 
-The default pool server enables `runtime_info`, `start_task`, `start_batch`, and `cost_dashboard`; low-frequency `initialize_pool` and `pool_status` diagnostics remain server APIs but are excluded from the model tool surface. `await_task` is exposed by the separate blocking server. On Codex Desktop, Sol calls `runtime_info` once, starts one task, then calls `luna-await.await_task` exactly once and remains blocked there without a Heliolune deadline. It must never poll status or local job records. Codex still requires a finite MCP transport guard, so the bundled configuration sets the single await call to 24 hours. Reaching that host-side guard does not cancel the background worker or create a Heliolune execution deadline; a later task can recover the terminal job record.
+The default pool server enables `runtime_info`, `start_task`, `start_batch`, and `cost_dashboard`; low-frequency `initialize_pool` and `pool_status` diagnostics remain server APIs but are excluded from the model tool surface. `await_task` is exposed by the separate blocking server and requires the `buildId` returned by start, preventing a stale same-version await server from silently accepting new work. On Codex Desktop, Sol calls `runtime_info` once, starts one task, then calls `luna-await.await_task` exactly once and remains blocked there without a Heliolune deadline. It must never poll status or local job records. Codex still requires a finite MCP transport guard, so the bundled configuration sets the single await call to 24 hours. Reaching that host-side guard does not cancel the background worker or create a Heliolune execution deadline; a later task can recover the terminal job record.
 
-Heliolune launches one native WPF panel on Windows. The panel auto-detects English or Simplified Chinese, dynamically shows token-first or four/eight-worker burst lanes plus the shared Leader, and adds actual Luna estimated cost, a historical-profile Sol-only projection, and projected savings when terminal usage arrives. It closes 15 seconds after completion. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Heliolune does not also render an inline task panel. A host progress token may still receive standard `notifications/progress` from the start call.
+Heliolune launches one native WPF panel on Windows. The panel auto-detects English or Simplified Chinese, dynamically shows token-first or four/eight-worker burst lanes plus the shared Leader, and adds actual Luna estimated cost, a historical-profile Sol-only projection, and projected savings when terminal usage arrives. It closes 15 seconds after completion or failure; expired startup, stale owner heartbeat, stale terminal snapshot, and missing-record paths also converge on closure. Set `HELIOLUNE_STATUS_WINDOW=off` to disable it or `on` to force it. Heliolune does not also render an inline task panel. A host progress token may still receive standard `notifications/progress` from the start call.
 
 Natural-language activity text comes from official Codex `reasoning/summaryTextDelta` events already produced by the active Luna turn. Heliolune never forwards raw reasoning content, command output, or a worker transcript, and it does not wake another model merely to narrate status.
 
@@ -160,7 +160,7 @@ Good tasks have an explicit outcome, one to eight testable acceptance criteria, 
 
 Four-way speed-first is the default, including narrow or single-file work. `start_task` creates one exact-scope owner with read-only contract, edge-case/test, and correctness-risk streams; Sol no longer spends prompt tokens spelling these roles out. Token-first is an explicit fallback only when a mutating repository is dirty or non-Git, write scopes cannot be isolated safely, or a strict dependency makes parallel results unusable. Read-only work remains parallel on dirty repositories. Explicit custom 4/8-way batches remain available through `start_batch`.
 
-Prefer each speed-first workstream to be sized near 90 seconds by splitting broad work into independent streams. Ninety seconds is only the first liveness checkpoint. Recent app-server events renew execution indefinitely without a model call; sustained silence wakes one shared Luna/high Leader, and only a high-confidence stall decision interrupts. Ambiguous or unavailable decisions keep the lease active for another check. The scheduler uses a shared queue, so an idle slot immediately claims the next remaining workstream while slower siblings continue. The Leader cannot plan, redistribute scope, or accept the batch, and completed siblings survive a straggler or failed workstream.
+Prefer each speed-first workstream to be sized near 90 seconds by splitting broad work into independent streams. Ninety seconds is only the first liveness checkpoint. Recent app-server events renew execution indefinitely without a model call; sustained silence wakes one shared Luna/high Leader. Ambiguous or unavailable decisions keep the lease active for another check, but four consecutive app-server-silent checks trip the local stall circuit breaker. The scheduler uses a shared queue, so an idle slot immediately claims the next remaining workstream while slower siblings continue. The Leader cannot plan, redistribute scope, or accept the batch, and completed siblings survive a straggler or failed workstream.
 
 Mutating batches require `cwd` to be the clean Git repository root. Scopes must be narrow, repository-relative, non-overlapping paths without globs or parent traversal. Every write worker starts in a fresh detached worktree at the verified `HEAD`. Heliolune captures tracked, deleted, renamed, binary, and untracked changes, validates actual paths, applies all patches only when every gate passes, leaves the index unstaged, and removes its temporary worktrees. If a gate fails, the main checkout remains untouched and the result returns local patch artifacts for Sol; do not apply them blindly.
 

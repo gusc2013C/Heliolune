@@ -146,7 +146,8 @@ try {
   }, 30_000);
   const runtimeText = runtimeResponse.content?.find((item) => item.type === "text")?.text;
   const runtime = runtimeResponse.structuredContent ?? JSON.parse(runtimeText ?? "null");
-  if (runtime?.version !== "0.6.5" || runtime.defaultProfile !== "speed-first" || runtime.defaultParallelism !== 4
+  if (runtime?.version !== "0.6.5" || runtime.buildId !== "0.6.5-owner-heartbeat-r2" || runtime.promptVersion !== "mcp-v15-owner-heartbeat"
+      || runtime.defaultProfile !== "speed-first" || runtime.defaultParallelism !== 4
       || runtime.burstThreadsEphemeral !== true || runtime.appServerWindowHidden !== true || runtime.statusSurface !== "native-window") {
     throw new Error(`Installed Heliolune runtime gate failed: ${JSON.stringify(runtime)}`);
   }
@@ -161,6 +162,7 @@ try {
   }, 60_000);
   const started = startResponse.structuredContent;
   if (!started?.jobId) throw new Error(`start_task did not return a jobId: ${JSON.stringify(startResponse)}`);
+  if (started.buildId !== runtime.buildId) throw new Error(`start_task build identity mismatch: ${JSON.stringify(started)}`);
   if (started.display?.mode !== "native-window") {
     throw new Error(`No visible status surface was selected: ${JSON.stringify(started.display)}`);
   }
@@ -174,7 +176,7 @@ try {
     threadId: thread.thread.id,
     server: "luna-await",
     tool: "await_task",
-    arguments: { jobId: started.jobId },
+    arguments: { jobId: started.jobId, buildId: started.buildId },
   }, null);
   stage("await_task is blocking on the independent server");
   const awaited = await awaitResponse;

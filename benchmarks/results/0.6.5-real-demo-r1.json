@@ -1,48 +1,55 @@
 {
   "version": "0.6.5",
+  "buildId": "0.6.5-owner-heartbeat-r2",
+  "promptVersion": "mcp-v15-owner-heartbeat",
+  "installedPluginVersion": "0.6.5+codex.20260803015026",
   "testedAt": "2026-08-03",
   "platform": "Windows",
   "automated": {
-    "passed": 93,
+    "passed": 103,
     "failed": 0,
     "powershell": "5.1"
   },
   "realDemoMatrix": {
     "installedHost": {
-      "jobId": "e458ca6a-620b-418a-ad8f-019b1fa40fd4",
-      "wallMs": 188979,
+      "jobId": "11b7b264-6041-408f-ac8f-5082bf55ae00",
+      "wallMs": 240018,
       "completedWorkers": 4,
       "runtimeVersion": "0.6.5",
+      "buildId": "0.6.5-owner-heartbeat-r2",
       "awaitStatus": "completed",
+      "windowPid": 5996,
       "windowLanguage": "zh-CN",
       "windowAutoClosed": true,
+      "runnerPid": 32792,
       "runnerAutoExited": true
     },
     "tokenFirstLifecycleAudit": {
-      "jobId": "6b23ae28-6cd8-4f68-8caf-a17c8469a437",
-      "wallMs": 259334,
+      "jobId": "993ad283-2ca4-40c7-ae06-da44b79d53d1",
+      "wallMs": 238658,
       "status": "completed",
       "mediumHighCriticalRisks": 0,
+      "lowRiskFoundAndFixedBeforeFinalHost": 1,
       "runnerAutoExited": true
     },
     "queuedFourSlot": {
-      "jobId": "f8898fda-7624-4548-ba69-5b2becd6934f",
-      "wallMs": 71609,
+      "jobId": "4ba5bc8d-0398-433b-b998-914be9a3f536",
+      "wallMs": 99535,
       "completedWorkstreams": 5,
       "parallelism": 4,
-      "queuedClaimSlot": "burst-2",
+      "queuedClaimSlot": "burst-1",
       "runnerAutoExited": true
     },
     "eightWay": {
-      "jobId": "65a69de5-2254-460b-be7b-f429c89cbdb5",
-      "wallMs": 80492,
+      "jobId": "bc4f5548-af66-4151-8e87-1148e9d0cde7",
+      "wallMs": 94892,
       "completedWorkstreams": 8,
       "parallelism": 8,
       "runnerAutoExited": true
     },
     "parallelWrites": {
-      "jobId": "1a8338e2-f2af-469e-a13d-2be5bf41b167",
-      "wallMs": 51814,
+      "jobId": "1da6d2f3-d80d-48f1-9fdd-a40c71b8e2e9",
+      "wallMs": 70085,
       "completedWriters": 2,
       "integration": "safe-apply",
       "stagedPaths": 0,
@@ -50,8 +57,17 @@
       "runnerAutoExited": true
     }
   },
+  "observedPopupRegression": {
+    "jobId": "993ad283-2ca4-40c7-ae06-da44b79d53d1",
+    "cause": "live benchmark removed its temporary job root before the panel consumed terminal state",
+    "orphanedWindowClosed": true,
+    "benchmarkNowHeadless": true,
+    "panelMissingRecordFailsClosed": true
+  },
   "residualProcesses": {
+    "poolOrAwaitServers": 0,
     "jobRunners": 0,
+    "statusWindows": 0,
     "standaloneAppServers": 0
   }
 }

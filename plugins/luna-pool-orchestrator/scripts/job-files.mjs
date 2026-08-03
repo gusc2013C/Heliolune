@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const JOB_HEARTBEAT_TIMEOUT_MS = 30_000;
 
 export function jobDirectory(root = process.env.LOCALAPPDATA ?? os.tmpdir()) {
   return path.join(root, "OpenAI", "Codex", "luna-pool-orchestrator", "jobs");
@@ -38,7 +39,7 @@ export async function writeAtomicJson(file, value, {
   fsImpl = fs,
   pid = process.pid,
   nonce = randomUUID(),
-  attempts = 12,
+  attempts = 24,
   retryMs = 20,
 } = {}) {
   const temporary = `${file}.${pid}.${nonce}.tmp`;
@@ -53,7 +54,8 @@ export async function writeAtomicJson(file, value, {
         lastError = error;
         const transient = ["EACCES", "EBUSY", "EPERM"].includes(error.code);
         if (!transient || attempt === attempts) throw error;
-        await new Promise((resolve) => setTimeout(resolve, retryMs * attempt));
+        const staggerMs = retryMs > 0 ? attempt % 7 : 0;
+        await new Promise((resolve) => setTimeout(resolve, retryMs * attempt + staggerMs));
       }
     }
     throw lastError;
@@ -184,6 +186,20 @@ export function processIsAlive(pid, signal = process.kill) {
   }
 }
 
+export function jobHeartbeatIsStale(record, {
+  now = () => Date.now(),
+  heartbeatTimeoutMs = JOB_HEARTBEAT_TIMEOUT_MS,
+} = {}) {
+  const timestamp = Date.parse(
+    record?.heartbeatAt
+      ?? record?.snapshot?.updatedAt
+      ?? record?.ownerStartedAt
+      ?? record?.startedAt
+      ?? "",
+  );
+  return !Number.isFinite(timestamp) || now() - timestamp >= heartbeatTimeoutMs;
+}
+
 export async function waitForProcessExit(pid, {
   timeoutMs = 20_000,
   pollMs = 100,
@@ -204,18 +220,24 @@ export async function waitForProcessExit(pid, {
 export async function failOrphanedRecord(jobId, record, root, message, {
   now = () => Date.now(),
   isAlive = processIsAlive,
+  heartbeatTimeoutMs = JOB_HEARTBEAT_TIMEOUT_MS,
 } = {}) {
   const latest = await readJobRecord(jobId, root);
   if (latest?.status === "completed") return { terminal: true, result: latest.result };
   if (latest?.status === "failed") throw new Error(latest.error ?? message);
   if (record?.status === "starting" && latest?.status === "running") return { terminal: false, advanced: true };
+  if (record?.status === "running" && latest?.status === "running"
+      && latest.ownerPid && isAlive(latest.ownerPid)
+      && !jobHeartbeatIsStale(latest, { now, heartbeatTimeoutMs })) {
+    return { terminal: false, recovered: true };
+  }
   if (record?.status === "starting") {
     const claim = await readJobClaim(jobId, root);
     if (claim?.pid && isAlive(claim.pid) && now() < new Date(claim.startupDeadline).getTime()) {
       return { terminal: false, claimed: true };
     }
   }
-  const completedAt = new Date().toISOString();
+  const completedAt = new Date(now()).toISOString();
   const failed = {
     ...latest,
     status: "failed",
@@ -239,7 +261,14 @@ export async function failOrphanedRecord(jobId, record, root, message, {
   throw new Error(message);
 }
 
-export async function waitForJobRecord(jobId, { root, timeoutMs = null, pollMs = 500, isAlive = processIsAlive, now = () => Date.now() } = {}) {
+export async function waitForJobRecord(jobId, {
+  root,
+  timeoutMs = null,
+  pollMs = 500,
+  isAlive = processIsAlive,
+  now = () => Date.now(),
+  heartbeatTimeoutMs = JOB_HEARTBEAT_TIMEOUT_MS,
+} = {}) {
   validateJobId(jobId);
   const deadline = Number.isFinite(timeoutMs) && timeoutMs > 0 ? now() + timeoutMs : null;
   while (deadline === null || now() < deadline) {
@@ -248,12 +277,18 @@ export async function waitForJobRecord(jobId, { root, timeoutMs = null, pollMs =
     if (record?.status === "failed") throw new Error(record.error ?? "Heliolune job failed");
     if (record?.status === "starting" && record.startupDeadline && now() >= new Date(record.startupDeadline).getTime()) {
       const message = `Detached Heliolune job runner did not claim job ${jobId} before its startup lease expired.`;
-      const terminal = await failOrphanedRecord(jobId, record, root, message, { now, isAlive });
+      const terminal = await failOrphanedRecord(jobId, record, root, message, { now, isAlive, heartbeatTimeoutMs });
       if (terminal?.terminal) return terminal.result;
     }
-    if (record?.status === "running" && record.ownerPid && !isAlive(record.ownerPid)) {
-      const message = `Heliolune orchestrator process ${record.ownerPid} exited before job ${jobId} reached a terminal result. Restart Codex and retry the bounded task.`;
-      const terminal = await failOrphanedRecord(jobId, record, root, message, { now, isAlive });
+    if (record?.status === "running" && (!record.ownerPid || !isAlive(record.ownerPid))) {
+      const owner = record.ownerPid ? `process ${record.ownerPid} exited` : "ownership metadata is missing";
+      const message = `Heliolune orchestrator ${owner} before job ${jobId} reached a terminal result. Restart Codex and retry the bounded task.`;
+      const terminal = await failOrphanedRecord(jobId, record, root, message, { now, isAlive, heartbeatTimeoutMs });
+      if (terminal?.terminal) return terminal.result;
+    }
+    if (record?.status === "running" && jobHeartbeatIsStale(record, { now, heartbeatTimeoutMs })) {
+      const message = `Heliolune orchestrator heartbeat expired before job ${jobId} reached a terminal result. The detached owner is no longer making observable progress; restart Codex and retry the bounded task.`;
+      const terminal = await failOrphanedRecord(jobId, record, root, message, { now, isAlive, heartbeatTimeoutMs });
       if (terminal?.terminal) return terminal.result;
     }
     const waitMs = deadline === null ? pollMs : Math.min(pollMs, Math.max(1, deadline - now()));

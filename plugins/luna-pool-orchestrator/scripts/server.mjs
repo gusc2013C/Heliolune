@@ -22,7 +22,7 @@ import {
   renderDashboard,
   sumUsage,
 } from "./pricing.mjs";
-import { classifyTurnFailure, compactSupervisorPrompt, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
+import { classifyTurnFailure, compactSupervisorPrompt, createInactivityCircuitBreaker, shouldConsultSupervisor, supervisionSchedule } from "./supervision.mjs";
 import { compactSchemaRecoveryPrompt } from "./schema-recovery.mjs";
 import { buildControllerResult, compactCost, compactLeaderPrompt, compactUsage, shouldUseLeader } from "./leader.mjs";
 import { createProgressReporter, weightedWorkstreamProgress, workerProgress } from "./progress.mjs";
@@ -55,8 +55,10 @@ import {
   worktreeFor,
 } from "./worktrees.mjs";
 
-const VERSION = "0.6.5";
-const PROMPT_VERSION = "mcp-v14-job-aware-shutdown";
+export const VERSION = "0.6.5";
+export const BUILD_ID = "0.6.5-owner-heartbeat-r2";
+const PROMPT_VERSION = "mcp-v15-owner-heartbeat";
+const JOB_HEARTBEAT_INTERVAL_MS = 5_000;
 const RUNTIME_ID = randomUUID();
 const jobs = new JobStore();
 const SERVER_IS_MAIN = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
@@ -657,66 +659,71 @@ async function runTask(args, context = {}) {
       recovered: false,
       trigger: null,
     };
-    const livenessWatchdog = (workerLane, workerMode, objective) => ({
-      renewable: true,
-      afterMs: schedule.checkpointMs,
-      repeatMs: schedule.repeatMs,
-      onCheck: async (rawSnapshot) => {
-        softTimeoutReached = true;
-        const snapshot = rawSnapshot ?? {
-          elapsedMs: schedule.checkpointMs, silentMs: schedule.checkpointMs, eventCount: 0,
-          lastMethod: "unknown", usage: null,
-        };
-        if (!shouldConsultSupervisor(snapshot, schedule, args.supervision ?? "auto")) {
-          return { action: "continue", confidence: "high", reason: "Recent app-server activity renewed the worker lease.", source: "activity" };
-        }
-        supervisorAttempted = true;
-        try {
-          context.progress?.report(64, `Heliolune Leader · supervisor checking ${workerLane} after sustained silence`, {
-            force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
-          });
-          const supervisorResult = await withLaneLock(`${key}:supervisor`, async () => {
-            const supervisorLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
-            supervisorRun = await instance.runTurn({
-              threadId: supervisorLane.threadId,
-              text: compactSupervisorPrompt({ lane: workerLane, mode: workerMode, objective, snapshot, schedule }),
-              cwd,
-              sandboxPolicy: { type: "readOnly", networkAccess: false },
-              outputSchema: SUPERVISOR_SCHEMA,
-              timeoutMs: schedule.supervisorTimeoutMs,
-              effort: args.supervisorEffort ?? "high",
-              onActivity: (activity) => {
-                const update = workerProgress({ lane: "supervisor", snapshot: activity, targetMs: schedule.supervisorTimeoutMs });
-                context.progress?.report(64.5, update.message, {
-                  workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
-                  explanation: update.explanation,
-                });
-              },
+    const livenessWatchdog = (workerLane, workerMode, objective) => {
+      const observeInactivity = createInactivityCircuitBreaker(schedule);
+      return {
+        renewable: true,
+        afterMs: schedule.checkpointMs,
+        repeatMs: schedule.repeatMs,
+        onCheck: async (rawSnapshot) => {
+          softTimeoutReached = true;
+          const snapshot = rawSnapshot ?? {
+            elapsedMs: schedule.checkpointMs, silentMs: schedule.checkpointMs, eventCount: 0,
+            lastMethod: "unknown", usage: null,
+          };
+          const circuitDecision = observeInactivity(snapshot);
+          if (!shouldConsultSupervisor(snapshot, schedule, args.supervision ?? "auto")) {
+            return { action: "continue", confidence: "high", reason: "Recent app-server activity renewed the worker lease.", source: "activity" };
+          }
+          if (circuitDecision) return circuitDecision;
+          supervisorAttempted = true;
+          try {
+            context.progress?.report(64, `Heliolune Leader · supervisor checking ${workerLane} after sustained silence`, {
+              force: true, workerLane: "supervisor", workerStatus: "supervising", workerProgress: 20,
             });
-            supervisorLane.turns += 1;
-            supervisorLane.lastUsedAt = new Date().toISOString();
-            supervisorLane.lastUsage = usageBreakdown(supervisorRun);
-            supervisorLane.uncachedInputTokens += supervisorLane.lastUsage.uncachedInputTokens;
-            supervisorRuns.push(supervisorRun);
-            const decision = { ...supervisorRun.output, source: "luna-supervisor", snapshot };
-            if (decision.action === "interrupt" && decision.confidence !== "high") {
-              return { ...decision, action: "continue", originalAction: "interrupt", reason: "Only a high-confidence liveness judgment may stop a silent worker." };
-            }
-            return decision;
-          });
-          context.progress?.report(65, "Heliolune Leader · supervisor liveness report received", {
-            force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
-            explanation: supervisorResult.reason,
-          });
-          return supervisorResult;
-        } catch (error) {
-          supervisorError = error.message;
-          const failureUsage = error.activity?.usage ?? null;
-          if (failureUsage) supervisorFailureUsages.push(failureUsage);
-          return { action: "continue", confidence: "low", reason: "Supervisor check was unavailable; the worker lease remains active and will be checked again.", source: "supervisor-error" };
-        }
-      },
-    });
+            const supervisorResult = await withLaneLock(`${key}:supervisor`, async () => {
+              const supervisorLane = await ensureLane(instance, registry, project, "supervisor", cwd, "read-only");
+              supervisorRun = await instance.runTurn({
+                threadId: supervisorLane.threadId,
+                text: compactSupervisorPrompt({ lane: workerLane, mode: workerMode, objective, snapshot, schedule }),
+                cwd,
+                sandboxPolicy: { type: "readOnly", networkAccess: false },
+                outputSchema: SUPERVISOR_SCHEMA,
+                timeoutMs: schedule.supervisorTimeoutMs,
+                effort: args.supervisorEffort ?? "high",
+                onActivity: (activity) => {
+                  const update = workerProgress({ lane: "supervisor", snapshot: activity, targetMs: schedule.supervisorTimeoutMs });
+                  context.progress?.report(64.5, update.message, {
+                    workerLane: "supervisor", workerStatus: "supervising", workerProgress: update.progress,
+                    explanation: update.explanation,
+                  });
+                },
+              });
+              supervisorLane.turns += 1;
+              supervisorLane.lastUsedAt = new Date().toISOString();
+              supervisorLane.lastUsage = usageBreakdown(supervisorRun);
+              supervisorLane.uncachedInputTokens += supervisorLane.lastUsage.uncachedInputTokens;
+              supervisorRuns.push(supervisorRun);
+              const decision = { ...supervisorRun.output, source: "luna-supervisor", snapshot };
+              if (decision.action === "interrupt" && decision.confidence !== "high") {
+                return { ...decision, action: "continue", originalAction: "interrupt", reason: "Only a high-confidence liveness judgment may stop a silent worker." };
+              }
+              return decision;
+            });
+            context.progress?.report(65, "Heliolune Leader · supervisor liveness report received", {
+              force: true, workerLane: "supervisor", workerStatus: "completed", workerProgress: 100,
+              explanation: supervisorResult.reason,
+            });
+            return supervisorResult;
+          } catch (error) {
+            supervisorError = error.message;
+            const failureUsage = error.activity?.usage ?? null;
+            if (failureUsage) supervisorFailureUsages.push(failureUsage);
+            return { action: "continue", confidence: "low", reason: "Supervisor check was unavailable; the worker lease remains active and will be checked again.", source: "supervisor-error" };
+          }
+        },
+      };
+    };
     const ownerWatchdog = livenessWatchdog(args.lane, args.mode, args.objective);
     let ownerRun;
     try {
@@ -1104,25 +1111,30 @@ async function runBatch(args, context = {}) {
     }).finally(() => { managerPromise = null; });
     return managerPromise;
   };
-  const workerWatchdog = (slot, workstream) => ({
-    renewable: true,
-    afterMs: batchSchedule.checkpointMs,
-    repeatMs: batchSchedule.repeatMs,
-    onCheck: async (snapshot) => {
-      liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
-      if (snapshot?.silentMs < batchSchedule.staleMs) {
-        return { action: "continue", confidence: "high", reason: "Recent app-server activity renewed this worker lease.", source: "activity" };
-      }
-      const decisions = await manageActiveWorkers();
-      const decision = decisions.find((item) => item.slot === slot);
-      if (decision?.action === "interrupt" && decision.confidence !== "high") {
-        return { ...decision, action: "continue", originalAction: "interrupt", reason: "Only a high-confidence liveness judgment may stop a silent worker.", source: "batch-leader" };
-      }
-      return decision
-        ? { ...decision, source: "batch-leader" }
-        : { action: "continue", confidence: "low", reason: "The shared Leader did not flag this slot; its renewable lease remains active.", source: "batch-leader-default" };
-    },
-  });
+  const workerWatchdog = (slot, workstream) => {
+    const observeInactivity = createInactivityCircuitBreaker(batchSchedule);
+    return {
+      renewable: true,
+      afterMs: batchSchedule.checkpointMs,
+      repeatMs: batchSchedule.repeatMs,
+      onCheck: async (snapshot) => {
+        liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
+        const circuitDecision = observeInactivity(snapshot);
+        if (snapshot?.silentMs < batchSchedule.staleMs) {
+          return { action: "continue", confidence: "high", reason: "Recent app-server activity renewed this worker lease.", source: "activity" };
+        }
+        if (circuitDecision) return circuitDecision;
+        const decisions = await manageActiveWorkers();
+        const decision = decisions.find((item) => item.slot === slot);
+        if (decision?.action === "interrupt" && decision.confidence !== "high") {
+          return { ...decision, action: "continue", originalAction: "interrupt", reason: "Only a high-confidence liveness judgment may stop a silent worker.", source: "batch-leader" };
+        }
+        return decision
+          ? { ...decision, source: "batch-leader" }
+          : { action: "continue", confidence: "low", reason: "The shared Leader did not flag this slot; its renewable lease remains active.", source: "batch-leader-default" };
+      },
+    };
+  };
   context.progress?.report(2, `Heliolune Leader · speed-first batch ${batchId.slice(0, 8)} · ${workstreams.length} ${mutatingBatch ? "isolated write" : "read-only"} workstreams · ${parallelism} Luna/max slots`, { force: true });
 
   let executions;
@@ -1479,6 +1491,7 @@ function runtimeInfo() {
   return {
     status: "ok",
     version: VERSION,
+    buildId: BUILD_ID,
     runtimeId: RUNTIME_ID,
     promptVersion: PROMPT_VERSION,
     defaultProfile: SPEED_FIRST.id,
@@ -1518,15 +1531,34 @@ async function poolStatus(args) {
   return project ?? { cwd: path.resolve(args.cwd), lanes: {}, initialized: false };
 }
 
-async function startVisibleJob({ lane, workerLanes, activeLanes, run, store = jobs, showStatusWindow = false }) {
+export async function startVisibleJob({
+  lane,
+  workerLanes,
+  activeLanes,
+  run,
+  store = jobs,
+  showStatusWindow = false,
+  heartbeatIntervalMs = JOB_HEARTBEAT_INTERVAL_MS,
+  writeRecord = writeJobRecord,
+}) {
   let jobId;
   let latestSnapshot = null;
   let persistence = Promise.resolve();
+  let terminalizing = false;
   const ownerStartedAt = new Date(Date.now() - process.uptime() * 1000).toISOString();
   const persist = (record) => {
-    persistence = persistence.catch(() => {}).then(() => writeJobRecord(record.snapshot?.jobId ?? jobId, record));
+    persistence = persistence.catch(() => {}).then(() => writeRecord(record.snapshot?.jobId ?? jobId, record));
     return persistence;
   };
+  const runningRecord = () => ({
+    status: "running",
+    startedAt: latestSnapshot?.startedAt,
+    lane: latestSnapshot?.lane ?? lane,
+    ownerPid: process.pid,
+    ownerStartedAt,
+    heartbeatAt: new Date().toISOString(),
+    snapshot: latestSnapshot,
+  });
   const started = store.start({
     lane,
     effort: "max",
@@ -1534,17 +1566,18 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run, store = jo
     activeLanes,
     onSnapshot: (snapshot) => {
       latestSnapshot = snapshot;
-      if (snapshot.status === "running") {
-        void persist({ status: "running", startedAt: snapshot.startedAt, lane: snapshot.lane, ownerPid: process.pid, ownerStartedAt, heartbeatAt: new Date().toISOString(), snapshot });
+      if (snapshot.status === "running" && !terminalizing) {
+        void persist(runningRecord());
       }
     },
     run: async (progress) => {
       try {
         const result = await run(progress);
-        await persistence;
+        terminalizing = true;
         const completedAt = new Date().toISOString();
-        await writeJobRecord(jobId, {
+        await persist({
           status: "completed",
+          startedAt: latestSnapshot?.startedAt,
           completedAt,
           lane,
           ownerPid: process.pid,
@@ -1570,10 +1603,11 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run, store = jo
         });
         return result;
       } catch (error) {
-        await persistence.catch(() => {});
+        terminalizing = true;
         const completedAt = new Date().toISOString();
-        await writeJobRecord(jobId, {
+        await persist({
           status: "failed",
+          startedAt: latestSnapshot?.startedAt,
           completedAt,
           lane,
           ownerPid: process.pid,
@@ -1597,6 +1631,11 @@ async function startVisibleJob({ lane, workerLanes, activeLanes, run, store = jo
     },
   });
   jobId = started.jobId;
+  const heartbeat = setInterval(() => {
+    if (!terminalizing && latestSnapshot?.status === "running") void persist(runningRecord());
+  }, heartbeatIntervalMs);
+  heartbeat.unref?.();
+  void store.wait(jobId).catch(() => {}).finally(() => clearInterval(heartbeat));
   await persistence;
   const display = showStatusWindow
     ? launchStatusWindow({ jobId, jobRoot: jobDirectory() })
@@ -1651,6 +1690,7 @@ async function startDetachedJob(kind, args) {
     : args.lane;
   const startingSnapshot = {
     jobId,
+    buildId: BUILD_ID,
     status: "starting",
     lane,
     effort: "max",
@@ -1667,7 +1707,7 @@ async function startDetachedJob(kind, args) {
     cost: null,
     error: null,
   };
-  const request = { version: VERSION, kind, args, createdAt: startedAt };
+  const request = { version: VERSION, buildId: BUILD_ID, kind, args, createdAt: startedAt };
   await writeJobRecord(jobId, {
     status: "starting",
     startedAt,

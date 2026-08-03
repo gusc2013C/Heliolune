@@ -15,8 +15,29 @@ export function supervisionSchedule(options = {}) {
     repeatMs: repeatSeconds * 1000,
     staleMs: staleSeconds * 1000,
     supervisorTimeoutMs: supervisorTimeoutSeconds * 1000,
+    maxSilentChecks: 4,
     sizingTargetMs: 90_000,
     ...(options.supervision === "off" ? { reason: "leader_disabled" } : {}),
+  };
+}
+
+export function createInactivityCircuitBreaker(schedule, maximumSilentChecks = schedule.maxSilentChecks ?? 4) {
+  let consecutiveSilentChecks = 0;
+  return function observe(snapshot) {
+    const silentMs = Number(snapshot?.silentMs);
+    if (Number.isFinite(silentMs) && silentMs < schedule.staleMs) {
+      consecutiveSilentChecks = 0;
+      return null;
+    }
+    consecutiveSilentChecks += 1;
+    if (consecutiveSilentChecks < maximumSilentChecks) return null;
+    return {
+      action: "interrupt",
+      confidence: "high",
+      source: "inactivity-circuit-breaker",
+      silentChecks: consecutiveSilentChecks,
+      reason: `No app-server activity was observed across ${consecutiveSilentChecks} consecutive renewable liveness checks; the worker is stalled and must terminate so the Heliolune job can return a terminal result.`,
+    };
   };
 }
 

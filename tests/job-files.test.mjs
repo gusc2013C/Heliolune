@@ -25,7 +25,11 @@ const jobId = "123e4567-e89b-42d3-a456-426614174000";
 test("job result files are atomic, scoped, and awaitable across MCP processes", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-job-files-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await writeJobRecord(jobId, { status: "running" }, root);
+  await writeJobRecord(jobId, {
+    status: "running",
+    ownerPid: process.pid,
+    heartbeatAt: new Date().toISOString(),
+  }, root);
   assert.equal((await readJobRecord(jobId, root)).status, "running");
   const waiting = waitForJobRecord(jobId, { root, timeoutMs: 1_000, pollMs: 10 });
   await writeJobRecord(jobId, { status: "completed", result: { status: "completed" } }, root);
@@ -147,11 +151,14 @@ test("an active job is not failed by a legacy expiry timestamp", async (t) => {
   await writeJobRecord(jobId, {
     status: "running",
     ownerPid: process.pid,
+    heartbeatAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() - 60_000).toISOString(),
   }, root);
-  const waiting = waitForJobRecord(jobId, { root, timeoutMs: 1_000, pollMs: 10 });
-  setTimeout(() => void writeJobRecord(jobId, { status: "completed", result: { status: "completed" } }, root), 40);
+  const waiting = waitForJobRecord(jobId, { root, timeoutMs: 5_000, pollMs: 10 });
+  const terminalWrite = new Promise((resolve) => setTimeout(resolve, 40))
+    .then(() => writeJobRecord(jobId, { status: "completed", result: { status: "completed" } }, root));
   assert.deepEqual(await waiting, { status: "completed" });
+  await terminalWrite;
 });
 
 test("an unclaimed detached runner request becomes an observable terminal failure", async (t) => {
@@ -243,6 +250,47 @@ test("await fails an orphaned running job instead of hanging", async (t) => {
   assert.equal(failed.status, "failed");
   assert.equal(failed.snapshot.workers[0].status, "failed");
   assert.equal(processIsAlive(-1), false);
+});
+
+test("await fails a stale owner heartbeat even when the PID is alive", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-stale-heartbeat-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeJobRecord(jobId, {
+    status: "running",
+    ownerPid: process.pid,
+    heartbeatAt: new Date(1_000).toISOString(),
+    snapshot: { status: "running", progress: 73, workers: [{ lane: "burst-1", status: "working", progress: 73 }] },
+  }, root);
+  await assert.rejects(
+    waitForJobRecord(jobId, {
+      root,
+      timeoutMs: 1_000,
+      pollMs: 10,
+      now: () => 40_000,
+      isAlive: () => true,
+      heartbeatTimeoutMs: 30_000,
+    }),
+    /heartbeat expired/,
+  );
+  const failed = await readJobRecord(jobId, root);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.snapshot.progress, 100);
+});
+
+test("a recent owner heartbeat keeps await active until the terminal record arrives", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-recent-heartbeat-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeJobRecord(jobId, {
+    status: "running",
+    ownerPid: process.pid,
+    heartbeatAt: new Date().toISOString(),
+    snapshot: { status: "running", progress: 30, updatedAt: new Date().toISOString(), workers: [] },
+  }, root);
+  const waiting = waitForJobRecord(jobId, { root, timeoutMs: 5_000, pollMs: 10 });
+  const terminalWrite = new Promise((resolve) => setTimeout(resolve, 40))
+    .then(() => writeJobRecord(jobId, { status: "completed", result: { status: "completed", value: 7 } }, root));
+  assert.deepEqual(await waiting, { status: "completed", value: 7 });
+  await terminalWrite;
 });
 
 test("terminal cleanup waits for the detached runner to exit", async () => {

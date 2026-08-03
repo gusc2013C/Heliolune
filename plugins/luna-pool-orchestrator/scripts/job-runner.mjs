@@ -58,9 +58,12 @@ try {
   } else {
     ownsClaim = true;
     const request = claimed.request;
-    const { closeClient, startOwnedBatch, startOwnedTask } = await import("./server.mjs");
+    const { BUILD_ID, VERSION, closeClient, startOwnedBatch, startOwnedTask } = await import("./server.mjs");
     closeOwnedClient = closeClient;
     appendRunnerDiagnostic("server-imported", { jobId });
+    if (request.version !== VERSION || request.buildId !== BUILD_ID) {
+      throw new Error(`Detached request runtime mismatch: expected ${VERSION}/${BUILD_ID}, received ${request.version ?? "missing"}/${request.buildId ?? "missing"}.`);
+    }
     const existing = await readJobRecord(jobId);
     if (existing?.status === "failed") throw new Error(`Runner startup was cancelled before ownership transfer: ${existing.error}`);
     if (request.kind === "task") await startOwnedTask(request.args, { store });

@@ -25,6 +25,7 @@ const child = spawn(process.execPath, [serverPath], {
     ...process.env,
     LOCALAPPDATA: localAppData,
     HELIOLUNE_RUNNER_DIAGNOSTIC_FILE: runnerDiagnosticFile,
+    HELIOLUNE_STATUS_WINDOW: "off",
   },
 });
 

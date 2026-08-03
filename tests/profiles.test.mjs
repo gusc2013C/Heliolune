@@ -83,6 +83,7 @@ test("shared batch Leader checkpoint encourages 90-second workstreams without im
     repeatMs: 30_000,
     staleMs: 45_000,
     leaderTimeoutMs: 30_000,
+    maxSilentChecks: 4,
     sizingTargetMs: 90_000,
   });
   assert.equal(batchSupervisionSchedule(60).checkpointMs, 60_000);

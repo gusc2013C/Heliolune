@@ -56,7 +56,7 @@ Only then are all patches applied and immediately unstaged for Sol review. If an
 
 Codex Desktop uses two stdio MCP servers. The normal path is one compact `luna-pool.start_task` call; the pool server deterministically expands it into four workstreams, atomically writes a starting request, launches a detached job runner, and returns after creating the native status surface. The runner exclusively claims the complete request and owns the standalone app-server until terminal cleanup. `luna-await.await_task` then blocks on an atomically replaced result file. Splitting the servers and detaching ownership prevents host stdio lifecycle cleanup from orphaning active work.
 
-Running records carry the detached-runner PID, process start, and heartbeat, but no wall-clock expiry. `luna-await` verifies the owner while blocked; if the owner process exits before a terminal write, it atomically converts the stale record to failure. The native window performs the same owner check for local visibility. On Windows it reads with delete-sharing enabled, while the writer retries only transient sharing violations. Terminal cleanup closes the app-server tree, removes the claim, releases the runner keepalive, and lets the runner exit.
+Running records carry the detached-runner PID, process start, and an independently refreshed five-second heartbeat, but no worker wall-clock expiry. `luna-await` verifies both the exact build identity and owner heartbeat while blocked; if the owner exits or its heartbeat is stale for 30 seconds before a terminal write, it atomically converts the record to failure. The native window performs the same checks and also converges expired startup, stale terminal-snapshot, and missing-record states on its close countdown. On Windows it reads with delete-sharing enabled, while the writer uses staggered transient-sharing retries. Terminal cleanup closes the app-server tree, confirms its exit, removes the claim, releases the runner keepalive, and lets the runner exit.
 
 Codex MCP configuration requires a finite transport guard even though Heliolune's internal await has no deadline. The packaged `luna-await` guard is 24 hours. If the host request itself reaches that guard, the separately owned background job continues; the guard is not forwarded to a worker and does not interrupt its app-server turn.
 
@@ -66,7 +66,7 @@ The panel builds cards from the active job, so it can show fixed token-first lan
 
 Hosts that attach an MCP progress token may also receive monotonically increasing, rate-limited standard `notifications/progress` from the start call's watchdog snapshots. The model-visible contract remains start once and await once.
 
-The adapter records compact liveness diagnostics and counters, not the worker transcript. It never steers active work merely because wall time elapsed. A completed turn with invalid JSON may use one same-thread, no-tools schema-repair turn; sustained-silence interruption remains a separate liveness decision.
+The adapter records compact liveness diagnostics and counters, not the worker transcript. It never steers active work merely because wall time elapsed. A completed turn with invalid JSON may use one same-thread, no-tools schema-repair turn. Sustained silence remains a separate liveness decision: any activity renews the lease, while four consecutive app-server-silent checks trip a local circuit breaker so an unreachable worker reaches a terminal result.
 
 ## Reserved decisions
 

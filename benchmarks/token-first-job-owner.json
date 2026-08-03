@@ -3,12 +3,15 @@
   "lane": "integration",
   "mode": "analyze",
   "profile": "token-first",
-  "objective": "Audit how Heliolune detaches an active job owner from the short-lived MCP stdio process and preserves terminal delivery through luna-await.",
+  "objective": "Audit how Heliolune detaches an active job owner, publishes independent heartbeats, fails stale same-version runtimes closed, and guarantees terminal delivery plus status-window closure.",
   "acceptance": [
     "Inspect only the scoped runner, job-file, and server paths",
     "Cite path-backed evidence for atomic request handoff and detached Windows launch",
     "Confirm how terminal status reaches the independent await server",
     "Confirm claim metadata is published atomically and app-server shutdown waits for termination on Windows and POSIX",
+    "Confirm stale owner heartbeats, expired startup leases, and stale running window snapshots become terminal failures or terminal UI state",
+    "Confirm pool, detached request, and await calls require the exact 0.6.5 build identity",
+    "Confirm four consecutive app-server-silent liveness checks terminate a stalled worker without imposing a fixed deadline on active work",
     "Return no medium, high, or critical lifecycle risk; report any concrete defect without proposing a public API change"
   ],
   "scope": [
@@ -17,10 +20,12 @@
     "plugins/luna-pool-orchestrator/scripts/app-server-client.mjs",
     "plugins/luna-pool-orchestrator/scripts/job-files.mjs",
     "plugins/luna-pool-orchestrator/scripts/await-server.mjs",
-    "plugins/luna-pool-orchestrator/scripts/server.mjs"
+    "plugins/luna-pool-orchestrator/scripts/server.mjs",
+    "plugins/luna-pool-orchestrator/scripts/status-window.ps1",
+    "plugins/luna-pool-orchestrator/scripts/supervision.mjs"
   ],
   "risk": "moderate",
   "reservedBoundary": false,
-  "maxFiles": 6,
-  "maxCommands": 12
+  "maxFiles": 8,
+  "maxCommands": 16
 }

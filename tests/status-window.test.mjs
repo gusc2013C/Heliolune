@@ -16,6 +16,20 @@ import { launchJobRunner } from "../plugins/luna-pool-orchestrator/scripts/job-r
 const execFileAsync = promisify(execFile);
 const statusScript = fileURLToPath(new URL("../plugins/luna-pool-orchestrator/scripts/status-window.ps1", import.meta.url));
 const statusLocales = fileURLToPath(new URL("../plugins/luna-pool-orchestrator/assets/status-locales.json", import.meta.url));
+const liveBenchmarkScript = fileURLToPath(new URL("../scripts/run-live-benchmark.mjs", import.meta.url));
+
+async function probeStatusRecord(root, jobId) {
+  try {
+    const { stdout } = await execFileAsync("powershell.exe", [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", statusScript, "-JobId", jobId, "-JobRoot", root, "-Probe",
+    ], { windowsHide: true });
+    return JSON.parse(stdout.trim());
+  } catch (error) {
+    const diagnostic = await readFile(path.join(root, `${jobId}.window-error.log`), "utf8").catch(() => "No status-window diagnostic was written.");
+    throw new Error(`${error.message}\n${diagnostic}`);
+  }
+}
 
 test("native window is the only automatic Windows status surface", () => {
   assert.equal(shouldLaunchStatusWindow({ platform: "win32" }), true);
@@ -106,8 +120,15 @@ test("native panel creates cards for dynamic four/eight-worker burst lanes", asy
   assert.match(script, /function Add-WorkerCard/);
   assert.match(script, /snapshot\.workers \| ForEach-Object/);
   assert.match(script, /FileShare\]::ReadWrite -bor \[System\.IO\.FileShare\]::Delete/);
+  assert.match(script, /unreadableSeconds -ge 5/);
   assert.equal(locales.en.strings.BurstWorker, "Burst worker {0}");
   assert.equal(locales["zh-CN"].lanes["speed-first"], "速度优先");
+});
+
+test("temporary live benchmarks cannot orphan a status window when cleaning their job root", async () => {
+  const script = await readFile(liveBenchmarkScript, "utf8");
+  assert.match(script, /HELIOLUNE_STATUS_WINDOW:\s*"off"/);
+  assert.match(script, /rm\(localAppData, \{ recursive: true, force: true \}\)/);
 });
 
 test("Windows PowerShell can read the fallback status record", { skip: process.platform !== "win32" }, async (t) => {
@@ -116,17 +137,15 @@ test("Windows PowerShell can read the fallback status record", { skip: process.p
   const jobId = "22222222-2222-4222-8222-222222222222";
   await writeFile(path.join(root, `${jobId}.json`), JSON.stringify({
     status: "running",
+    ownerPid: process.pid,
+    heartbeatAt: new Date().toISOString(),
     snapshot: {
       jobId, status: "running", lane: "tests", effort: "max", progress: 42,
       message: "bounded status", elapsedMs: 1234, updates: [],
       workers: [{ lane: "tests", status: "working", progress: 42, explanation: "Inspecting the focused regression." }],
     },
   }));
-  const { stdout } = await execFileAsync("powershell.exe", [
-    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-    "-File", statusScript, "-JobId", jobId, "-JobRoot", root, "-Probe",
-  ], { windowsHide: true });
-  const snapshot = JSON.parse(stdout.trim());
+  const snapshot = await probeStatusRecord(root, jobId);
   assert.equal(snapshot.progress, 42);
   assert.equal(snapshot.lane, "tests");
   assert.equal(snapshot.workers[0].explanation, "Inspecting the focused regression.");
@@ -145,14 +164,63 @@ test("native panel probe marks orphaned worker snapshots failed", { skip: proces
       workers: [{ lane: "burst-1", status: "working", progress: 90, explanation: "stale" }],
     },
   }));
-  const { stdout } = await execFileAsync("powershell.exe", [
-    "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-    "-File", statusScript, "-JobId", jobId, "-JobRoot", root, "-Probe",
-  ], { windowsHide: true });
-  const snapshot = JSON.parse(stdout.trim());
+  const snapshot = await probeStatusRecord(root, jobId);
   assert.equal(snapshot.status, "failed");
   assert.equal(snapshot.progress, 100);
   assert.equal(snapshot.workers[0].status, "failed");
+});
+
+test("native panel probe rejects a stale heartbeat even when the owner PID is alive", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-status-heartbeat-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobId = "55555555-5555-4555-8555-555555555555";
+  await writeFile(path.join(root, `${jobId}.json`), JSON.stringify({
+    status: "running",
+    ownerPid: process.pid,
+    heartbeatAt: new Date(Date.now() - 60_000).toISOString(),
+    snapshot: {
+      jobId, status: "running", lane: "speed-first", effort: "max", progress: 77,
+      message: "stalled", elapsedMs: 180_000, updates: [],
+      workers: [{ lane: "burst-1", status: "working", progress: 77, explanation: "stalled" }],
+    },
+  }));
+  const snapshot = await probeStatusRecord(root, jobId);
+  assert.equal(snapshot.status, "failed");
+  assert.equal(snapshot.progress, 100);
+  assert.equal(snapshot.workers[0].status, "failed");
+});
+
+test("native panel probe closes an expired startup lease", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-status-startup-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobId = "66666666-6666-4666-8666-666666666666";
+  await writeFile(path.join(root, `${jobId}.json`), JSON.stringify({
+    status: "starting",
+    startedAt: new Date(Date.now() - 90_000).toISOString(),
+    startupDeadline: new Date(Date.now() - 60_000).toISOString(),
+    snapshot: { jobId, status: "starting", lane: "speed-first", progress: 0, workers: [] },
+  }));
+  const snapshot = await probeStatusRecord(root, jobId);
+  assert.equal(snapshot.status, "failed");
+  assert.equal(snapshot.progress, 100);
+});
+
+test("native panel trusts a terminal record over a stale running snapshot", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-status-terminal-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const jobId = "77777777-7777-4777-8777-777777777777";
+  await writeFile(path.join(root, `${jobId}.json`), JSON.stringify({
+    status: "completed",
+    snapshot: {
+      jobId, status: "running", lane: "speed-first", effort: "max", progress: 99,
+      message: "stale running snapshot", elapsedMs: 180_000, updates: [],
+      workers: [{ lane: "burst-1", status: "working", progress: 99, explanation: "stale" }],
+    },
+  }));
+  const snapshot = await probeStatusRecord(root, jobId);
+  assert.equal(snapshot.status, "completed");
+  assert.equal(snapshot.progress, 100);
+  assert.equal(snapshot.workers[0].status, "completed");
 });
 
 test("WPF initializes when Codex omits the windir environment variable", { skip: process.platform !== "win32" }, async () => {

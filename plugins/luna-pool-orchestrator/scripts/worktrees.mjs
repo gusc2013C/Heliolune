@@ -50,6 +50,15 @@ function comparable(value) {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
+export function sameFilesystemPath(left, right, { platform = process.platform } = {}) {
+  const normalize = (value) => gitPath(path.resolve(value));
+  const leftPath = normalize(left);
+  const rightPath = normalize(right);
+  return platform === "win32"
+    ? leftPath.toLowerCase() === rightPath.toLowerCase()
+    : leftPath === rightPath;
+}
+
 function pathInsideScope(changedPath, scopes) {
   const candidate = comparable(changedPath);
   return scopes.some((scope) => {
@@ -80,9 +89,9 @@ export function batchNeedsWorktrees(workstreams) {
 }
 
 export async function prepareParallelWriteBatch({ cwd, batchId, workstreams, artifactDirectory }) {
-  const requested = path.resolve(cwd);
-  const repoRoot = path.resolve(text(await git(requested, ["rev-parse", "--show-toplevel"])));
-  if (requested !== repoRoot) throw new Error("Parallel write batches must use the Git repository root as cwd");
+  const requested = await fs.realpath(path.resolve(cwd));
+  const repoRoot = await fs.realpath(path.resolve(text(await git(requested, ["rev-parse", "--show-toplevel"]))));
+  if (!sameFilesystemPath(requested, repoRoot)) throw new Error("Parallel write batches must use the Git repository root as cwd");
   if (await cleanState(repoRoot)) throw new Error("Parallel writes require a clean main worktree; use token-first when local changes already exist");
   const baseCommit = text(await git(repoRoot, ["rev-parse", "--verify", "HEAD"]));
   const root = await fs.mkdtemp(path.join(os.tmpdir(), WORKTREE_PREFIX));

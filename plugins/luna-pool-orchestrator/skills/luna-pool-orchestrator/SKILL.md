@@ -11,7 +11,8 @@ Sol plans once, sends one compact delta, blocks without generating, then reviews
 
 Before repository exploration, require `luna-pool.runtime_info`, `luna-pool.start_task`, and `luna-await.await_task`. Call `runtime_info` once and require:
 
-- `version=0.6.5`, `defaultProfile=speed-first`, `defaultParallelism=4`;
+- `version=0.6.5`, `buildId=0.6.5-owner-heartbeat-r2`, `promptVersion=mcp-v15-owner-heartbeat`;
+- `defaultProfile=speed-first`, `defaultParallelism=4`;
 - `burstThreadsEphemeral=true`, `appServerWindowHidden=true`;
 - on Windows, `statusSurface=native-window`.
 
@@ -43,11 +44,11 @@ Burst threads are ephemeral and the standalone app-server is hidden. On Windows,
 
 Use `profile=token-first` only for a dirty/non-Git mutating checkout, impossible write isolation, or a strict sequential dependency. Read-only work stays parallel. `start_batch` is advanced-only for explicitly designed 2–8 streams. Its optional `checkpointSeconds` controls only the first renewable liveness observation, never execution duration. Prefer independent workstreams sized near 90 seconds; split broad work into narrow queued streams instead of imposing a deadline. The scheduler uses a shared queue, so the first idle Luna slot immediately claims the next remaining stream while slower siblings continue.
 
-Workers use renewable liveness leases. Recent app-server activity renews a lease without a model call and there is no fixed execution cutoff. Sustained silence wakes the shared Luna/high Leader; only a high-confidence stall decision may interrupt a worker. Ambiguous evidence, an unavailable Leader, or a low/medium-confidence interrupt recommendation keeps the lease active for another check.
+Workers use renewable liveness leases. Recent app-server activity renews a lease without a model call and there is no fixed execution cutoff. Sustained silence wakes the shared Luna/high Leader; only a high-confidence stall decision may interrupt a worker. Ambiguous evidence, an unavailable Leader, or a low/medium-confidence interrupt recommendation keeps the lease active for another check. Four consecutive checks with no app-server activity trip a local inactivity circuit breaker so an unreachable or wedged worker becomes a terminal task result instead of hanging forever.
 
 ## Await once
 
-Immediately call `luna-await.await_task` exactly once with the returned `jobId`; this wait has no Heliolune deadline and ends only at a terminal result or orphaned orchestrator process. While blocked, stop generating: do not poll, read job files, send progress commentary, or open another model session. The native window provides token-free bilingual status, natural-language activity, timing, cache, and projected savings. Disable it only at the user's request.
+Immediately call `luna-await.await_task` exactly once with the returned `jobId` and `buildId`; the required build identity makes a stale same-version await server fail closed. This wait has no Heliolune deadline and ends only at a terminal result or orphaned orchestrator process. While blocked, stop generating: do not poll, read job files, send progress commentary, or open another model session. The native window provides token-free bilingual status, natural-language activity, timing, cache, and projected savings. Disable it only at the user's request.
 
 ## Accept
 

@@ -496,14 +496,32 @@ export class AppServerClient {
     this.child = null;
     if (!child || child.pid == null || child.exitCode != null) return;
     if (this.platform === "win32") {
-      await new Promise((resolve) => {
+      const killOutcome = await new Promise((resolve) => {
         const killer = this.spawnImpl("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
           stdio: "ignore",
           windowsHide: true,
         });
-        killer.once?.("error", resolve);
-        killer.once?.("exit", resolve);
+        killer.once?.("error", (error) => resolve({ error }));
+        killer.once?.("exit", (code, signal) => resolve({ code, signal }));
       });
+      const exited = child.exitCode != null || await new Promise((resolve) => {
+        let settled = false;
+        let timer = null;
+        const done = (value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(value);
+        };
+        child.once?.("exit", () => done(true));
+        child.once?.("close", () => done(true));
+        timer = setTimeout(() => done(child.exitCode != null), this.closeTimeoutMs);
+        if (child.exitCode != null) done(true);
+      });
+      if (!exited) {
+        const diagnostic = killOutcome.error?.message ?? `taskkill code=${killOutcome.code}, signal=${killOutcome.signal}`;
+        throw new Error(`Codex app-server process ${child.pid} did not confirm exit after process-tree termination (${diagnostic}).`);
+      }
       return;
     }
     await new Promise((resolve) => {
