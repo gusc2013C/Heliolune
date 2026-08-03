@@ -12,6 +12,12 @@ Heliolune 优化的是 controller 成本，同时不能牺牲验收质量。因�
 - 报告 input、cached input、output、reasoning output、cache rate，以及 planning/execution/acceptance 时间。
 - 未获得实际账单时，价格加权数字必须标为估算。
 
+## 0.7.0-alpha.2 DAG 评估
+
+真实 mutating `owner → challenge` 图在 174.973 秒完成。Owner 在 `burst-1` 写入；完成后 adaptive 宽度从一路变为两路，clean-room challenge 在 `burst-2` 检查 producer 的精确 worktree。SHA-256 candidate fingerprint 保持不变，集成只应用授权文件，主 index 未暂存，临时 worktree 全部删除，detached runner 退出。Challenge 本身耗时 140.129 秒，所以该运行证明的是正确性与隔离，不是延迟收益。
+
+一次宽只读匹配对照中，adaptive DAG 为 338.958 秒、估算费用 `1.010623`；throughput 为 465.561 秒、`0.802499`。两条路线都在 0ms 开放四槽并采用相同 node 顺序，因此观察到的墙钟 -27.19% 和费用 +25.93% 只能说明 `n=1` 的 Luna 长尾/输出方差，不能解释为调度收益。有证据支持的性能结论仅是：四个独立节点全部 READY 时，READY/lease/affinity 校验没有带来可见启动延迟。详见 [alpha.2 完整评估](0.7.0-ALPHA.2.zh-CN.md)与[原始结果](../benchmarks/results/0.7.0-alpha.2-dag-r1.json)。
+
 ## 0.7.0 alpha 自适应路由评估
 
 真实匹配运行表明结果依赖任务形态。窄审查中，adaptive 单路相对 0.6.5 四路墙钟降低 29.88%、估算费用降低 86.18%；中等审查中，adaptive 双路估算费用降低 36.97%，但一个 worker 成为长尾，墙钟增加 3.57%。独立的宽任务基线在相同质量下仍支持四路，速度为串行的 3.176 倍。每个 arm 目前只有一个样本，因此证据只支持 alpha 分类器和显式 speed-first 逃生口，不支持普适耗时声明。详见[完整评估](0.7.0-ALPHA.zh-CN.md)与[原始结果](../benchmarks/results/0.7.0-alpha.1-adaptive-r1.json)。

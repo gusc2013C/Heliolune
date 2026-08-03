@@ -51,8 +51,24 @@ function compactAcceptance(acceptance) {
     .slice(0, 8);
 }
 
+export function compactDependencyEvidence(dependencyExecutions, { candidateProducerId, candidateFingerprint } = {}) {
+  return dependencyExecutions.map((execution) => execution.id === candidateProducerId
+    ? {
+        id: execution.id,
+        status: execution.status,
+        candidateFingerprint,
+      }
+    : {
+        id: execution.id,
+        status: execution.status,
+        summary: execution.run?.output?.summary,
+        evidence: execution.run?.output?.evidence?.slice(0, 4),
+      });
+}
+
 export function defaultParallelWorkstreams(args) {
   const mode = args.mode ?? "analyze";
+  const mutating = mode !== "analyze";
   const objective = String(args.objective ?? "").trim();
   const acceptance = compactAcceptance(args.acceptance);
   const shared = {
@@ -65,6 +81,7 @@ export function defaultParallelWorkstreams(args) {
     {
       ...shared,
       id: "owner",
+      kind: mode === "implement" ? "implement" : mode === "repair" ? "repair" : "inspect",
       lane: args.lane ?? "core",
       mode,
       objective,
@@ -73,26 +90,42 @@ export function defaultParallelWorkstreams(args) {
     {
       ...shared,
       id: "contract",
+      kind: "inspect",
       lane: "core",
       mode: "analyze",
+      readLease: mutating ? [] : undefined,
       objective: `Analyze the base snapshot contract and exact constraints the concurrent owner must satisfy for: ${objective}. Do not judge or claim to observe the concurrent owner's result.`,
       acceptance: ["Return only literal contract blockers, constraints, and useful implementation risks from the base snapshot."],
     },
     {
       ...shared,
       id: "edges",
+      kind: "challenge",
       lane: "tests",
       mode: "analyze",
-      objective: `Derive edge cases, regressions, and decisive tests from the base snapshot for: ${objective}. Do not judge or claim to observe the concurrent owner's result.`,
-      acceptance: ["Return compact edge cases and decisive tests that Sol can use to review the later owner patch."],
+      dependsOn: mutating ? ["owner"] : [],
+      candidateFrom: mutating ? "owner" : undefined,
+      objective: mutating
+        ? `Challenge the completed owner candidate for edge cases, regressions, and decisive tests: ${objective}. Bind every verdict to the supplied candidate fingerprint.`
+        : `Derive edge cases, regressions, and decisive tests from the current snapshot for: ${objective}.`,
+      acceptance: [mutating
+        ? "Inspect the exact post-patch candidate and return at least one orthogonal check or explain why none is feasible."
+        : "Return compact edge cases and decisive tests for Sol review."],
     },
     {
       ...shared,
       id: "verify",
+      kind: "challenge",
       lane: "verifier",
       mode: "analyze",
-      objective: `Independently derive expected behavior and the highest-risk failure from the base snapshot for: ${objective}. Do not judge or claim to observe the concurrent owner's result.`,
-      acceptance: ["Return an independent expected-behavior checklist and highest-risk failure for later Sol review."],
+      dependsOn: mutating ? ["owner"] : [],
+      candidateFrom: mutating ? "owner" : undefined,
+      objective: mutating
+        ? `Independently challenge the completed owner candidate and highest-risk failure for: ${objective}. Bind the verdict to the supplied candidate fingerprint.`
+        : `Independently derive expected behavior and the highest-risk failure for: ${objective}.`,
+      acceptance: [mutating
+        ? "Inspect the exact post-patch candidate without relying on owner reasoning and run an orthogonal check when feasible."
+        : "Return an independent expected-behavior checklist and highest-risk failure."],
     },
   ];
 }
@@ -157,6 +190,15 @@ export function speedParallelism(value) {
   return parsed;
 }
 
+export function throughputParallelism(value) {
+  const allowed = [1, 2, 4, 8];
+  const parsed = Number(value ?? SPEED_FIRST.defaultParallelism);
+  if (!allowed.includes(parsed)) {
+    throw new Error(`throughput parallelism must be one of ${allowed.join(", ")}`);
+  }
+  return parsed;
+}
+
 export function adaptiveParallelism(value) {
   const parsed = Number(value ?? ADAPTIVE.defaultParallelism);
   if (!ADAPTIVE.allowedParallelism.includes(parsed)) {
@@ -187,7 +229,7 @@ export function validateSpeedWorkstreams(workstreams, { allowSingle = false } = 
     if (!workstream.id || ids.has(workstream.id)) throw new Error("Every speed-first workstream needs a unique id");
     ids.add(workstream.id);
     const mode = workstream.mode ?? "analyze";
-    if (!["analyze", "implement", "repair"].includes(mode)) throw new Error(`Unsupported speed-first mode: ${mode}`);
+    if (!["analyze", "implement", "repair"].includes(mode)) throw new Error(`Unsupported DAG workstream mode: ${mode}`);
     if (workstream.lane === "verifier" && mode !== "analyze") throw new Error("The verifier lane is read-only");
     const scope = (workstream.scope ?? []).map((entry) => String(entry).replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, ""));
     if (mode !== "analyze") {
@@ -247,7 +289,7 @@ export function shouldUseBatchLeader({ profile, workstreams, outcomes, integrati
   if (workstreams.length >= 4) return true;
   if (integration && integration.applied === false) return true;
   return outcomes.some((outcome) => (
-    outcome.status !== "completed"
+    !["completed", "cancelled"].includes(outcome.status)
     || outcome.needsSol?.length
     || outcome.risks?.some((risk) => ["high", "critical"].includes(risk.severity))
   ));
@@ -258,6 +300,7 @@ export function compactBurstTask(workstream, budget) {
   return [
     `BURST_DELTA ${JSON.stringify({
       id: workstream.id,
+      kind: workstream.kind,
       lane: workstream.lane,
       mode,
       objective: workstream.objective,
@@ -266,6 +309,10 @@ export function compactBurstTask(workstream, budget) {
       repoState: workstream.repoState || undefined,
       risk: workstream.risk ?? "moderate",
       reservedBoundary: workstream.reservedBoundary ?? false,
+      dependsOn: workstream.dependsOn?.length ? workstream.dependsOn : undefined,
+      baseRef: workstream.baseRef ?? undefined,
+      candidateFingerprint: workstream.candidateFingerprint ?? undefined,
+      dependencyEvidence: workstream.dependencyEvidence?.length ? workstream.dependencyEvidence : undefined,
       budget,
     })}`,
     mode === "analyze"
@@ -278,7 +325,11 @@ export function compactBurstTask(workstream, budget) {
       ? "Stop after decisive review evidence; do not run the full acceptance suite merely to rediscover failures in the base snapshot."
       : "Reserve the final portion of the work window for decisive checks after the last edit. Once acceptance passes, do not add cleanup or hardening that you cannot verify again before returning.",
     "Completion means the scoped work is done and every supplied, runnable acceptance check has decisive current evidence. Unknown or unavailable hidden tests belong in risks and do not make status partial. Use status=partial only when supplied work remains unfinished or a supplied check is missing, stale, failed, or not run.",
-    "Prefer a workstream sized near 90 seconds, but there is no fixed execution deadline while app-server activity shows live bounded progress. Never coordinate with other workers or decide architecture, security, public APIs, or migrations. Stop when acceptance has decisive evidence. Return status=partial rather than broadening scope. Return the schema only.",
+    "Prefer a workstream sized near 90 seconds, but there is no fixed execution deadline while app-server activity shows live bounded progress. Never coordinate with other workers or decide architecture, security, public APIs, or migrations. Stop when acceptance has decisive evidence. Return status=partial rather than broadening scope.",
+    workstream.candidateFingerprint
+      ? `This is a clean-room post-patch challenge bound to candidate ${workstream.candidateFingerprint}. Inspect the supplied candidate checkout, do not trust owner reasoning, and include the fingerprint in the summary. If the checkout fingerprint changes, return status=blocked.`
+      : "Use only the repository state and dependency evidence supplied to this node; never claim to observe an unsupplied candidate.",
+    "Return the schema only.",
   ].join("\n");
 }
 

@@ -4,9 +4,9 @@
 
 **高智力监督，低成本执行。**
 
-Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 自适应选择带 detached-worktree 写隔离的 1、2 或 4 路 Luna/max worker。
+Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 在带 detached-worktree 写隔离的 1、2 或 4 路 Luna/max worker 上执行经过验证的任务 DAG。
 
-> 当前预发布版本：**`0.7.0-alpha.1`**。1.0 之前公共接口仍可能调整。
+> 当前预发布版本：**`0.7.0-alpha.2`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -33,8 +33,11 @@ Sol review and final acceptance
 
 - 一个紧凑 `start_task` 自动生成精确 scope owner，以及 contract、边界/测试、正确性风险三路审查。
 - 不调用模型的 `runtime_info` 在付费工作前验证精确语义版本、构建 ID、prompt 身份、默认并行度、ephemeral worker、隐藏 app-server 与状态界面；同版本旧 MCP 也会失败关闭。
-- 默认按任务信号自适应选择 1/2/4 路 worker；宽且独立的工作仍可显式选择 4 路 speed-first，自定义 2–8 路 batch 属于高级入口，token-first 保留为安全回退。
-- 每次运行记录 `TASK_NODE_V1` 路由/时序遥测；显式 speed-first 同时记录不参与执行的 adaptive shadow 决策。
+- `TASK_DAG_V1` 在调用模型前验证依赖、环、READY 状态、read/write lease，以及当前不安全的链式 writer。
+- `start_task` 默认采用事件驱动的 adaptive `1→2→4` 扩宽；显式 `throughput` 从满宽开始，旧 `speed-first` 是兼容别名，自定义 1–8 node 图属于高级入口，token-first 保留为安全回退。
+- 调度依据 critical depth、显式 priority、路径 affinity 与确定性 tie-break；required node 和显式 quorum 完成后，可取消尚未开始的 optional node。
+- post-patch challenge 在不同 worker 槽检查 producer 的精确 candidate checkout，并把结果绑定到 base commit 与 SHA-256 candidate fingerprint；不转发 owner reasoning。
+- 每次运行记录 DAG 感知的 `TASK_NODE_V1` 遥测，包括依赖、分配、扩宽、阻断/取消、lease、利用率与关键路径证据。
 - worker 使用 Luna/max；共享 Operations Leader 默认使用 Luna/high，可选 xhigh。
 - session 使用 `ephemeral=true`，通常不会出现在 Codex Desktop 普通任务列表中。
 - standalone Codex app-server 强制隐藏；Windows 自动可见的 worker 界面只有 WPF Leader 悬浮窗。
@@ -70,8 +73,8 @@ Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能
 | 工具 | 用途 |
 |---|---|
 | `runtime_info` | 不调用模型，预检语义/构建/prompt 身份、默认并行度、ephemeral worker、隐藏 app-server 和状态界面。 |
-| `start_task` | 默认自适应入口：选择 1、2 或 4 路 Luna/max；`profile=speed-first` 强制四路，`profile=token-first` 选择安全回退。 |
-| `start_batch` | 高级自定义入口：用 4 或 8 个 Luna/max worker 运行 2–8 个 Sol 定义的 workstream。 |
+| `start_task` | 默认 adaptive 入口：在 1、2 或 4 个 Luna/max 槽上执行生成的 DAG；`profile=throughput`（或旧 `speed-first`）从四路开始，`profile=token-first` 选择安全回退。 |
+| `start_batch` | 高级自定义 `TASK_DAG_V1` 入口：用 1、2、4 或 8 个 Luna/max 槽运行 1–8 个 Sol 定义的 node。 |
 | `await_task`（`luna-await`） | 使用 start 返回的 job/build 身份阻塞等待一次，返回紧凑终态结果。 |
 | `cost_dashboard` | 不调用模型，返回累计成本、历史校准的 Sol-only 预测、缓存与分 lane 统计。 |
 
@@ -117,16 +120,16 @@ and let Sol review and accept the integrated result.
 默认无需让 Sol 手工拆出四套提示词：
 
 ```text
-使用 $luna-pool-orchestrator 的 fast start 默认四路并行。
-Sol 只发送一份紧凑 objective、acceptance 和精确 scope；由 MCP 自动生成 owner
-与三路审查，只 await 一次，最后由 Sol 审查。
+使用 $luna-pool-orchestrator 的 fast start 默认 adaptive DAG 路由。
+Sol 只发送一份紧凑 objective、acceptance 和精确 scope；由 MCP 自动生成并调度 owner
+与所需的 post-owner challenge node，只 await 一次，最后由 Sol 审查。
 优先将每个 workstream 缩到 90 秒内，但不要把 90 秒当作硬上限。
 ```
 
 并行写入要求干净 Git 根目录与精确非重叠 scope：
 
 ```text
-使用 $luna-pool-orchestrator 的 speed-first 档位。
+使用 $luna-pool-orchestrator 的 throughput 档位。
 由 Sol 定义两个文件 scope 不重叠的独立实现 workstream。
 默认使用 4 个 Luna/max worker、detached worktree 隔离和确定性安全集成。
 await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff、运行聚焦测试并最终验收。
@@ -144,9 +147,9 @@ await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff�
 
 verification、存活判断与报告路由由内部自动管理。活动 worker 不会因墙钟时间被 steer 或中止；持续静默且 Leader 给出高置信度卡死判断，或连续 4 次检查都没有 app-server 活动时才会 interrupt。完成 turn 若输出非法 JSON，可以在同一 warm thread 使用一次 no-tools schema repair。最后一次修改后仍必须重新取得决定性检查；无法完成时应诚实返回 `partial`。
 
-默认使用 adaptive：低风险且最多两个精确文件的工作使用单 owner；中等有界工作使用 owner 加边界/测试审查；宽 scope、目录 scope、高风险或保留边界使用成熟的 owner/contract/边界/正确性四路方案。显式 `speed-first` 始终选择四路；只有写隔离不安全或严格依赖使并行结果不可用时才回退 token-first。`start_batch` 继续提供显式 2–8 路自定义 batch。
+默认使用 adaptive：低风险且最多两个精确文件的工作使用单 owner；中等有界工作使用 owner 加 post-owner 边界/测试 challenge；宽 scope、目录 scope、高风险或保留边界使用 owner/contract/post-owner 边界/post-owner 正确性图。显式 `throughput` 立即开放四槽，旧 `speed-first` 是其兼容别名；只有写隔离不安全时才回退 token-first。`start_batch` 继续提供显式 1–8 node 自定义图。
 
-分类器是确定性的，并公开其判断信号。speed-first 会保留未参与执行的 adaptive shadow 决策。终态 `TASK_NODE_V1` 遥测记录实际/shadow 路由、node 状态、排队时间、活动墙钟、关键路径、利用率与 Leader 占比；controller 与验收侧暂时看不到的指标明确标为 unavailable。
+分类器和 DAG 调度器都是确定性的，并公开判断信号。启动 worker 前，Heliolune 会拒绝缺失依赖、环、自依赖、无序 read/write 冲突，以及后继无法安全继承未集成 patch 的链式 writer。只有全部 required predecessor 完成，node 才进入 READY。Adaptive 只在 READY 容量或 candidate thread 隔离需要时扩宽；throughput 立即开放请求宽度。终态 `TASK_NODE_V1` 遥测记录实际路由、node 状态、assignment score、宽度变化、排队、阻断/取消、关键路径、利用率与 Leader 占比；controller 与验收侧暂时看不到的指标明确标为 unavailable。
 
 并行 workstream 应优先拆到约 90 秒规模，但 90 秒仅是首次存活检查点。近期 app-server 活动会无模型调用地持续续租；持续静默才由共享 Luna/high Leader 合并读取紧凑 snapshot。模糊判断、Leader 不可用或低/中置信度中止建议会继续续租一次，但连续 4 次检查都无 app-server 活动时本地卡死熔断会打开。调度器使用共享队列，空闲 slot 会立即领取下一项，不等待较慢 worker。Leader 不得规划、重分配 scope 或验收 batch。
 
@@ -162,7 +165,7 @@ mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓�
 
 0.6.4 可续租存活回归使用 30 秒首次检查点完成了真实 5 workstream / 4 slot Luna 运行。两个 worker 在检查点后自然完成，第一个空闲 slot 在最慢 sibling 结束前领取第五项。详见 [0.6.4 可续租存活验证](docs/0.6.4-RENEWABLE-LIVENESS.zh-CN.md)。
 
-0.7.0 alpha 的窄任务匹配测试实现墙钟 -29.88%、估算费用 -86.18%；但双路匹配测试在费用 -36.97% 的同时墙钟反而 +3.57%。该负结果被完整保留，因此本版本不作普适加速声明。详见 [0.7.0 alpha 评估](docs/0.7.0-ALPHA.zh-CN.md)与历史 [0.6.5 真实 demo 验证](docs/0.6.5-REAL-DEMO.zh-CN.md)。
+0.7.0 alpha.2 完成了真实 owner→post-patch-challenge 写图：精确 candidate fingerprint、不同槽 clean-room 审查、安全未暂存集成、worktree 清理与 detached runner 退出均通过。四节点 adaptive/throughput 匹配运行观察到 adaptive 墙钟 -27.19%，但估算费用 +25.93%；两条路线都在 0ms 开放同样四槽，且每个 arm 只有一个样本，因此这只能说明模型/输出长尾方差，不能归因于 DAG 加速。详见 [alpha.2 DAG 评估](docs/0.7.0-ALPHA.2.zh-CN.md)、[alpha.1 路由评估](docs/0.7.0-ALPHA.zh-CN.md)与历史 [0.6.5 真实 demo 验证](docs/0.6.5-REAL-DEMO.zh-CN.md)。
 
 默认费率为用户提供的每百万 token 价格单位：
 
@@ -223,6 +226,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1
 
 ## 文档
 
+- [0.7.0 alpha.2 DAG 评估](docs/0.7.0-ALPHA.2.zh-CN.md)
+- [0.7.0 alpha.1 路由评估](docs/0.7.0-ALPHA.zh-CN.md)
 - [架构](docs/ARCHITECTURE.zh-CN.md)
 - [0.6 Token / 并行工程报告](docs/0.6-RESEARCH.zh-CN.md)
 - [Heliolune 与 Codex subagent 对比](docs/HELIOLUNE-VS-CODEX-SUBAGENTS.zh-CN.md)
@@ -236,7 +241,8 @@ pwsh -NoProfile -File .\scripts\package-release.ps1
 
 - 抽取 provider-neutral controller/worker adapter 接口。
 - 允许配置 controller 与 worker 身份。
-- 稳定声明式 token-first / speed-first 路由 profile。
+- 稳定声明式 adaptive / throughput / token-first 路由 profile。
+- 在不削弱 scope 与 candidate identity 的前提下评估 straggler hedge 与 child-task suggestion。
 - 为隔离写 worktree 增加可选、确定性的依赖 setup hook。
 - 支持更多 agent host 与 MCP 模型后端。
 - 增加跨仓库、可复现的 benchmark fixture。

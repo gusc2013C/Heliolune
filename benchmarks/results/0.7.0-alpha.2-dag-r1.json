@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "release": "0.7.0-alpha.2",
+  "buildId": "0.7.0-alpha.2-task-dag-r1",
+  "date": "2026-08-03",
+  "automatedTestsBeforePackaging": 121,
+  "features": [
+    "TASK_DAG_V1 dependency validation and READY states",
+    "read/write lease conflict rejection",
+    "adaptive 1-to-2-to-4 widening",
+    "critical-depth, priority, path-affinity assignment",
+    "optional-node completion quorum cancellation",
+    "candidate-bound post-patch challenge on a different worker slot",
+    "DAG-aware critical-path telemetry"
+  ],
+  "toolSchema": {
+    "installedSurfaceApproximateTokens": 1478,
+    "normalFastPathApproximateTokens": 505,
+    "normalFastPathDeltaFrom064Percent": 5.2,
+    "advancedBatchApproximateTokens": 749,
+    "advancedBatchDeltaFrom064Percent": 67.6,
+    "interpretation": "The dependency and lease contract materially enlarges only the advanced batch schema; the normal fast path remains near its 0.6.4 size."
+  },
+  "candidateCorrection": {
+    "jobId": "0858a6e2-d22b-49b2-8955-6e843b398fea",
+    "status": "completed",
+    "wallMs": 179288,
+    "issuesFoundByTelemetryReview": [
+      "Width changed to two at 0ms although only the owner was READY.",
+      "The explicit challenge kind was reported as inspect."
+    ],
+    "resolution": "The widening trigger now requires independent READY capacity or candidate-thread isolation; explicit node kinds take precedence. Both received focused regressions and a new real run."
+  },
+  "prepublishCorrection": {
+    "issues": [
+      "A challenge could reuse the producer slot when its alternate slot was still occupied by a sibling.",
+      "The throughput schema allowed 1/2/4/8 while runtime still applied legacy speed-first 4/8 validation.",
+      "Candidate dependency evidence still included the producer summary and evidence despite the clean-room contract."
+    ],
+    "resolution": "The producer slot is ineligible for its candidate challenge; throughput has independent 1/2/4/8 validation; candidate input contains only producer completion state and fingerprint metadata. Worker-returned blocked state also propagates without being relabelled failed.",
+    "regressions": [
+      "candidate challenge waits when only its producer slot is idle",
+      "a worker-blocked node remains blocked and blocks its descendants",
+      "candidate dependency evidence omits producer reasoning"
+    ]
+  },
+  "postPatchDagFinal": {
+    "jobId": "7152f6dc-7545-41dc-80ac-324ef3d2a1ce",
+    "status": "completed",
+    "wallMs": 371676,
+    "owner": { "slot": "burst-1", "durationMs": 33383 },
+    "challenge": {
+      "slot": "burst-2",
+      "durationMs": 337349,
+      "candidateFingerprint": "3b17d50dbfbf54b7fcb34a077be6e5724d293a8e3959cfcd15f24e85ca55d1f0"
+    },
+    "widthTransition": { "atMs": 33384, "from": 1, "to": 2, "reason": "candidate-thread-isolation" },
+    "criticalPathMs": 370732,
+    "inputTokens": 108215,
+    "cachedInputTokens": 104960,
+    "outputTokens": 1675,
+    "reasoningOutputTokens": 1165,
+    "estimatedCost": 0.119005,
+    "safeApply": true,
+    "indexClean": true,
+    "temporaryWorktreesRemoved": true,
+    "runnerAutoExited": true
+  },
+  "previousCorrectedDagRun": {
+    "jobId": "25e641d8-9c20-4e19-aa98-3852699b8580",
+    "wallMs": 174973,
+    "ownerMs": 33859,
+    "challengeMs": 140129,
+    "status": "completed",
+    "interpretation": "The repeated graph passed both times, while challenge duration varied materially."
+  },
+  "parallelWriteRegression": {
+    "jobId": "2a2aabe7-2552-406d-b424-8724cbd7d2ef",
+    "status": "completed",
+    "profile": "throughput",
+    "wallMs": 63067,
+    "workerWallMs": 53176,
+    "changedPaths": ["alpha.txt", "beta.txt"],
+    "safeApply": true,
+    "indexClean": true,
+    "temporaryWorktreesRemoved": true,
+    "runnerAutoExited": true,
+    "estimatedCost": 0.123665
+  },
+  "installedHostSmoke": {
+    "jobId": "61d1204a-4f6e-4f22-a774-69b12d9ae9e4",
+    "wallMs": 64771,
+    "status": "completed",
+    "version": "0.7.0-alpha.2",
+    "buildId": "0.7.0-alpha.2-task-dag-r1",
+    "promptVersion": "mcp-v17-task-dag",
+    "taskGraph": "TASK_DAG_V1",
+    "actualParallelism": 1,
+    "nativeWindowLanguage": "zh-CN",
+    "windowAutoClosed": true,
+    "runnerAutoExited": true,
+    "estimatedCost": 0.079148
+  },
+  "matchedBroadReadOnly": {
+    "task": "renewable worker-liveness audit",
+    "adaptive": {
+      "jobId": "4d28f14e-77ae-4513-9eb9-cec8156b003c",
+      "wallMs": 338958,
+      "initialWidth": 1,
+      "peakWidth": 4,
+      "widthTransitionsAtMs": [0, 0],
+      "workerDurationsMs": [140113, 193159, 317408, 288537],
+      "workerSumMs": 939217,
+      "leaderMs": 20976,
+      "inputTokens": 225671,
+      "cachedInputTokens": 147456,
+      "outputTokens": 18194,
+      "reasoningOutputTokens": 14580,
+      "estimatedCost": 1.010623,
+      "runnerAutoExited": true
+    },
+    "throughput": {
+      "jobId": "52aa1a7a-2e4a-43bb-af15-09c5626b559e",
+      "wallMs": 465561,
+      "initialWidth": 4,
+      "peakWidth": 4,
+      "workerDurationsMs": [185002, 437035, 310190, 240053],
+      "workerSumMs": 1172280,
+      "leaderMs": 27951,
+      "inputTokens": 245713,
+      "cachedInputTokens": 181248,
+      "outputTokens": 12985,
+      "reasoningOutputTokens": 9707,
+      "estimatedCost": 0.802499,
+      "runnerAutoExited": true
+    },
+    "adaptiveDeltaPercent": {
+      "wallMs": -27.19,
+      "estimatedCost": 25.93,
+      "inputTokens": -8.16,
+      "outputTokens": 40.12,
+      "workerSumMs": -19.88,
+      "slowestWorkerMs": -27.37,
+      "leaderMs": -24.95
+    },
+    "interpretation": "Both routes opened all four slots at 0ms and used the same node order. The observed adaptive arm was faster but more expensive; one sample cannot causally attribute either difference to routing rather than model/output variance."
+  },
+  "limitations": [
+    "Progressive widening is event-driven; four independent READY nodes widen to four immediately.",
+    "No straggler hedge or speculative duplicate is shipped, so one long node still controls p95 wall time.",
+    "Chained writers are rejected because successor worktrees cannot inherit unintegrated predecessor patches safely.",
+    "Child-task suggestions, Terra counsel, learning-based routing, false acceptance, duplicate exploration, result use, and route regret remain unavailable.",
+    "Each live benchmark arm has n=1 and is evidence for an alpha, not a universal performance claim."
+  ]
+}

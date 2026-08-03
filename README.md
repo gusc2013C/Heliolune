@@ -4,11 +4,11 @@ English · [简体中文](README.zh-CN.md)
 
 **High-intelligence supervision, low-cost execution.**
 
-Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models behind a compact, blocking MCP boundary. Its first adapter is a Codex plugin in which GPT-5.6 Sol sends one compact task and the MCP adaptively selects one, two, or four Luna/max workers with detached-worktree write isolation.
+Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models behind a compact, blocking MCP boundary. Its first adapter is a Codex plugin in which GPT-5.6 Sol sends one compact task and the MCP executes a validated task DAG on one, two, or four Luna/max workers with detached-worktree write isolation.
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current prerelease: **`0.7.0-alpha.1`**. Public contracts may change before 1.0.
+> Current prerelease: **`0.7.0-alpha.2`**. Public contracts may change before 1.0.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
@@ -36,8 +36,11 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 
 - One compact `start_task` fast path deterministically creates an exact-scope owner plus contract, edge/test, and correctness-risk reviews.
 - A no-model `runtime_info` preflight requires the exact semantic version, build ID, and prompt identity, so a stale same-version MCP fails closed before paid work.
-- Adaptive 1/2/4-worker routing is the default profile; explicit four-way speed-first remains available for broad independent work, custom 2–8 stream batches are advanced, and token-first remains a safety fallback.
-- Every run records `TASK_NODE_V1` routing/timing telemetry; explicit speed-first also records the adaptive route as a non-executing shadow decision.
+- `TASK_DAG_V1` validates dependencies, cycles, READY state, read/write leases, and unsupported chained writers before any model call.
+- Adaptive event-driven 1→2→4 widening is the default `start_task` profile; explicit `throughput` starts at full width, legacy `speed-first` aliases it, custom 1–8 node graphs are advanced, and token-first remains a safety fallback.
+- Critical depth, explicit priority, path affinity, and deterministic tie-breaking decide which READY node claims each slot. Optional queued nodes may be cancelled after required-node completion and an explicit quorum.
+- Post-patch challenge nodes inspect the producer's exact candidate checkout on a different worker slot and bind their report to the base commit plus a SHA-256 candidate fingerprint. Owner reasoning is not forwarded.
+- Every run records DAG-aware `TASK_NODE_V1` routing/timing telemetry including dependency, assignment, width-transition, blocked/cancelled, lease, utilization, and critical-path evidence.
 - Luna workers use `max` reasoning effort.
 - Worker sessions are ephemeral and normally stay out of the Codex Desktop task list.
 - The standalone Codex app-server is launched hidden; on Windows the WPF Leader panel is the only automatic visible worker surface.
@@ -76,8 +79,8 @@ Workers may inspect or modify only the scope granted by the host and task contra
 | Tool | Purpose |
 |---|---|
 | `runtime_info` | No-model identity preflight for semantic/build/prompt identity, default parallelism, ephemeral workers, hidden app-server, and status surface. |
-| `start_task` | Default adaptive path: select one, two, or four Luna/max workstreams; `profile=speed-first` forces four and `profile=token-first` selects the safety fallback. |
-| `start_batch` | Advanced custom route for 2–8 Sol-defined workstreams on four or eight Luna/max workers. |
+| `start_task` | Default adaptive path: execute a generated DAG on one, two, or four Luna/max slots; `profile=throughput` (or legacy `speed-first`) starts four and `profile=token-first` selects the safety fallback. |
+| `start_batch` | Advanced custom `TASK_DAG_V1` route for 1–8 Sol-defined nodes on 1, 2, 4, or 8 Luna/max slots. |
 | `await_task` (`luna-await`) | Block once using the returned job/build identity and return the compact terminal bundle. |
 | `cost_dashboard` | Return cumulative cost, history-calibrated Sol-only projections, cache, timing, and per-lane totals without invoking a model. |
 
@@ -105,7 +108,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.7.0-alpha.1` |
+| Plugin version | `0.7.0-alpha.2` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -134,16 +137,16 @@ and let Sol review the integrated result and make the final acceptance decision.
 No manual four-way decomposition is needed:
 
 ```text
-Use $luna-pool-orchestrator fast start with its default four-way routing.
-Send one compact objective, acceptance list and exact scope; let the MCP create the owner
-and three review streams, await once, then review the compact result.
+Use $luna-pool-orchestrator fast start with its default adaptive DAG routing.
+Send one compact objective, acceptance list and exact scope; let the MCP create and schedule
+the owner and any required post-owner challenge nodes, await once, then review the compact result.
 Prefer workstreams under 90 seconds, but do not treat 90 seconds as a hard limit.
 ```
 
 Parallel writes need a clean Git root and exact disjoint scopes:
 
 ```text
-Use $luna-pool-orchestrator in speed-first mode.
+Use $luna-pool-orchestrator in throughput mode.
 Have Sol define two independent implementation workstreams with non-overlapping file scopes.
 Use four Luna/max workers, detached worktree isolation, and deterministic safe integration.
 After one await, Sol must review integration.applied, inspect the main-worktree diff, run focused checks, and accept the result.
@@ -159,9 +162,9 @@ Good tasks have an explicit outcome, one to eight testable acceptance criteria, 
 - `verifier`: independent read-only verification; never the implementation owner.
 - `supervisor`: shared operations leader for liveness, deferred cross-lane tracking, and report compression; uses `high` by default, accepts `xhigh`, and never plans, assigns, inspects the repository, or performs acceptance.
 
-Adaptive is the default. Low-risk work over at most two exact files uses one owner; moderate bounded work uses an owner plus an edge/test reviewer; broad or directory-scoped work, high risk, or reserved boundaries use the established four-way owner/contract/edge/correctness plan. Explicit `speed-first` always selects four workers, while token-first remains the safety fallback when write isolation is unsafe or strict dependencies make parallel results unusable. Explicit custom 2–8-way batches remain available through `start_batch`.
+Adaptive is the default. Low-risk work over at most two exact files uses one owner; moderate bounded work uses an owner plus a post-owner edge/test challenge; broad or directory-scoped work, high risk, or reserved boundaries use the owner/contract/post-owner edge/post-owner correctness graph. Explicit `throughput` starts four slots immediately, legacy `speed-first` is its compatibility alias, and token-first remains the safety fallback when write isolation is unsafe. Explicit custom 1–8-node graphs remain available through `start_batch`.
 
-The classifier is deterministic and exposes its signals. Speed-first runs retain a shadow adaptive decision without changing execution. Terminal `TASK_NODE_V1` telemetry records actual/shadow routing, node state, queue wait, active wall time, critical path, utilization, and Leader share; unavailable controller and acceptance metrics are labelled unavailable.
+The classifier and DAG scheduler are deterministic and expose their signals. Before launching a worker, Heliolune rejects missing dependencies, cycles, self-dependencies, unordered read/write conflicts, and chained writers whose successor could not safely inherit an unintegrated patch. A node becomes READY only after every required predecessor completes. Adaptive width grows only when READY capacity or candidate-thread isolation requires it; throughput opens the requested width immediately. Terminal `TASK_NODE_V1` telemetry records actual routing, node state, assignment score, width transitions, queue wait, active wall time, blocked/cancelled outcomes, critical path, utilization, and Leader share; unavailable controller and acceptance metrics are labelled unavailable.
 
 Prefer each speed-first workstream to be sized near 90 seconds by splitting broad work into independent streams. Ninety seconds is only the first liveness checkpoint. Recent app-server events renew execution indefinitely without a model call; sustained silence wakes one shared Luna/high Leader. Ambiguous or unavailable decisions keep the lease active for another check, but four consecutive app-server-silent checks trip the local stall circuit breaker. The scheduler uses a shared queue, so an idle slot immediately claims the next remaining workstream while slower siblings continue. The Leader cannot plan, redistribute scope, or accept the batch, and completed siblings survive a straggler or failed workstream.
 
@@ -197,7 +200,7 @@ The 0.6.3 backend diagnostic reproduced a stale serial runtime, fixed the runtim
 
 The 0.6.4 renewable-liveness regression completed a five-workstream/four-slot real Luna run with a 30-second first checkpoint. Two workers naturally finished after that checkpoint, and the first idle slot claimed the queued fifth workstream before the slowest sibling completed. See the [0.6.4 renewable-liveness validation](docs/0.6.4-RENEWABLE-LIVENESS.md).
 
-The 0.7.0 alpha evaluation found a 29.88% wall-time and 86.18% estimated-cost reduction for a narrow matched task, but a 3.57% wall-time regression alongside a 36.97% cost reduction for a two-worker matched task. This deliberately retained negative result means the release makes no universal speed claim. See the [0.7.0 alpha evaluation](docs/0.7.0-ALPHA.md) and the historical [0.6.5 real-demo validation](docs/0.6.5-REAL-DEMO.md).
+The 0.7.0 alpha.2 evaluation completed a real owner→post-patch-challenge write graph with exact candidate fingerprinting, different-slot clean-room review, safe unstaged integration, worktree cleanup, and detached-runner exit. A matched four-node adaptive/throughput pair observed adaptive wall time 27.19% lower but estimated cost 25.93% higher; because both routes opened the same four slots at 0ms and each arm has only one sample, the difference is model/output variance evidence rather than a causal DAG speedup. See the [0.7.0 alpha.2 DAG evaluation](docs/0.7.0-ALPHA.2.md), the [alpha.1 routing evaluation](docs/0.7.0-ALPHA.md), and the historical [0.6.5 real-demo validation](docs/0.6.5-REAL-DEMO.md).
 
 ### Default price table
 
@@ -306,13 +309,14 @@ Check that both arms use matched warmups and identical response schemas. Accept 
 
 - Extract a provider-neutral controller/worker adapter interface.
 - Make controller and worker identities configurable.
-- Stabilize declarative token-first and speed-first routing profiles.
+- Stabilize declarative adaptive, throughput, and token-first routing profiles.
+- Evaluate straggler hedging and child-task suggestions without weakening scope or candidate identity.
 - Add optional deterministic setup hooks for dependencies needed inside isolated write worktrees.
 - Support additional agent hosts and MCP-compatible model backends.
 - Add reproducible multi-repository benchmark fixtures.
 - Stabilize the MCP contract before 1.0.
 
-See the [0.7.0 alpha evaluation](docs/0.7.0-ALPHA.md), [0.6.5 real-demo validation](docs/0.6.5-REAL-DEMO.md), [0.6 engineering report](docs/0.6-RESEARCH.md), [Heliolune vs Codex subagents](docs/HELIOLUNE-VS-CODEX-SUBAGENTS.md), [Architecture](docs/ARCHITECTURE.md), [Benchmark methodology](docs/BENCHMARKS.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), [Changelog](CHANGELOG.md), and the [Release checklist](RELEASE_CHECKLIST.md). Chinese versions are linked from [简体中文 README](README.zh-CN.md).
+See the [0.7.0 alpha.2 DAG evaluation](docs/0.7.0-ALPHA.2.md), [alpha.1 routing evaluation](docs/0.7.0-ALPHA.md), [0.6.5 real-demo validation](docs/0.6.5-REAL-DEMO.md), [0.6 engineering report](docs/0.6-RESEARCH.md), [Heliolune vs Codex subagents](docs/HELIOLUNE-VS-CODEX-SUBAGENTS.md), [Architecture](docs/ARCHITECTURE.md), [Benchmark methodology](docs/BENCHMARKS.md), [Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md), [Changelog](CHANGELOG.md), and the [Release checklist](RELEASE_CHECKLIST.md). Chinese versions are linked from [简体中文 README](README.zh-CN.md).
 
 ## License
 

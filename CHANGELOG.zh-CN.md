@@ -4,6 +4,24 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.7.0-alpha.2] - 2026-08-03
+
+### 可执行任务图
+
+- 将 task node 从纯遥测记录提升为经过验证的 `TASK_DAG_V1` 执行，加入依赖、缺失节点、环、自依赖、READY 状态与失败传播语义。
+- 加入 read/write lease，无序冲突会在调用模型前失败。Alpha.2 拒绝链式 writer，因为后继 worktree 目前无法真实继承尚未集成的前驱 patch。
+- 加入事件驱动 adaptive `1 → 2 → 4` 扩宽、显式满宽 `throughput`（`speed-first` 保留为旧别名）、确定性 critical-depth/priority/path-affinity 分配，以及 required node 与显式 quorum 完成后的 optional 排队节点取消。
+- post-patch challenge 绑定 producer 的精确 detached worktree、base commit 和 SHA-256 candidate fingerprint；强制使用不同 worker 槽、不转发 owner reasoning，并在 review 期间 candidate 改变时失败。
+- `TASK_NODE_V1` 新增图依赖、lease、assignment、宽度变化、阻断/取消、fingerprint 与 DAG 关键路径遥测。
+
+### 验证与测量边界
+
+- 新增 8 项图调度回归（包括备用槽繁忙时的 challenge gate 与 worker-blocked 传播）、clean-room 依赖证据、DAG 感知的 profile/telemetry/worktree/MCP 检查，以及真实 candidate-bound 写入 harness；throughput 运行时与声明的 1/2/4/8 schema 已对齐。打包前 candidate suite 通过 121 项无依赖测试。
+- 最终源码的真实 Luna/max `owner → challenge` 在 371.676 秒完成：不同槽 clean-room review、稳定 candidate fingerprint、安全未暂存集成、临时 worktree 完整清理与 detached runner 退出均通过。本次 challenge 为 337.349 秒，而此前修正后运行为 140.129 秒；两者作为明确的质量/延迟与长尾证据保留。
+- 运行一次宽任务 adaptive/throughput 匹配对照。Adaptive 观察到墙钟 -27.19%、估算费用 +25.93%；两条路线都在 0ms 开放相同四槽，因此只作为 `n=1` 模型/输出方差报告，不声称 DAG 因果加速。
+- cachebuster 重装后的全新 Codex app-server smoke 通过：精确 version/build/prompt/DAG 身份、真实 adaptive Luna/max turn、独立 await、简体中文原生窗口自动关闭，以及 detached runner/app-server 进程树退出均已验证。
+- 延后 child-task suggestion、speculative straggler hedge、Terra counsel、学习型路由及 p50/p95 结论。详见 [`docs/0.7.0-ALPHA.2.zh-CN.md`](docs/0.7.0-ALPHA.2.zh-CN.md)。
+
 ## [0.7.0-alpha.1] - 2026-08-03
 
 ### 自适应路由与可观测决策

@@ -10,7 +10,7 @@
     "Confirm how terminal status reaches the independent await server",
     "Confirm claim metadata is published atomically and app-server shutdown waits for termination on Windows and POSIX",
     "Confirm stale owner heartbeats, expired startup leases, and stale running window snapshots become terminal failures or terminal UI state",
-    "Confirm pool, detached request, and await calls require the exact 0.7.0-alpha.1 build identity",
+    "Confirm pool, detached request, and await calls require the exact 0.7.0-alpha.2 build identity",
     "Confirm four consecutive app-server-silent liveness checks terminate a stalled worker without imposing a fixed deadline on active work",
     "Return no medium, high, or critical lifecycle risk; report any concrete defect without proposing a public API change"
   ],

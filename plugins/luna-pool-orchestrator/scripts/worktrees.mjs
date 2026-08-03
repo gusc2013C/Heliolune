@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -131,6 +132,7 @@ export async function collectWorktreePatch(session, workstream) {
     mode: workstream.mode,
     patchPath,
     patchBytes: patch.length,
+    candidateFingerprint: createHash("sha256").update(patch).digest("hex"),
     changedPaths,
     outOfScope,
   };

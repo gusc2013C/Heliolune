@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { normalizeTaskDag } from "../plugins/luna-pool-orchestrator/scripts/task-dag.mjs";
 import {
   ADAPTIVE,
   DEFAULT_PROFILE,
@@ -14,10 +15,12 @@ import {
   compactBatchLeaderPrompt,
   compactBatchSupervisorPrompt,
   compactBurstTask,
+  compactDependencyEvidence,
   defaultParallelWorkstreams,
   mapWithConcurrency,
   shouldUseBatchLeader,
   speedParallelism,
+  throughputParallelism,
   validateSpeedWorkstreams,
 } from "../plugins/luna-pool-orchestrator/scripts/profiles.mjs";
 
@@ -36,6 +39,18 @@ test("execution profiles separate cache-oriented and burst-oriented routing", ()
   assert.equal(adaptiveParallelism(2), 2);
   assert.throws(() => adaptiveParallelism(8), /1, 2, 4/);
   assert.throws(() => speedParallelism(6), /4, 8/);
+  assert.deepEqual([1, 2, 4, 8].map(throughputParallelism), [1, 2, 4, 8]);
+  assert.throws(() => throughputParallelism(6), /1, 2, 4, 8/);
+});
+
+test("candidate dependency evidence omits producer reasoning", () => {
+  const evidence = compactDependencyEvidence([
+    { id: "owner", status: "completed", run: { output: { summary: "owner reasoning", evidence: [{ claim: "owner claim" }] } } },
+    { id: "contract", status: "completed", run: { output: { summary: "base contract", evidence: [{ claim: "constraint" }] } } },
+  ], { candidateProducerId: "owner", candidateFingerprint: "abc123" });
+  assert.deepEqual(evidence[0], { id: "owner", status: "completed", candidateFingerprint: "abc123" });
+  assert.equal(JSON.stringify(evidence[0]).includes("owner reasoning"), false);
+  assert.equal(evidence[1].summary, "base contract");
 });
 
 test("adaptive routing uses one, two, or four workers from deterministic task signals", () => {
@@ -68,7 +83,7 @@ test("task budgets adapt to risk while explicit overrides remain authoritative",
   assert.deepEqual(adaptiveBudgets({ mode: "repair", risk: "high", maxFiles: 99, maxCommands: 99 }), { maxFiles: 30, maxCommands: 50 });
 });
 
-test("compact start_task expands deterministically into four meaningful workers", () => {
+test("compact start_task expands into an owner, base contract guard, and post-patch challenges", () => {
   const workstreams = defaultParallelWorkstreams({
     lane: "core",
     mode: "repair",
@@ -84,8 +99,14 @@ test("compact start_task expands deterministically into four meaningful workers"
   assert.match(workstreams[1].objective, /contract/i);
   assert.match(workstreams[2].objective, /edge cases/i);
   assert.match(workstreams[3].objective, /Independently/);
-  assert.ok(workstreams.slice(1).every(({ objective }) => /base snapshot/.test(objective)));
-  assert.ok(workstreams.slice(1).every(({ objective }) => /Do not judge/.test(objective)));
+  assert.match(workstreams[1].objective, /base snapshot/);
+  assert.deepEqual(workstreams[1].dependsOn, undefined);
+  assert.deepEqual(workstreams[1].readLease, []);
+  assert.deepEqual(workstreams.slice(2).map(({ dependsOn }) => dependsOn), [["owner"], ["owner"]]);
+  assert.deepEqual(workstreams.slice(2).map(({ candidateFrom }) => candidateFrom), ["owner", "owner"]);
+  assert.ok(workstreams.slice(2).every(({ objective }) => /candidate/i.test(objective)));
+  const graph = normalizeTaskDag(workstreams, { maxParallelism: 4 });
+  assert.deepEqual(graph.nodes.map(({ state }) => state), ["ready", "ready", "pending", "pending"]);
 });
 
 test("speed-first accepts unique Sol-defined workstreams and isolates narrow writes", () => {

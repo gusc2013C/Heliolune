@@ -121,7 +121,7 @@ const taskArguments = {
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.7.0-alpha.1" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.7.0-alpha.2" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");
@@ -146,9 +146,10 @@ try {
   }, 30_000);
   const runtimeText = runtimeResponse.content?.find((item) => item.type === "text")?.text;
   const runtime = runtimeResponse.structuredContent ?? JSON.parse(runtimeText ?? "null");
-  if (runtime?.version !== "0.7.0-alpha.1" || runtime.buildId !== "0.7.0-alpha.1-adaptive-shadow-r1" || runtime.promptVersion !== "mcp-v16-adaptive-shadow"
+  if (runtime?.version !== "0.7.0-alpha.2" || runtime.buildId !== "0.7.0-alpha.2-task-dag-r1" || runtime.promptVersion !== "mcp-v17-task-dag"
       || runtime.defaultProfile !== "adaptive" || runtime.defaultParallelism !== 1
       || JSON.stringify(runtime.adaptiveParallelism) !== JSON.stringify([1, 2, 4])
+      || runtime.taskGraph !== "TASK_DAG_V1" || runtime.progressiveWidening !== true || runtime.affinityScheduling !== true
       || runtime.burstThreadsEphemeral !== true || runtime.appServerWindowHidden !== true || runtime.statusSurface !== "native-window") {
     throw new Error(`Installed Heliolune runtime gate failed: ${JSON.stringify(runtime)}`);
   }
@@ -198,7 +199,8 @@ try {
   }
   if (terminal?.priority !== "adaptive" || terminal?.parallelism !== 1
       || terminal?.telemetry?.schema !== "TASK_NODE_V1"
-      || terminal?.telemetry?.routing?.actualParallelism !== 1) {
+      || terminal?.telemetry?.routing?.actualParallelism !== 1
+      || terminal?.routing?.dag?.schema !== "TASK_DAG_V1") {
     throw new Error(`Adaptive route or task telemetry is incomplete: ${JSON.stringify(terminal)}`);
   }
   if (windowReady?.language === "zh-CN" && !/[\u3400-\u9fff]/u.test(activeWorker.explanation)) {
