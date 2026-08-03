@@ -4,6 +4,22 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.7.0-alpha.1] - 2026-08-03
+
+### 自适应路由与可观测决策
+
+- 将 `adaptive` 设为 `start_task` 默认 profile，根据风险、scope、acceptance 与保留边界信号确定性选择 1、2 或 4 路 Luna/max。保留显式四路 `speed-first`、高级自定义 batch 与 token-first 安全回退。
+- speed-first 增加不参与执行的 adaptive shadow 决策；新增带版本的 `TASK_NODE_V1` 遥测，记录实际/shadow 路由、node 状态、排队、关键路径、利用率与 Leader 占比。MCP 边界外指标明确标为 unavailable。
+- 已完成、低风险的单/双路结果可以直接返回；高风险、partial、升级、不安全集成和四路汇总继续使用 Leader。
+- detached-worktree 安全 gate 与共享队列扩展到自适应单/双路写入计划。
+
+### 评估
+
+- 新增分类边界、1/2/4 调度、直接返回、遥测、数字 slot 与单 writer safe-apply 回归。
+- 真实运行匹配 Luna/max arm：窄任务 adaptive 单路相对 0.6.5 四路墙钟降低 29.88%、估算费用降低 86.18%；中等双路估算费用降低 36.97%，但因长尾墙钟增加 3.57%。负结果被完整保留，本版本不作普适加速声明。
+- Windows PowerShell 5.1 与 PowerShell 7.6.4 下均通过 111/111 发布测试；全新安装态 adaptive 宿主运行通过原生窗口自动关闭和完整进程回收；真实双 writer detached-worktree safe-apply 运行通过。
+- 独立宽任务基线在相同质量下显示四路加速 3.176 倍，因此继续保留显式 speed-first。详见 [`docs/0.7.0-ALPHA.zh-CN.md`](docs/0.7.0-ALPHA.zh-CN.md)。
+
 ## [0.6.5] - 2026-08-03
 
 ### 独立 job owner 与资源回收

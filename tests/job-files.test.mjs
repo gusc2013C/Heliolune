@@ -43,7 +43,7 @@ test("job result files reject path-shaped identifiers", async () => {
 test("detached runner requests are atomic, scoped, and removable", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-job-request-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const request = { version: "0.6.5", kind: "task", args: { objective: "bounded" } };
+  const request = { version: "0.7.0-alpha.1", kind: "task", args: { objective: "bounded" } };
   await writeJobRequest(jobId, request, root);
   assert.deepEqual(await readJobRequest(jobId, root), request);
   await removeJobRequest(jobId, root);
@@ -53,7 +53,7 @@ test("detached runner requests are atomic, scoped, and removable", async (t) => 
 test("runner request claim is atomic and admits only one owner", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-job-claim-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const request = { version: "0.6.5", kind: "task", args: { objective: "once" } };
+  const request = { version: "0.7.0-alpha.1", kind: "task", args: { objective: "once" } };
   for (let index = 0; index < 20; index += 1) {
     const claimJobId = `123e4567-e89b-42d3-a456-${index.toString(16).padStart(12, "0")}`;
     await writeJobRequest(claimJobId, request, root);
@@ -71,7 +71,7 @@ test("runner request claim is atomic and admits only one owner", async (t) => {
 test("claim metadata becomes visible only after its JSON is complete", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-job-claim-publish-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await writeJobRequest(jobId, { version: "0.6.5", kind: "task", args: {} }, root);
+  await writeJobRequest(jobId, { version: "0.7.0-alpha.1", kind: "task", args: {} }, root);
   let publish;
   let staged;
   const stagedPromise = new Promise((resolve) => { staged = resolve; });
@@ -164,7 +164,7 @@ test("an active job is not failed by a legacy expiry timestamp", async (t) => {
 test("an unclaimed detached runner request becomes an observable terminal failure", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "heliolune-runner-startup-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await writeJobRequest(jobId, { version: "0.6.5", kind: "task", args: {} }, root);
+  await writeJobRequest(jobId, { version: "0.7.0-alpha.1", kind: "task", args: {} }, root);
   await writeJobRecord(jobId, {
     status: "starting",
     startupDeadline: new Date(1_000).toISOString(),
@@ -195,7 +195,7 @@ test("startup expiry renews while the atomic claim owner is alive", async (t) =>
   t.after(() => rm(root, { recursive: true, force: true }));
   const stale = { status: "starting", startupDeadline: new Date(1_000).toISOString() };
   await writeJobRecord(jobId, { ...stale, snapshot: { jobId, status: "starting" } }, root);
-  await writeJobRequest(jobId, { version: "0.6.5", kind: "task", args: {} }, root);
+  await writeJobRequest(jobId, { version: "0.7.0-alpha.1", kind: "task", args: {} }, root);
   await claimJobRequest(jobId, root, { pid: process.pid });
   assert.deepEqual(
     await failOrphanedRecord(jobId, stale, root, "stale startup lease"),
@@ -210,7 +210,7 @@ test("a live claim cannot extend runner startup forever", async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
   const stale = { status: "starting", startupDeadline: new Date(1_000).toISOString(), snapshot: { jobId, status: "starting" } };
   await writeJobRecord(jobId, stale, root);
-  await writeJobRequest(jobId, { version: "0.6.5", kind: "task", args: {} }, root);
+  await writeJobRequest(jobId, { version: "0.7.0-alpha.1", kind: "task", args: {} }, root);
   await claimJobRequest(jobId, root, { pid: process.pid, now: () => 0, startupLeaseMs: 1_000 });
   await assert.rejects(
     failOrphanedRecord(jobId, stale, root, "runner claim startup expired", { now: () => 2_000 }),

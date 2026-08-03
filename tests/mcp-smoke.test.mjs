@@ -65,16 +65,17 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   ]);
   const runtimeResponse = await request("tools/call", { name: "runtime_info", arguments: {} });
   const runtime = JSON.parse(runtimeResponse.result.content[0].text);
-  assert.equal(runtime.version, "0.6.5");
-  assert.equal(runtime.buildId, "0.6.5-owner-heartbeat-r2");
-  assert.equal(runtime.promptVersion, "mcp-v15-owner-heartbeat");
-  assert.equal(runtime.defaultProfile, "speed-first");
-  assert.equal(runtime.defaultParallelism, 4);
+  assert.equal(runtime.version, "0.7.0-alpha.1");
+  assert.equal(runtime.buildId, "0.7.0-alpha.1-adaptive-shadow-r1");
+  assert.equal(runtime.promptVersion, "mcp-v16-adaptive-shadow");
+  assert.equal(runtime.defaultProfile, "adaptive");
+  assert.equal(runtime.defaultParallelism, 1);
+  assert.deepEqual(runtime.adaptiveParallelism, [1, 2, 4]);
   assert.equal(runtime.burstThreadsEphemeral, true);
   assert.equal(runtime.appServerWindowHidden, true);
   const startTool = listed.result.tools.find((tool) => tool.name === "start_task");
   assert.equal(startTool._meta, undefined);
-  assert.equal(startTool.inputSchema.properties.profile.default, "speed-first");
+  assert.equal(startTool.inputSchema.properties.profile.default, "adaptive");
   assert.deepEqual(startTool.inputSchema.required, ["cwd", "lane", "mode", "objective", "acceptance", "scope"]);
   assert.deepEqual(Object.keys(startTool.inputSchema.properties), [
     "cwd", "lane", "mode", "objective", "acceptance", "repoState", "scope", "risk", "reservedBoundary", "profile", "maxFiles", "maxCommands",

@@ -9,8 +9,9 @@ Sol controller / governor
   | objective + acceptance + narrow scope + budget
   v
 start-once / await-once MCP orchestration boundary
-  |-- token-first：一个 function-affine owner + optional verifier
-  |-- speed-first：4/8 个由 Sol 定义的隔离 burst worker
+  |-- adaptive：按任务分类选择 1/2/4 路 worker
+  |-- speed-first：显式四路对照；自定义 2–8 路 batch
+  |-- token-first：显式安全回退
   |-- one shared operations leader
   v
 compact evidence + changes + checks + risks + usage
@@ -26,12 +27,14 @@ Sol review and final acceptance
 - **Lane**：按功能固定、可复用的 worker context，用于提高 cache locality。
 - **Verifier**：风险或关键正确性声明需要时启用的独立只读 worker。
 - **Operations Leader**：只根据 MCP 提供的数据跟踪运行、判断存活并压缩上报。
-- **Profile**：默认使用 4 路并行 speed-first；持久 token-first 仅作为显式安全回退。
+- **Profile**：默认使用自适应 1/2/4 路；宽且独立的任务可显式选择四路 speed-first；持久 token-first 作为安全回退。
 - **Adapter**：负责 session、turn、可续租存活判断、进度和 usage 的 host/model 适配层。
 
 ## 当前 Codex adapter
 
-Token-first 使用 `core`、`tests`、`integration` 与 `verifier` 四个持久 Luna/max lane；speed-first 使用默认 4 路或实验 8 路 Luna/max burst slot，且 workstream 必须由 Sol 预先定义。只读 burst session 可以复用；mutating workstream 在隔离 Git worktree 中使用 fresh ephemeral session，避免 checkout context 跨 worker 泄漏。兼容名为 `supervisor` 的 Luna/high session 作为共享 Operations Leader。所有 session 都不会显示为普通 Desktop task。
+Adaptive `start_task` 根据风险、scope、acceptance 与保留边界信号，确定性选择 1、2 或 4 个 Luna/max burst slot；显式 speed-first 使用四路，自定义 batch 支持 2–8 路，token-first 保留 function-affine 持久 lane。只读 burst session 可以复用；mutating workstream 在隔离 Git worktree 中使用 fresh ephemeral session，避免 checkout context 跨 worker 泄漏。兼容名为 `supervisor` 的 Luna/high session 作为共享 Operations Leader。所有 session 都不会显示为普通 Desktop task。
+
+`TASK_NODE_V1` 记录实际路由、可选 shadow 路由、worker node 状态、排队时间、活动墙钟、关键路径、利用率与 Leader 占比。controller usage、最终验收耗时、错误验收、结果采用、重复探索与 route regret 在能被直接观测前一律明确标为 unavailable。
 
 Leader 不读取仓库。它只看到紧凑的 liveness snapshot、objective 和结构化 owner/verifier bundle。近期活动会直接续租，不唤醒 Leader；持续静默时 Leader 可以上报 continue/interrupt，但只有高置信度 stall 判断才能中止。它不能规划、分配、决定保留边界或最终验收。
 

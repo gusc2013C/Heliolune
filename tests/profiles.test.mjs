@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ADAPTIVE,
   DEFAULT_PROFILE,
   SPEED_FIRST,
   TOKEN_FIRST,
+  adaptiveParallelism,
+  adaptiveParallelWorkstreams,
+  adaptiveRoute,
   adaptiveBudgets,
   batchSupervisionSchedule,
   burstLanes,
@@ -12,19 +16,48 @@ import {
   compactBurstTask,
   defaultParallelWorkstreams,
   mapWithConcurrency,
+  shouldUseBatchLeader,
   speedParallelism,
   validateSpeedWorkstreams,
 } from "../plugins/luna-pool-orchestrator/scripts/profiles.mjs";
 
 test("execution profiles separate cache-oriented and burst-oriented routing", () => {
-  assert.equal(DEFAULT_PROFILE, SPEED_FIRST);
+  assert.equal(DEFAULT_PROFILE, ADAPTIVE);
+  assert.deepEqual(ADAPTIVE.allowedParallelism, [1, 2, 4]);
+  assert.equal(ADAPTIVE.defaultParallelism, 1);
   assert.equal(TOKEN_FIRST.defaultParallelism, 1);
   assert.equal(TOKEN_FIRST.cachePolicy, "function-affine-reuse");
   assert.equal(SPEED_FIRST.defaultParallelism, 4);
   assert.deepEqual(SPEED_FIRST.allowedParallelism, [4, 8]);
   assert.deepEqual(burstLanes(4), ["burst-1", "burst-2", "burst-3", "burst-4"]);
+  assert.deepEqual(burstLanes(2), ["burst-1", "burst-2"]);
   assert.equal(burstLanes(8).length, 8);
+  assert.equal(adaptiveParallelism(1), 1);
+  assert.equal(adaptiveParallelism(2), 2);
+  assert.throws(() => adaptiveParallelism(8), /1, 2, 4/);
   assert.throws(() => speedParallelism(6), /4, 8/);
+});
+
+test("adaptive routing uses one, two, or four workers from deterministic task signals", () => {
+  const narrow = adaptiveParallelWorkstreams({
+    lane: "core", mode: "repair", objective: "Fix one parser edge", acceptance: ["Focused test passes"],
+    scope: ["src/parser.mjs"], risk: "low",
+  });
+  assert.equal(narrow.route.parallelism, 1);
+  assert.equal(narrow.route.taskClass, "narrow-strong-contract");
+  assert.deepEqual(narrow.workstreams.map(({ id }) => id), ["owner"]);
+
+  const bounded = adaptiveParallelWorkstreams({
+    lane: "core", mode: "repair", objective: "Repair bounded behavior", acceptance: ["Tests pass", "No regression", "Current evidence", "Document risk"],
+    scope: ["src/parser.mjs"], risk: "moderate",
+  });
+  assert.equal(bounded.route.parallelism, 2);
+  assert.deepEqual(bounded.workstreams.map(({ id }) => id), ["owner", "edges"]);
+
+  assert.equal(adaptiveRoute({ scope: ["a", "b", "c"], acceptance: ["ok"], risk: "low" }).parallelism, 4);
+  assert.equal(adaptiveRoute({ scope: ["src"], acceptance: ["ok"], risk: "low" }).parallelism, 4);
+  assert.equal(adaptiveRoute({ scope: ["a"], acceptance: ["ok"], risk: "high" }).parallelism, 4);
+  assert.equal(adaptiveRoute({ scope: ["a"], acceptance: ["ok"], reservedBoundary: true }).parallelism, 4);
 });
 
 test("task budgets adapt to risk while explicit overrides remain authoritative", () => {
@@ -73,6 +106,17 @@ test("speed-first accepts unique Sol-defined workstreams and isolates narrow wri
     { id: "one", lane: "verifier", mode: "implement", scope: ["src/a.mjs"] },
     { id: "two" },
   ]), /verifier lane is read-only/);
+  assert.equal(validateSpeedWorkstreams([{ id: "owner", mode: "analyze" }], { allowSingle: true }).length, 1);
+  assert.throws(() => validateSpeedWorkstreams([{ id: "owner", mode: "analyze" }]), /2 to 8/);
+});
+
+test("adaptive terminal reporting stays deterministic unless risk or failure needs compression", () => {
+  const workstreams = [{ id: "owner" }];
+  const completed = [{ id: "owner", status: "completed", risks: [], needsSol: [] }];
+  assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams, outcomes: completed, integration: { applied: true } }), false);
+  assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams, outcomes: [{ ...completed[0], risks: [{ severity: "high" }] }], integration: { applied: true } }), true);
+  assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams, outcomes: completed, integration: { applied: false } }), true);
+  assert.equal(shouldUseBatchLeader({ profile: "speed-first", workstreams, outcomes: completed, integration: { applied: true } }), true);
 });
 
 test("shared batch Leader checkpoint encourages 90-second workstreams without imposing a hard cap", () => {
@@ -173,6 +217,18 @@ test("bounded concurrency assigns no more than the selected burst slots", async 
   assert.deepEqual(results, [2, 4, 6, 8, 10, 12]);
   assert.equal(maximumActive, 4);
   assert.equal(slots.size, 4);
+});
+
+test("adaptive concurrency permits a two-slot queue", async () => {
+  let active = 0;
+  let maximumActive = 0;
+  await mapWithConcurrency([1, 2, 3], 2, async () => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+  });
+  assert.equal(maximumActive, 2);
 });
 
 test("an idle burst slot immediately claims queued work while a sibling remains active", async () => {

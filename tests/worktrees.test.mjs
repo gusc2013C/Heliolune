@@ -71,6 +71,21 @@ test("parallel write worktrees apply disjoint tracked and untracked changes with
   assert.match(await git(root, ["status", "--porcelain"]), /a\.txt/);
 });
 
+test("adaptive single-writer worktree applies one completed scoped patch", async (t) => {
+  const root = await repository(t);
+  const artifacts = path.join(os.tmpdir(), `heliolune-patches-${Date.now()}-${process.pid}`);
+  t.after(() => rm(artifacts, { recursive: true, force: true }));
+  const workstreams = [{ id: "owner", mode: "repair", scope: ["a.txt"] }];
+  const session = await prepareParallelWriteBatch({ cwd: root, batchId: "adaptive-one", workstreams, artifactDirectory: artifacts });
+  t.after(() => cleanupParallelWriteBatch(session));
+  await writeFile(path.join(worktreeFor(session, "owner"), "a.txt"), "adaptive\n");
+  const patch = await collectWorktreePatch(session, workstreams[0]);
+  const integration = await integrateParallelWriteBatch(session, [patch], [{ id: "owner", status: "completed" }]);
+  assert.equal(integration.applied, true);
+  assert.equal((await readFile(path.join(root, "a.txt"), "utf8")).replaceAll("\r\n", "\n"), "adaptive\n");
+  assert.equal(await git(root, ["diff", "--cached", "--name-only"]), "");
+});
+
 test("out-of-scope worktree changes block integration and preserve main state", async (t) => {
   const root = await repository(t);
   const artifacts = path.join(os.tmpdir(), `heliolune-patches-${Date.now()}-${process.pid}`);

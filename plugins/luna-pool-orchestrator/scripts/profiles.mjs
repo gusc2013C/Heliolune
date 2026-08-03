@@ -14,7 +14,15 @@ export const SPEED_FIRST = Object.freeze({
   cachePolicy: "best-effort-burst",
 });
 
-export const DEFAULT_PROFILE = SPEED_FIRST;
+export const ADAPTIVE = Object.freeze({
+  id: "adaptive",
+  workerCount: 4,
+  defaultParallelism: 1,
+  allowedParallelism: [1, 2, 4],
+  cachePolicy: "evidence-guided-burst",
+});
+
+export const DEFAULT_PROFILE = ADAPTIVE;
 
 const MAX_FILES = 30;
 const MAX_COMMANDS = 50;
@@ -89,6 +97,58 @@ export function defaultParallelWorkstreams(args) {
   ];
 }
 
+export function adaptiveRoute(args = {}) {
+  const scopes = [...new Set((args.scope ?? []).map((entry) => String(entry).replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "")))];
+  const scopeCount = scopes.length;
+  const fileExtension = /\.(?:c|cc|cpp|cxx|h|hpp|cs|css|go|html|java|js|jsx|json|kt|kts|md|mjs|cjs|py|rs|scss|sh|sql|toml|ts|tsx|txt|xml|yaml|yml|ps1)$/i;
+  const directoryScope = scopes.some((entry) => !fileExtension.test(entry.split("/").at(-1) ?? ""));
+  const acceptanceCount = compactAcceptance(args.acceptance).length;
+  const risk = args.risk ?? "moderate";
+  const reservedBoundary = Boolean(args.reservedBoundary);
+  let parallelism;
+  let taskClass;
+  let reason;
+
+  if (reservedBoundary || risk === "high" || scopeCount >= 3 || directoryScope) {
+    parallelism = 4;
+    taskClass = reservedBoundary ? "reserved-boundary" : risk === "high" ? "high-risk" : "broad-scope";
+    reason = reservedBoundary
+      ? "Reserved decisions keep the full independent review set available for Sol."
+      : risk === "high"
+        ? "High-risk work keeps the full independent review set."
+        : directoryScope
+          ? "A directory-level scope keeps the full four-way review set."
+          : "Three or more scoped paths justify the full four-way review set."
+  } else if (risk === "low" && scopeCount <= 2 && acceptanceCount <= 3) {
+    parallelism = 1;
+    taskClass = "narrow-strong-contract";
+    reason = "A low-risk task with at most two scoped paths and three acceptance checks stays on one critical-path worker."
+  } else {
+    parallelism = 2;
+    taskClass = "bounded-review";
+    reason = "A bounded moderate task adds one independent edge/test review without forcing four active workers."
+  }
+
+  return {
+    profile: ADAPTIVE.id,
+    parallelism,
+    taskClass,
+    reason,
+    signals: { scopeCount, directoryScope, acceptanceCount, risk, reservedBoundary },
+  };
+}
+
+export function adaptiveParallelWorkstreams(args) {
+  const route = adaptiveRoute(args);
+  const all = defaultParallelWorkstreams(args);
+  const selected = route.parallelism === 1
+    ? all.slice(0, 1)
+    : route.parallelism === 2
+      ? [all[0], all[2]]
+      : all;
+  return { route, workstreams: selected };
+}
+
 export function speedParallelism(value) {
   const parsed = Number(value ?? SPEED_FIRST.defaultParallelism);
   if (!SPEED_FIRST.allowedParallelism.includes(parsed)) {
@@ -97,13 +157,28 @@ export function speedParallelism(value) {
   return parsed;
 }
 
-export function burstLanes(parallelism = SPEED_FIRST.defaultParallelism) {
-  return Array.from({ length: speedParallelism(parallelism) }, (_, index) => `burst-${index + 1}`);
+export function adaptiveParallelism(value) {
+  const parsed = Number(value ?? ADAPTIVE.defaultParallelism);
+  if (!ADAPTIVE.allowedParallelism.includes(parsed)) {
+    throw new Error(`adaptive parallelism must be one of ${ADAPTIVE.allowedParallelism.join(", ")}`);
+  }
+  return parsed;
 }
 
-export function validateSpeedWorkstreams(workstreams) {
-  if (!Array.isArray(workstreams) || workstreams.length < 2 || workstreams.length > SPEED_FIRST.workerCount) {
-    throw new Error("speed-first requires 2 to 8 Sol-defined workstreams");
+export function poolParallelism(value) {
+  const parsed = Number(value);
+  if (![1, 2, 4, 8].includes(parsed)) throw new Error("worker parallelism must be one of 1, 2, 4, 8");
+  return parsed;
+}
+
+export function burstLanes(parallelism = SPEED_FIRST.defaultParallelism) {
+  return Array.from({ length: poolParallelism(parallelism) }, (_, index) => `burst-${index + 1}`);
+}
+
+export function validateSpeedWorkstreams(workstreams, { allowSingle = false } = {}) {
+  const minimum = allowSingle ? 1 : 2;
+  if (!Array.isArray(workstreams) || workstreams.length < minimum || workstreams.length > SPEED_FIRST.workerCount) {
+    throw new Error(`${allowSingle ? "adaptive" : "speed-first"} requires ${minimum} to 8 Sol-defined workstreams`);
   }
   const ids = new Set();
   const normalized = [];
@@ -156,7 +231,7 @@ export function batchSupervisionSchedule(requestedCheckpointSeconds) {
 export async function mapWithConcurrency(items, parallelism, work) {
   const results = new Array(items.length);
   let nextIndex = 0;
-  const runners = Array.from({ length: Math.min(speedParallelism(parallelism), items.length) }, (_, slotIndex) => (async () => {
+  const runners = Array.from({ length: Math.min(poolParallelism(parallelism), items.length) }, (_, slotIndex) => (async () => {
     while (nextIndex < items.length) {
       const itemIndex = nextIndex;
       nextIndex += 1;
@@ -165,6 +240,17 @@ export async function mapWithConcurrency(items, parallelism, work) {
   })());
   await Promise.all(runners);
   return results;
+}
+
+export function shouldUseBatchLeader({ profile, workstreams, outcomes, integration }) {
+  if (profile !== ADAPTIVE.id) return true;
+  if (workstreams.length >= 4) return true;
+  if (integration && integration.applied === false) return true;
+  return outcomes.some((outcome) => (
+    outcome.status !== "completed"
+    || outcome.needsSol?.length
+    || outcome.risks?.some((risk) => ["high", "critical"].includes(risk.severity))
+  ));
 }
 
 export function compactBurstTask(workstream, budget) {

@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "release": "0.7.0-alpha.1",
+  "buildId": "0.7.0-alpha.1-adaptive-shadow-r1",
+  "date": "2026-08-03",
+  "environment": {
+    "platform": "Windows",
+    "workerModel": "gpt-5.6-luna",
+    "workerReasoning": "max",
+    "leaderReasoning": "high",
+    "samplesPerArm": 1
+  },
+  "releaseVerification": {
+    "automatedTests": {
+      "count": 111,
+      "windowsPowerShell51": "passed",
+      "powerShell76": "passed"
+    },
+    "toolSchema": {
+      "installedSurfaceApproximateTokens": 1166,
+      "normalFastPathApproximateTokens": 495,
+      "advancedBatchApproximateTokens": 447,
+      "normalFastPathChangeVs064Percent": 3.13
+    },
+    "installedHostAdaptive": {
+      "jobId": "dbd5de59-b300-4798-ae2d-7d787f086784",
+      "wallMs": 44463,
+      "actualParallelism": 1,
+      "estimatedCost": 0.03719,
+      "telemetrySchema": "TASK_NODE_V1",
+      "nativeWindowLanguage": "zh-CN",
+      "windowAutoClosed": true,
+      "runnerAutoExited": true,
+      "appServerTreeExited": true
+    },
+    "parallelWrite": {
+      "jobId": "9097b896-b600-4e46-ae89-93c7bd2a90ef",
+      "wallMs": 62253,
+      "workstreams": 2,
+      "changedPaths": ["alpha.txt", "beta.txt"],
+      "safeApply": true,
+      "indexStagedPaths": 0,
+      "temporaryWorktreesRemoved": true,
+      "runnerAutoExited": true,
+      "estimatedCost": 0.137752
+    }
+  },
+  "baselineConcurrency": {
+    "sourceVersion": "0.6.5",
+    "parallelism1": {
+      "wallMs": 163163,
+      "workerMs": 158658,
+      "leaderMs": 4505,
+      "quality": 0.975,
+      "estimatedCost": 0.356293,
+      "cacheRate": 0.783242
+    },
+    "parallelism4": {
+      "wallMs": 51371,
+      "workerMs": 47149,
+      "leaderMs": 4222,
+      "quality": 0.975,
+      "estimatedCost": 0.350578,
+      "cacheRate": 0.714278,
+      "speedupVs1": 3.1761694
+    },
+    "decision": "Keep explicit speed-first for broad independent work; adaptive routing must not replace four-way execution unconditionally."
+  },
+  "matchedNarrowReview": {
+    "task": "benchmarks/bounded-analysis.json",
+    "baseline065": {
+      "jobId": "d656f8a7-68e1-41f1-8dfd-c919391ba68e",
+      "profile": "speed-first",
+      "actualParallelism": 4,
+      "wallMs": 160253,
+      "inputTokens": 197705,
+      "cachedInputTokens": 168960,
+      "outputTokens": 12003,
+      "reasoningOutputTokens": 9554,
+      "estimatedCost": 0.588295,
+      "leaderMs": 21199,
+      "runnerAutoExited": true
+    },
+    "alphaAdaptive": {
+      "jobId": "6ff48439-2d4c-4f8e-9c9c-017909188986",
+      "profile": "adaptive",
+      "actualParallelism": 1,
+      "wallMs": 112371,
+      "inputTokens": 45724,
+      "cachedInputTokens": 43776,
+      "outputTokens": 1655,
+      "reasoningOutputTokens": 1295,
+      "estimatedCost": 0.081278,
+      "leaderMs": 0,
+      "runnerAutoExited": true
+    },
+    "deltaPercent": {
+      "wallMs": -29.88,
+      "inputTokens": -76.87,
+      "outputTokens": -86.21,
+      "estimatedCost": -86.18
+    },
+    "acceptance": "Both arms returned review evidence and retained the local schema-validation risk for controller acceptance."
+  },
+  "matchedBoundedReview": {
+    "taskControl": "benchmarks/0.7-alpha-speed-control.json",
+    "taskAdaptive": "benchmarks/0.7-alpha-adaptive-bounded-review.json",
+    "speedControl": {
+      "jobId": "fd2fc823-dcab-41c5-91b6-d482658043dc",
+      "profile": "speed-first",
+      "actualParallelism": 4,
+      "wallMs": 254321,
+      "inputTokens": 141113,
+      "cachedInputTokens": 117760,
+      "outputTokens": 12887,
+      "reasoningOutputTokens": 9517,
+      "estimatedCost": 0.562255,
+      "leaderMs": 21777,
+      "runnerAutoExited": true
+    },
+    "adaptive": {
+      "jobId": "d11c1b5c-75aa-4c4a-b52a-ff4bbb591242",
+      "profile": "adaptive",
+      "actualParallelism": 2,
+      "wallMs": 263399,
+      "inputTokens": 76675,
+      "cachedInputTokens": 58880,
+      "outputTokens": 7865,
+      "reasoningOutputTokens": 6229,
+      "estimatedCost": 0.354365,
+      "leaderMs": 18678,
+      "runnerAutoExited": true
+    },
+    "deltaPercent": {
+      "wallMs": 3.57,
+      "inputTokens": -45.66,
+      "outputTokens": -38.97,
+      "estimatedCost": -36.97
+    },
+    "interpretation": "The two-worker arm reduced usage and estimated cost but did not improve latency in this sample because one worker was a 243.488-second straggler."
+  },
+  "limitations": [
+    "Each live arm has n=1 and model latency is stochastic.",
+    "The harness observes the worker boundary, not controller planning or final-acceptance usage.",
+    "False-acceptance rate, duplicate-exploration ratio, result-used rate, controller usage, and route regret remain unavailable in TASK_NODE_V1.",
+    "These measurements support an alpha experiment, not a universal speed claim."
+  ]
+}

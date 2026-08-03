@@ -121,7 +121,7 @@ const taskArguments = {
 
 try {
   await request("initialize", {
-    clientInfo: { name: "heliolune-host-smoke", version: "0.6.5" },
+    clientInfo: { name: "heliolune-host-smoke", version: "0.7.0-alpha.1" },
     capabilities: { experimentalApi: true },
   });
   notify("initialized");
@@ -146,8 +146,9 @@ try {
   }, 30_000);
   const runtimeText = runtimeResponse.content?.find((item) => item.type === "text")?.text;
   const runtime = runtimeResponse.structuredContent ?? JSON.parse(runtimeText ?? "null");
-  if (runtime?.version !== "0.6.5" || runtime.buildId !== "0.6.5-owner-heartbeat-r2" || runtime.promptVersion !== "mcp-v15-owner-heartbeat"
-      || runtime.defaultProfile !== "speed-first" || runtime.defaultParallelism !== 4
+  if (runtime?.version !== "0.7.0-alpha.1" || runtime.buildId !== "0.7.0-alpha.1-adaptive-shadow-r1" || runtime.promptVersion !== "mcp-v16-adaptive-shadow"
+      || runtime.defaultProfile !== "adaptive" || runtime.defaultParallelism !== 1
+      || JSON.stringify(runtime.adaptiveParallelism) !== JSON.stringify([1, 2, 4])
       || runtime.burstThreadsEphemeral !== true || runtime.appServerWindowHidden !== true || runtime.statusSurface !== "native-window") {
     throw new Error(`Installed Heliolune runtime gate failed: ${JSON.stringify(runtime)}`);
   }
@@ -180,6 +181,8 @@ try {
   }, null);
   stage("await_task is blocking on the independent server");
   const awaited = await awaitResponse;
+  const awaitedText = awaited.content?.find((item) => item.type === "text")?.text;
+  const terminal = awaited.structuredContent ?? JSON.parse(awaitedText ?? "null");
   const finalRecord = await readJobRecord(started.jobId);
   stage(`await_task complete; final status: ${finalRecord?.status}`);
 
@@ -190,8 +193,13 @@ try {
   const finalWorkers = finalRecord.snapshot?.workers ?? [];
   const burstWorkers = finalWorkers.filter((worker) => worker.lane.startsWith("burst-"));
   const activeWorker = burstWorkers.find((worker) => worker.explanation);
-  if (burstWorkers.length !== 4 || burstWorkers.some((worker) => !["completed", "failed"].includes(worker.status)) || !activeWorker?.explanation) {
+  if (burstWorkers.length !== 1 || burstWorkers.some((worker) => !["completed", "failed"].includes(worker.status)) || !activeWorker?.explanation) {
     throw new Error(`Worker lanes or natural-language status are incomplete: ${JSON.stringify(finalWorkers)}`);
+  }
+  if (terminal?.priority !== "adaptive" || terminal?.parallelism !== 1
+      || terminal?.telemetry?.schema !== "TASK_NODE_V1"
+      || terminal?.telemetry?.routing?.actualParallelism !== 1) {
+    throw new Error(`Adaptive route or task telemetry is incomplete: ${JSON.stringify(terminal)}`);
   }
   if (windowReady?.language === "zh-CN" && !/[\u3400-\u9fff]/u.test(activeWorker.explanation)) {
     throw new Error(`Luna explanation did not follow the detected Chinese UI language: ${activeWorker.explanation}`);
@@ -216,6 +224,7 @@ try {
     windowReady,
     activeWorker,
     cost: visibleCost,
+    telemetry: terminal.telemetry,
     finalProgress: finalRecord.snapshot?.progress,
     awaitStatus: "completed",
     windowAutoClosed,

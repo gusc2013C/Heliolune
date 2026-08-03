@@ -4,9 +4,9 @@
 
 **高智力监督，低成本执行。**
 
-Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 自动展开为带 detached-worktree 写隔离的 4 路 Luna/max worker。
+Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 自适应选择带 detached-worktree 写隔离的 1、2 或 4 路 Luna/max worker。
 
-> 当前发布版本：**`0.6.5`**。1.0 之前公共接口仍可能调整。
+> 当前预发布版本：**`0.7.0-alpha.1`**。1.0 之前公共接口仍可能调整。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
@@ -33,7 +33,8 @@ Sol review and final acceptance
 
 - 一个紧凑 `start_task` 自动生成精确 scope owner，以及 contract、边界/测试、正确性风险三路审查。
 - 不调用模型的 `runtime_info` 在付费工作前验证精确语义版本、构建 ID、prompt 身份、默认并行度、ephemeral worker、隐藏 app-server 与状态界面；同版本旧 MCP 也会失败关闭。
-- speed-first 默认启动 4 路 Luna/max worker；自定义 2–8 路 batch 属于高级入口，token-first 仅作显式安全回退。
+- 默认按任务信号自适应选择 1/2/4 路 worker；宽且独立的工作仍可显式选择 4 路 speed-first，自定义 2–8 路 batch 属于高级入口，token-first 保留为安全回退。
+- 每次运行记录 `TASK_NODE_V1` 路由/时序遥测；显式 speed-first 同时记录不参与执行的 adaptive shadow 决策。
 - worker 使用 Luna/max；共享 Operations Leader 默认使用 Luna/high，可选 xhigh。
 - session 使用 `ephemeral=true`，通常不会出现在 Codex Desktop 普通任务列表中。
 - standalone Codex app-server 强制隐藏；Windows 自动可见的 worker 界面只有 WPF Leader 悬浮窗。
@@ -69,7 +70,7 @@ Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能
 | 工具 | 用途 |
 |---|---|
 | `runtime_info` | 不调用模型，预检语义/构建/prompt 身份、默认并行度、ephemeral worker、隐藏 app-server 和状态界面。 |
-| `start_task` | 默认快速入口：把一份 Sol 紧凑任务自动展开为 4 路 Luna/max；`profile=token-first` 为安全回退。 |
+| `start_task` | 默认自适应入口：选择 1、2 或 4 路 Luna/max；`profile=speed-first` 强制四路，`profile=token-first` 选择安全回退。 |
 | `start_batch` | 高级自定义入口：用 4 或 8 个 Luna/max worker 运行 2–8 个 Sol 定义的 workstream。 |
 | `await_task`（`luna-await`） | 使用 start 返回的 job/build 身份阻塞等待一次，返回紧凑终态结果。 |
 | `cost_dashboard` | 不调用模型，返回累计成本、历史校准的 Sol-only 预测、缓存与分 lane 统计。 |
@@ -143,7 +144,9 @@ await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff�
 
 verification、存活判断与报告路由由内部自动管理。活动 worker 不会因墙钟时间被 steer 或中止；持续静默且 Leader 给出高置信度卡死判断，或连续 4 次检查都没有 app-server 活动时才会 interrupt。完成 turn 若输出非法 JSON，可以在同一 warm thread 使用一次 no-tools schema repair。最后一次修改后仍必须重新取得决定性检查；无法完成时应诚实返回 `partial`。
 
-默认使用 4 路 speed-first，小任务或单文件任务也不例外。`start_task` 自动生成一个精确 scope owner，以及只读 contract、边界/测试、正确性风险审查，Sol 不再为固定角色重复消耗提示 token。只有 mutating 仓库 dirty/非 Git、写 scope 无法安全隔离，或严格依赖使并行结果不可用时，才显式回退 token-first；dirty 仓库里的只读工作仍保持并行。显式自定义 4/8 路 batch 继续由 `start_batch` 提供。
+默认使用 adaptive：低风险且最多两个精确文件的工作使用单 owner；中等有界工作使用 owner 加边界/测试审查；宽 scope、目录 scope、高风险或保留边界使用成熟的 owner/contract/边界/正确性四路方案。显式 `speed-first` 始终选择四路；只有写隔离不安全或严格依赖使并行结果不可用时才回退 token-first。`start_batch` 继续提供显式 2–8 路自定义 batch。
+
+分类器是确定性的，并公开其判断信号。speed-first 会保留未参与执行的 adaptive shadow 决策。终态 `TASK_NODE_V1` 遥测记录实际/shadow 路由、node 状态、排队时间、活动墙钟、关键路径、利用率与 Leader 占比；controller 与验收侧暂时看不到的指标明确标为 unavailable。
 
 并行 workstream 应优先拆到约 90 秒规模，但 90 秒仅是首次存活检查点。近期 app-server 活动会无模型调用地持续续租；持续静默才由共享 Luna/high Leader 合并读取紧凑 snapshot。模糊判断、Leader 不可用或低/中置信度中止建议会继续续租一次，但连续 4 次检查都无 app-server 活动时本地卡死熔断会打开。调度器使用共享队列，空闲 slot 会立即领取下一项，不等待较慢 worker。Leader 不得规划、重分配 scope 或验收 batch。
 
@@ -159,7 +162,7 @@ mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓�
 
 0.6.4 可续租存活回归使用 30 秒首次检查点完成了真实 5 workstream / 4 slot Luna 运行。两个 worker 在检查点后自然完成，第一个空闲 slot 在最慢 sibling 结束前领取第五项。详见 [0.6.4 可续租存活验证](docs/0.6.4-RENEWABLE-LIVENESS.zh-CN.md)。
 
-0.6.5 发布门禁用最终安装插件完整重跑 Codex 宿主、原生窗口自动关闭、token-first 生命周期审计、4 路排队、8 路最大并发和隔离并行写。全部最终运行完成，每个 smoke 都验证 runner 回收，进程审计未发现 Heliolune standalone app-server 残留。详见 [0.6.5 真实 demo 验证](docs/0.6.5-REAL-DEMO.zh-CN.md)。
+0.7.0 alpha 的窄任务匹配测试实现墙钟 -29.88%、估算费用 -86.18%；但双路匹配测试在费用 -36.97% 的同时墙钟反而 +3.57%。该负结果被完整保留，因此本版本不作普适加速声明。详见 [0.7.0 alpha 评估](docs/0.7.0-ALPHA.zh-CN.md)与历史 [0.6.5 真实 demo 验证](docs/0.6.5-REAL-DEMO.zh-CN.md)。
 
 默认费率为用户提供的每百万 token 价格单位：
 
