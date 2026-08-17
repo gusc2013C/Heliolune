@@ -9,6 +9,7 @@ const COMPACT_BASE_INSTRUCTIONS = `You are a bounded repository worker controlle
 
 export const APP_SERVER_WINDOWS_HIDDEN = true;
 export const BURST_THREADS_EPHEMERAL = true;
+const TOKEN_USAGE_GRACE_MS = 100;
 
 function uniquePathEntries(entries) {
   const seen = new Set();
@@ -93,6 +94,7 @@ export class AppServerClient {
     this.pending = new Map();
     this.waiters = new Set();
     this.latestUsage = new Map();
+    this.finalizedTurns = new Set();
     this.turnActivity = new Map();
     this.completedTurns = new Map();
     this.child = null;
@@ -166,11 +168,12 @@ export class AppServerClient {
       })}\n`);
       return;
     }
-    if (message.method === "thread/tokenUsage/updated") {
-      this.latestUsage.set(message.params.turnId, message.params.tokenUsage);
-    }
     const activityTurnId = notificationTurnId(message);
-    if (message.method === "turn/completed" && activityTurnId) {
+    if (message.method === "thread/tokenUsage/updated" && activityTurnId && !this.finalizedTurns.has(activityTurnId)) {
+      this.latestUsage.set(activityTurnId, message.params?.tokenUsage ?? null);
+      while (this.latestUsage.size > 64) this.latestUsage.delete(this.latestUsage.keys().next().value);
+    }
+    if (message.method === "turn/completed" && activityTurnId && !this.finalizedTurns.has(activityTurnId)) {
       this.completedTurns.set(activityTurnId, message);
       while (this.completedTurns.size > 32) this.completedTurns.delete(this.completedTurns.keys().next().value);
     }
@@ -275,6 +278,27 @@ export class AppServerClient {
     };
   }
 
+  #finalizeTurn(turnId) {
+    this.latestUsage.delete(turnId);
+    this.finalizedTurns.add(turnId);
+    while (this.finalizedTurns.size > 64) this.finalizedTurns.delete(this.finalizedTurns.values().next().value);
+    this.turnActivity.delete(turnId);
+    this.completedTurns.delete(turnId);
+  }
+
+  async #settleTurnUsage(turnId) {
+    if (this.latestUsage.has(turnId)) return this.latestUsage.get(turnId);
+    try {
+      await this.waitFor(
+        (message) => message.method === "thread/tokenUsage/updated" && notificationTurnId(message) === turnId,
+        TOKEN_USAGE_GRACE_MS,
+      );
+    } catch {
+      // Usage is best-effort metadata; completion must remain bounded when it never arrives.
+    }
+    return this.latestUsage.get(turnId) ?? null;
+  }
+
   async startThread({ cwd, sandbox, developerInstructions, model = "gpt-5.6-luna", ephemeral = BURST_THREADS_EPHEMERAL }) {
     const response = await this.request("thread/start", {
       model,
@@ -332,7 +356,24 @@ export class AppServerClient {
       responsesapiClientMetadata: { orchestrator: APP_NAME, lane: model },
     }, Math.min(60_000, Math.max(1_000, timeoutMs)));
     const turnId = response.turn.id;
+    let interruptRequested = false;
+    const requestInterruptOnce = async (requestTimeoutMs) => {
+      if (interruptRequested) return false;
+      interruptRequested = true;
+      await this.request("turn/interrupt", { threadId, turnId }, requestTimeoutMs).catch(() => {});
+      return true;
+    };
     const completionTimeoutMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+    const maxElapsedMs = Number.isFinite(watchdog?.maxElapsedMs) && watchdog.maxElapsedMs >= 0
+      ? watchdog.maxElapsedMs
+      : null;
+    const budgetExpired = () => maxElapsedMs != null && Date.now() - startedAt >= maxElapsedMs;
+    const budgetError = () => {
+      const error = new Error(`Luna turn exceeded execution budget of ${maxElapsedMs}ms`);
+      error.code = "EXECUTION_BUDGET_EXCEEDED";
+      error.maxElapsedMs = maxElapsedMs;
+      return error;
+    };
     this.turnActivity.set(turnId, {
       startedAt,
       lastEventAt: Date.now(),
@@ -353,7 +394,25 @@ export class AppServerClient {
     let supervision = null;
     let completionOutcome = null;
     const completionAbort = new AbortController();
+    let budgetTimer = null;
+    const acceptBoundaryCompletion = () => {
+      const message = completionOutcome?.kind === "completed"
+        ? completionOutcome.message
+        : this.completedTurns.get(turnId);
+      if (!message) return false;
+      completed = message;
+      return true;
+    };
     try {
+      const budget = maxElapsedMs == null
+        ? null
+        : budgetExpired()
+          ? Promise.resolve({ kind: "budget" })
+          : new Promise((resolve) => {
+            const delayMs = Math.max(0, maxElapsedMs - (Date.now() - startedAt));
+            budgetTimer = setTimeout(() => resolve({ kind: "budget" }), delayMs);
+            budgetTimer.unref?.();
+          });
       const alreadyCompleted = this.completedTurns.get(turnId);
       const notificationCompletion = (alreadyCompleted
         ? Promise.resolve(alreadyCompleted)
@@ -374,15 +433,31 @@ export class AppServerClient {
             checkpointTimer = setTimeout(() => resolve({ kind: "checkpoint" }), checkpointMs);
             checkpointTimer.unref?.();
           });
-          const first = await Promise.race([completion, checkpoint]);
+          const first = await Promise.race([completion, checkpoint, ...(budget ? [budget] : [])]);
           clearTimeout(checkpointTimer);
+          if (first.kind === "budget" || budgetExpired()) {
+            if (acceptBoundaryCompletion()) break;
+            throw budgetError();
+          }
           if (first.kind === "completed") {
             completed = first.message;
             break;
           }
           if (first.kind === "error") throw first.error;
 
-          supervision = await watchdog.onCheck(this.turnSnapshot(turnId));
+          if (budget) {
+            const supervisionCheck = Promise.resolve()
+              .then(() => watchdog.onCheck(this.turnSnapshot(turnId)))
+              .then((value) => ({ kind: "supervision", value }));
+            const supervisionOutcome = await Promise.race([supervisionCheck, budget]);
+            if (supervisionOutcome.kind === "budget" || budgetExpired()) {
+              if (acceptBoundaryCompletion()) break;
+              throw budgetError();
+            }
+            supervision = supervisionOutcome.value;
+          } else {
+            supervision = await watchdog.onCheck(this.turnSnapshot(turnId));
+          }
           if (completionOutcome?.kind === "completed") {
             if (supervision?.action === "interrupt") {
               supervision = {
@@ -397,14 +472,18 @@ export class AppServerClient {
           }
           if (completionOutcome?.kind === "error") throw completionOutcome.error;
           if (supervision?.action === "interrupt") {
-            await this.request("turn/interrupt", { threadId, turnId }, 30_000).catch(() => {});
+            await requestInterruptOnce(30_000);
             const error = new Error(`Luna supervisor interrupted a likely stalled turn: ${supervision.reason}`);
             error.code = "SUPERVISOR_INTERRUPTED";
             error.supervision = supervision;
             throw error;
           }
           if (!watchdog.renewable) {
-            const final = await completion;
+            const final = budget ? await Promise.race([completion, budget]) : await completion;
+            if (final.kind === "budget" || budgetExpired()) {
+              if (acceptBoundaryCompletion()) break;
+              throw budgetError();
+            }
             if (final.kind === "error") throw final.error;
             completed = final.message;
             break;
@@ -412,19 +491,24 @@ export class AppServerClient {
           checkpointMs = watchdog.repeatMs ?? watchdog.afterMs;
         }
       } else {
-        const final = await completion;
-        if (final.kind === "error") throw final.error;
-        completed = final.message;
+        const final = budget ? await Promise.race([completion, budget]) : await completion;
+        if (final.kind === "budget" || budgetExpired()) {
+          if (!acceptBoundaryCompletion()) throw budgetError();
+        } else {
+          if (final.kind === "error") throw final.error;
+          completed = final.message;
+        }
       }
     } catch (error) {
       completionAbort.abort();
+      if (budgetTimer) clearTimeout(budgetTimer);
       const timedOut = error.message === "Timed out waiting for app-server notification";
       const lateCompletion = timedOut ? this.completedTurns.get(turnId) : null;
       const authoritativeFinalItem = timedOut ? this.turnActivity.get(turnId)?.finalAnswerItem : null;
       if (lateCompletion) {
         completed = lateCompletion;
       } else if (authoritativeFinalItem) {
-        await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
+        await requestInterruptOnce(5_000);
         completed = {
           method: "turn/completed",
           params: {
@@ -438,29 +522,27 @@ export class AppServerClient {
           },
         };
       } else {
-        await this.request("turn/interrupt", { threadId, turnId }, 5_000).catch(() => {});
+        await requestInterruptOnce(5_000);
       }
       if (timedOut && !completed) {
         error.code = "TURN_HARD_TIMEOUT";
         error.missingCompletion = !this.completedTurns.has(turnId);
       }
       if (!completed) {
+        const settledUsage = this.latestUsage.get(turnId) ?? await this.#settleTurnUsage(turnId);
         error.activity = this.turnSnapshot(turnId);
-        error.usage ??= this.latestUsage.get(turnId) ?? error.activity?.usage ?? null;
+        error.usage ??= settledUsage ?? error.activity?.usage ?? null;
         error.supervision ??= supervision;
-        this.latestUsage.delete(turnId);
-        this.turnActivity.delete(turnId);
-        this.completedTurns.delete(turnId);
+        this.#finalizeTurn(turnId);
         throw error;
       }
     }
+    if (budgetTimer) clearTimeout(budgetTimer);
     completionAbort.abort();
     const turn = completed.params.turn;
-    const usage = this.latestUsage.get(turnId) ?? null;
-    this.latestUsage.delete(turnId);
+    const usage = await this.#settleTurnUsage(turnId);
     const activity = this.turnSnapshot(turnId);
-    this.turnActivity.delete(turnId);
-    this.completedTurns.delete(turnId);
+    this.#finalizeTurn(turnId);
     const finalItems = turn.items.filter((item) => item.type === "agentMessage" && item.phase === "final_answer");
     const fallbackItems = turn.items.filter((item) => item.type === "agentMessage");
     const textOutput = (finalItems.at(-1) ?? fallbackItems.at(-1))?.text ?? "";

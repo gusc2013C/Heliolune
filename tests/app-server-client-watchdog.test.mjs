@@ -1,5 +1,7 @@
+import { EventEmitter } from "node:events";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -48,6 +50,230 @@ async function clientForTest(t) {
   t.after(() => client.close());
   return client;
 }
+
+class LateUsageChild extends EventEmitter {
+  constructor({ completionDelay = 10, usageDelay = 25, orphanDelay = 180, activityDelays = [] } = {}) {
+    super();
+    this.pid = 42_424;
+    this.exitCode = null;
+    this.stdout = new PassThrough();
+    this.stderr = new PassThrough();
+    this.turnId = "late-usage-turn";
+    this.completionDelay = completionDelay;
+    this.usageDelay = usageDelay;
+    this.orphanDelay = orphanDelay;
+    this.activityDelays = activityDelays;
+    this.interrupts = 0;
+    this.timers = [];
+    this.stdin = { write: (line) => this.#handle(JSON.parse(line)) };
+  }
+
+  #send(message) {
+    queueMicrotask(() => this.stdout.write(`${JSON.stringify(message)}\n`));
+  }
+
+  #handle(message) {
+    if (message.id == null) return;
+    if (message.method === "initialize") return this.#send({ jsonrpc: "2.0", id: message.id, result: {} });
+    if (message.method === "thread/start") return this.#send({ jsonrpc: "2.0", id: message.id, result: { thread: { id: "late-thread" } } });
+    if (message.method === "turn/interrupt") {
+      this.interrupts += 1;
+      return this.#send({ jsonrpc: "2.0", id: message.id, result: {} });
+    }
+    if (message.method !== "turn/start") return this.#send({ jsonrpc: "2.0", id: message.id, result: {} });
+
+    this.#send({ jsonrpc: "2.0", id: message.id, result: { turn: { id: this.turnId } } });
+    const usage = { last: { inputTokens: 321, cachedInputTokens: 300, outputTokens: 21, reasoningOutputTokens: 7, totalTokens: 342 } };
+    const schedule = (delay, notification) => {
+      const timer = setTimeout(() => this.#send(notification()), delay);
+      this.timers.push(timer);
+    };
+    if (this.completionDelay != null) {
+      schedule(this.completionDelay, () => ({
+        jsonrpc: "2.0",
+        method: "turn/completed",
+        params: {
+          turn: {
+            id: this.turnId,
+            status: "completed",
+            durationMs: this.completionDelay,
+            items: [{ type: "agentMessage", phase: "final_answer", text: JSON.stringify({ ok: true }) }],
+          },
+        },
+      }));
+    }
+    schedule(this.usageDelay, () => ({
+      jsonrpc: "2.0",
+      method: "thread/tokenUsage/updated",
+      params: { turnId: this.turnId, tokenUsage: usage },
+    }));
+    if (this.orphanDelay != null) {
+      schedule(this.orphanDelay, () => ({
+        jsonrpc: "2.0",
+        method: "thread/tokenUsage/updated",
+        params: { turnId: this.turnId, tokenUsage: { last: { inputTokens: 999 } } },
+      }));
+    }
+    for (const delay of this.activityDelays) {
+      schedule(delay, () => ({
+        jsonrpc: "2.0",
+        method: "item/started",
+        params: { turnId: this.turnId, item: { id: `item-${delay}` } },
+      }));
+    }
+  }
+
+  kill() {
+    for (const timer of this.timers) clearTimeout(timer);
+    this.timers = [];
+    this.exitCode = 0;
+    queueMicrotask(() => this.emit("exit", 0, "SIGTERM"));
+  }
+}
+
+test("a renewable turn cannot outlive its total execution budget", async (t) => {
+  const child = new LateUsageChild({
+    completionDelay: 220,
+    usageDelay: 45,
+    orphanDelay: null,
+    activityDelays: [10, 30, 50, 70, 90, 110],
+  });
+  const client = new AppServerClient({
+    executable: "fake-app-server",
+    platform: "linux",
+    spawnImpl: () => child,
+  });
+  await client.start();
+  t.after(() => client.close());
+  const maxElapsedMs = 85;
+  const checkElapsed = [];
+  await assert.rejects(
+    client.runTurn({
+      threadId: "late-thread", text: "BUDGET", cwd: process.cwd(),
+      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
+      watchdog: {
+        renewable: true,
+        afterMs: 20,
+        repeatMs: 20,
+        maxElapsedMs,
+        onCheck: async (snapshot) => {
+          checkElapsed.push(snapshot.elapsedMs);
+          return { action: "continue", confidence: "high", reason: "recent activity", source: "test-supervisor" };
+        },
+      },
+    }),
+    (error) => {
+      assert.equal(error.code, "EXECUTION_BUDGET_EXCEEDED");
+      assert.ok(error.activity.elapsedMs >= maxElapsedMs);
+      assert.ok(error.activity.eventCount >= 1);
+      assert.equal(error.usage.last.inputTokens, 321);
+      return true;
+    },
+  );
+  assert.ok(checkElapsed.length >= 1);
+  assert.ok(checkElapsed.every((elapsedMs) => elapsedMs < maxElapsedMs));
+  assert.equal(child.interrupts, 1);
+});
+
+test("completion observed during a slow watchdog check wins over the execution budget", async (t) => {
+  const child = new LateUsageChild({
+    completionDelay: 45,
+    usageDelay: 25,
+    orphanDelay: null,
+  });
+  const client = new AppServerClient({
+    executable: "fake-app-server",
+    platform: "linux",
+    spawnImpl: () => child,
+  });
+  await client.start();
+  t.after(() => client.close());
+  const run = await client.runTurn({
+    threadId: "late-thread", text: "BUDGET_COMPLETION_RACE", cwd: process.cwd(),
+    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
+    watchdog: {
+      renewable: true,
+      afterMs: 20,
+      repeatMs: 20,
+      maxElapsedMs: 85,
+      onCheck: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return { action: "continue", confidence: "high", reason: "slow check", source: "test-supervisor" };
+      },
+    },
+  });
+  assert.equal(run.output.ok, true);
+  assert.equal(child.interrupts, 0);
+});
+
+test("a supervisor interruption is sent at most once during error cleanup", async (t) => {
+  const child = new LateUsageChild({
+    completionDelay: 220,
+    usageDelay: 25,
+    orphanDelay: null,
+  });
+  const client = new AppServerClient({
+    executable: "fake-app-server",
+    platform: "linux",
+    spawnImpl: () => child,
+  });
+  await client.start();
+  t.after(() => client.close());
+  await assert.rejects(
+    client.runTurn({
+      threadId: "late-thread", text: "SUPERVISOR_INTERRUPT_ONCE", cwd: process.cwd(),
+      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
+      watchdog: {
+        afterMs: 20,
+        onCheck: async () => ({ action: "interrupt", confidence: "high", reason: "stalled", source: "test-supervisor" }),
+      },
+    }),
+    (error) => error.code === "SUPERVISOR_INTERRUPTED",
+  );
+  assert.equal(child.interrupts, 1);
+});
+
+test("completion settles briefly for late usage and drops post-finalization orphans", async (t) => {
+  const client = new AppServerClient({
+    executable: "fake-app-server",
+    platform: "linux",
+    spawnImpl: () => new LateUsageChild(),
+  });
+  await client.start();
+  t.after(() => client.close());
+  const startedAt = Date.now();
+  const run = await client.runTurn({
+    threadId: "late-thread", text: "LATE_USAGE", cwd: process.cwd(),
+    sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 500,
+  });
+  assert.equal(run.usage.last.inputTokens, 321);
+  assert.equal(run.activity.usage.last.inputTokens, 321);
+  assert.ok(Date.now() - startedAt < 250);
+  assert.equal(client.latestUsage.size, 0);
+  assert.equal(client.completedTurns.size, 0);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  assert.equal(client.latestUsage.size, 0);
+  assert.equal(client.completedTurns.size, 0);
+});
+
+test("a timed-out turn settles late failure usage before finalization", async (t) => {
+  const client = new AppServerClient({
+    executable: "fake-app-server",
+    platform: "linux",
+    spawnImpl: () => new LateUsageChild({ completionDelay: null, usageDelay: 60, orphanDelay: null }),
+  });
+  await client.start();
+  t.after(() => client.close());
+  await assert.rejects(
+    client.runTurn({
+      threadId: "late-thread", text: "NO_COMPLETION_LATE_USAGE", cwd: process.cwd(),
+      sandboxPolicy: { type: "readOnly", networkAccess: false }, outputSchema: schema, timeoutMs: 40,
+    }),
+    (error) => error.code === "TURN_HARD_TIMEOUT" && error.usage?.last?.inputTokens === 321,
+  );
+  assert.equal(client.latestUsage.size, 0);
+  assert.equal(client.completedTurns.size, 0);
+});
 
 test("recent app-server events prove a worker is live at soft timeout", async (t) => {
   const client = await clientForTest(t);

@@ -21,3 +21,15 @@ test("held non-empty patches are explicit quarantined recovery candidates", () =
   assert.equal(integration.recoverable.candidates[0].patchPath, "owner.patch");
   assert.equal(withRecoveryMetadata({ applied: true, reason: "safe-apply" }, []).recoverable, undefined);
 });
+
+test("partial apply recovery metadata contains only held workstreams", () => {
+  const integration = withRecoveryMetadata(
+    { applied: true, reason: "safe-partial-apply", heldWorkstreams: ["held"] },
+    [
+      { id: "applied", patchBytes: 12, patchPath: "applied.patch", changedPaths: ["src/a.mjs"], outOfScope: [] },
+      { id: "held", patchBytes: 42, patchPath: "held.patch", changedPaths: ["src/b.mjs"], outOfScope: [] },
+    ],
+  );
+  assert.equal(integration.recoverable.available, true);
+  assert.deepEqual(integration.recoverable.candidates.map((candidate) => candidate.id), ["held"]);
+});

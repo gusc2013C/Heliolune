@@ -1,6 +1,6 @@
 {
   "name": "luna-pool-orchestrator",
-  "version": "0.7.0-alpha.2",
+  "version": "0.7.0-alpha.2+codex.20260803121357",
   "description": "TASK_DAG_V1 orchestration with READY dependencies, leases, progressive 1/2/4 widening, affinity scheduling, candidate-bound challenges, and token-free status.",
   "author": {
     "name": "Sicheng Gu",

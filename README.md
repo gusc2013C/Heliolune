@@ -4,35 +4,48 @@ English · [简体中文](README.zh-CN.md)
 
 **High-intelligence supervision, low-cost execution.**
 
-Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models behind a compact, blocking MCP boundary. Its first adapter is a Codex plugin in which GPT-5.6 Sol sends one compact task and the MCP executes a validated task DAG on one, two, or four Luna/max workers with detached-worktree write isolation.
+Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models. The current Native V2 Codex plugin gives one bounded contract to a reusable Luna/max engineering owner, keeps ordinary terminal I/O on zero-model HelioTerm, and requires independent Sol acceptance. The legacy MCP adapter remains available for validated task-DAG execution on one, two, or four Luna/max workers with detached-worktree write isolation.
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current prerelease: **`0.7.0-alpha.2`**. Public contracts may change before 1.0.
+> Current prerelease: **`0.8.0-alpha.3`**. Public contracts may change before 1.0.
+
+The current release identity is the Native V2 `heliolune` plugin. The legacy `luna-pool-orchestrator` plugin remains available at `0.7.0-alpha.2` as a compatibility adapter.
 
 Heliolune is a personal open-source project by **Sicheng Gu**. It is not affiliated with or endorsed by OpenAI.
 
 ## What problem it solves
 
-Cheap workers stop being cheap when the expensive controller repeatedly polls them, rereads their exploration, starts cold acceptance sessions, or receives oversized transcripts. Heliolune places worker execution behind a start-once / await-once MCP boundary:
+Cheap workers stop being cheap when the expensive controller repeatedly polls them, rereads their exploration, starts cold acceptance sessions, or receives oversized transcripts. Native V2 keeps ownership and evidence bounded:
 
 ```text
-controller / governor
-  |  compact objective, acceptance criteria, scope and budget
+Sol controller / governor
+  |  validated owner contract + context pack
   v
-Heliolune MCP boundary (start once, await once, never poll from Sol)
-  |-- exact-scope owner
-  |-- contract, edge/test and correctness reviews
+one reusable Luna/max engineering owner
+  |-- implementation + bounded repair/evidence turns
+  |-- zero-model HelioTerm by default
   v
-compact evidence, changes, checks, risks, timing and usage
+structured result + actual paths + focused checks
   |
   v
-controller review and final acceptance
+independent Sol checks and final acceptance
 ```
 
 The stronger model stays responsible for decisions where judgment matters. Lower-cost models do bounded repository work and return evidence instead of an open-ended transcript.
 
-## Current capabilities
+## Native V2 capabilities
+
+- One persistent Luna/max owner handles a validated exact-scope contract for at most three bounded turns: implementation, focused repair, and evidence recovery.
+- A compact context pack limits first-pass discovery; public schemas bound scope, checks, evidence, residual risk, and objections.
+- Ordinary HelioTerm commands execute directly with `model=0`. A reusable Luna/high terminal leaf is available only for explicitly requested semantic terminal work.
+- Standalone Desktop agent profiles are installed from the plugin and verified against the configured model/effort bindings.
+- Persisted rollout proof verifies the real role, model, effort, Native V2 backend, parent/leaf state, tool budget, and result marker.
+- Sol independently inspects actual changed paths, runs its reserved checks, and accepts only a clean deterministic gate.
+
+See the alpha.3 notes for [Luna session reuse](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.md), [direct HelioTerm optimization](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.md), and [three-path HelioTerm measurements](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.md).
+
+## Legacy pool compatibility capabilities
 
 - One compact `start_task` fast path deterministically creates an exact-scope owner plus contract, edge/test, and correctness-risk reviews.
 - A no-model `runtime_info` preflight requires the exact semantic version, build ID, and prompt identity, so a stale same-version MCP fails closed before paid work.
@@ -74,7 +87,7 @@ The controller alone owns:
 
 Workers may inspect or modify only the scope granted by the host and task contract. A worker returns `needsSol` only when a genuinely reserved decision blocks or materially conditions the result.
 
-## MCP tools
+## Legacy pool MCP tools
 
 | Tool | Purpose |
 |---|---|
@@ -92,11 +105,11 @@ Natural-language activity text comes from official Codex `reasoning/summaryTextD
 
 ## Requirements
 
-- Windows 10 or Windows 11 for the currently tested release.
-- Codex with plugin and MCP support.
-- A standalone official Codex CLI on `PATH` with `app-server` and `gpt-5.6-luna` support.
+- Codex Desktop with Native V2 custom-agent support and `gpt-5.6-luna` access.
 - Node.js 20 or newer. Node.js 22 is used in CI.
 - Git for release packaging.
+
+The legacy pool adapter additionally requires Windows 10/11 for its tested native status surface, Codex MCP support, and a standalone official Codex CLI on `PATH` with `app-server` support.
 
 The MCP runtime is Node-based. The optional native panel uses the inbox Windows PowerShell 5.1 WPF runtime; repository validation and packaging also support PowerShell 7.
 
@@ -108,7 +121,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.7.0-alpha.2` |
+| Plugin version | `0.8.0-alpha.3` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -118,6 +131,8 @@ Clone or extract the repository, then register its root as a local marketplace:
 
 ```powershell
 codex plugin marketplace add "C:\path\to\heliolune"
+codex plugin add heliolune@heliolune
+# Optional legacy compatibility adapter:
 codex plugin add luna-pool-orchestrator@heliolune
 ```
 
@@ -126,6 +141,16 @@ Use the actual checkout path if it differs. Start a **new Codex task** after ins
 ## First use
 
 Delegate a bounded task directly:
+
+```text
+Use $heliolune for one bounded engineering task.
+Keep ordinary terminal work on direct HelioTerm, let one Luna/max owner implement and run
+the focused checks, then independently inspect the actual paths and run the Sol checks.
+```
+
+### Legacy pool adapter
+
+The compatibility adapter retains the start-once / await-once task-DAG route:
 
 ```text
 Use $luna-pool-orchestrator.
@@ -154,7 +179,7 @@ After one await, Sol must review integration.applied, inspect the main-worktree 
 
 Good tasks have an explicit outcome, one to eight testable acceptance criteria, narrow file or directory scope, and modest exploration budgets. Avoid pasting repository files or generic project history into the worker request; workers inspect the repository directly.
 
-## Routing behavior
+## Legacy pool routing behavior
 
 - `core`: bounded production-code analysis and implementation.
 - `tests`: tests, fixtures, regressions, and test-focused diagnosis.
@@ -176,7 +201,7 @@ Reporting is automatic in the public 0.6 contract. Small low-risk token-first bu
 
 Token-first owners and verifiers use the same renewable liveness policy. A completed turn with invalid JSON may receive one same-thread, no-tools schema-repair request. Mutating workers must still rerun decisive checks after their last edit; supplied, runnable acceptance may yield `completed`, while unavailable hidden tests remain risks for Sol. Workers may return `partial` rather than inventing evidence.
 
-## Cost and performance
+## Legacy pool cost and performance
 
 Reference measurements for the alpha build are local microbenchmarks, not universal performance guarantees:
 

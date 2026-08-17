@@ -68,6 +68,6 @@ export function compactSupervisorPrompt({ lane, mode, objective, snapshot, sched
       usage: snapshot.usage,
       staleAfterMs: schedule.staleMs,
     })}`,
-    "Decide only the worker's liveness. There is no execution deadline: recommend continue while activity indicates bounded work, and interrupt only with high confidence after sustained silence indicates a stall. Do not decide architecture, security, public API, migrations, implementation correctness, or acceptance. Prefer continue when evidence is ambiguous. Return the schema only.",
+    "Decide only the worker's liveness inside the controller's separate deterministic total execution budget. Recommend continue while activity indicates bounded work, and interrupt only with high confidence after sustained silence indicates a stall. Do not override the controller budget. Do not decide architecture, security, public API, migrations, implementation correctness, or acceptance. Prefer continue when evidence is ambiguous. Return the schema only.",
   ].join("\n");
 }

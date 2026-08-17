@@ -1,0 +1,4 @@
+interface:
+  display_name: "HelioTerm"
+  short_description: "Fast zero-model batched terminal"
+  default_prompt: "Use $helioterm direct mode and batch all bounded observations into one local call."

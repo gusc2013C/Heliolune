@@ -4,6 +4,15 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.0-alpha.3] - 2026-08-17
+
+### Native V2 owner 与有界 terminal I/O
+
+- 将 Native V2 `heliolune` 插件设为当前发布身份，提供可复用 Luna owner、有界 follow-up、结构化 evidence 与独立 Sol 验收。
+- 保留旧 `luna-pool-orchestrator` 插件及其 0.7.0-alpha.2 runtime 身份，作为经过验证的兼容适配器。
+- 默认提供确定性的 direct HelioTerm 执行路径，并保留显式、有界的模型 terminal 回退与安装/证明所需的 Native V2 agent profile。
+- 为 alpha.3 会话复用和 HelioTerm 测量记录补齐英文版本与语言链接。详见 [`Luna 会话复用`](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.zh-CN.md)、[`HelioTerm 直连优化`](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md) 与 [`HelioTerm 三路实测`](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md)。
+
 ## [0.7.0-alpha.2] - 2026-08-03
 
 ### 可执行任务图

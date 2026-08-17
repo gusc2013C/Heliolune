@@ -1,0 +1,44 @@
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 4
+interrupt_message = true
+
+[agents.heliolune_luna_owner]
+description = "Compatibility alias for the model-bound Heliolune engineering owner."
+config_file = "../plugins/heliolune/agents/luna-owner.toml"
+
+[agents.heliolune_engineering_owner]
+description = "Heliolune model-bound engineering owner: one writer using a validated context pack."
+config_file = "../plugins/heliolune/agents/luna-owner.toml"
+
+[agents.heliolune_luna_peer]
+description = "Compatibility alias for the model-bound read-only engineering peer."
+config_file = "../plugins/heliolune/agents/luna-peer.toml"
+
+[agents.heliolune_engineering_peer]
+description = "Heliolune model-bound read-only peer for one independent, bounded investigation."
+config_file = "../plugins/heliolune/agents/luna-peer.toml"
+
+[agents.heliolune_luna_critic]
+description = "Compatibility alias for the model-bound read-only engineering critic."
+config_file = "../plugins/heliolune/agents/luna-critic.toml"
+
+[agents.heliolune_engineering_critic]
+description = "Heliolune model-bound read-only critic used only when a risk gate fires."
+config_file = "../plugins/heliolune/agents/luna-critic.toml"
+
+[agents.heliolune_spark_terminal]
+description = "Legacy name for the Luna-bound HelioTerm compatibility role."
+config_file = "../plugins/heliolune/agents/helioterm.toml"
+
+[agents.heliolune_helioterm]
+description = "Independent reusable Luna-bound HelioTerm leaf for deterministic commands and compact output."
+config_file = "../plugins/heliolune/agents/helioterm.toml"
+
+[agents.helioterm]
+description = "Standalone HelioTerm alias bundled with Heliolune by default."
+config_file = "../plugins/heliolune/agents/helioterm.toml"
+
+[agents.helioterm_mcp]
+description = "Experimental shell-free MCP transport for HelioTerm comparison."
+config_file = "../plugins/heliolune/agents/helioterm-mcp.toml"

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "HELIOLUNE_LUNA_SESSION_POLICY_EVIDENCE_V1",
+  "version": "0.8.0-alpha.3",
+  "observedAt": "2026-08-08",
+  "pricingCreditsPerMillionTokens": {
+    "gpt-5.6-sol": { "input": 125, "cachedInput": 12.5, "output": 750 },
+    "gpt-5.6-luna": { "input": 5, "cachedInput": 0.5, "output": 30 },
+    "solToLunaRatio": { "input": 25, "cachedInput": 25, "output": 25 }
+  },
+  "activePolicy": {
+    "ordinaryTerminal": { "mode": "direct", "modelCalls": 0 },
+    "semanticTerminal": { "model": "gpt-5.6-luna", "effort": "high", "maxRequests": 8 },
+    "mcpTerminal": { "model": "gpt-5.6-luna", "effort": "high", "maxRequests": 8, "experimental": true },
+    "engineeringOwner": { "model": "gpt-5.6-luna", "effort": "max", "maxTurns": 3, "maxToolCalls": 36, "maxEditCalls": 6 }
+  },
+  "sameSessionReuseObservation": {
+    "initialCachedInputTokens": 0,
+    "cumulativeInputTokens": 128776,
+    "cumulativeCachedInputTokens": 107008,
+    "cumulativeCacheRate": 0.830962291
+  },
+  "interpretation": [
+    "The observed cumulative cache rate supports bounded same-session reuse; it is not a universal guarantee.",
+    "A new session is required when contract, objective, scope, reserved decisions, branch, or worktree changes.",
+    "Independent Sol acceptance and persisted rollout model proof remain mandatory."
+  ]
+}

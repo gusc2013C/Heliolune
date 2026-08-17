@@ -86,6 +86,13 @@ export function sumUsage(values) {
   return normalizeUsage(total);
 }
 
+export function aggregateFailureUsage(error = {}) {
+  return sumUsage([
+    error?.priorUsage,
+    error?.usage ?? error?.activity?.usage,
+  ]);
+}
+
 export function estimateModelCost(usageValue, model, catalog = DEFAULT_PRICING) {
   const rate = catalog[model];
   if (!rate) throw new Error(`No pricing configured for model: ${model}`);

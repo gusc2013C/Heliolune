@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "HELIOLUNE_MODEL_BINDINGS_V1",
+  "owner": {
+    "agentType": "heliolune_engineering_owner",
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "configFile": "agents/luna-owner.toml"
+  },
+  "peer": {
+    "agentType": "heliolune_engineering_peer",
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "configFile": "agents/luna-peer.toml"
+  },
+  "critic": {
+    "agentType": "heliolune_engineering_critic",
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "configFile": "agents/luna-critic.toml"
+  },
+  "terminal": {
+    "defaultMode": "direct",
+    "directRunner": "components/helioterm/direct-runner.mjs",
+    "agentType": "heliolune_helioterm",
+    "model": "gpt-5.6-luna",
+    "effort": "high",
+    "configFile": "agents/helioterm.toml"
+  },
+  "terminalMcp": {
+    "agentType": "helioterm_mcp",
+    "model": "gpt-5.6-luna",
+    "effort": "high",
+    "configFile": "agents/helioterm-mcp.toml"
+  }
+}

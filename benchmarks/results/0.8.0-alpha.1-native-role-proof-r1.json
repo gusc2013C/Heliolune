@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "HELIOLUNE_NATIVE_ROLE_BENCHMARK_V1",
+  "version": "0.8.0-alpha.1",
+  "recordedAt": "2026-08-08T05:15:00Z",
+  "environment": {
+    "product": "Codex Desktop",
+    "packageVersion": "26.803.5235.0",
+    "cliVersion": "0.147.0-alpha.6.5",
+    "rootModel": "gpt-5.6-sol",
+    "rootEffort": "xhigh",
+    "backend": "v2"
+  },
+  "negativeControl": {
+    "description": "A task created before project role configuration was added could not resolve the role.",
+    "strictError": "unknown agent_type 'heliolune_luna_owner'",
+    "taskNameOnlyChildModel": "gpt-5.6-sol",
+    "taskNameOnlyAgentRole": null,
+    "conclusion": "Start a fresh Codex task after role configuration changes; task_name is not a role selector."
+  },
+  "proofs": [
+    {
+      "route": "Sol -> Luna owner",
+      "threadId": "019fdfca-31d7-7080-bcf9-48f6c27cc0b3",
+      "parentThreadId": "019fdfc9-fd59-7712-9adb-0ad107958849",
+      "agentPath": "/root/p0_luna_owner_marker",
+      "agentRole": "heliolune_luna_owner",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "max",
+      "backend": "v2",
+      "marker": "HELIOLUNE_LUNA_OWNER_ROLE_APPLIED",
+      "usage": {
+        "initialProbe": {
+          "inputTokens": 17786,
+          "cachedInputTokens": 0,
+          "outputTokens": 74,
+          "reasoningOutputTokens": 58,
+          "totalTokens": 17860
+        },
+        "cumulativeAfterFollowupAndNestedRouting": {
+          "inputTokens": 128776,
+          "cachedInputTokens": 107008,
+          "outputTokens": 677,
+          "reasoningOutputTokens": 248,
+          "totalTokens": 129453
+        }
+      }
+    },
+    {
+      "route": "Luna owner -> Luna peer",
+      "threadId": "019fdfcb-2fc8-7740-8156-e46ca5f5317f",
+      "parentThreadId": "019fdfca-31d7-7080-bcf9-48f6c27cc0b3",
+      "agentPath": "/root/p0_luna_owner_marker/nested_luna_peer_probe",
+      "agentRole": "heliolune_luna_peer",
+      "model": "gpt-5.6-luna",
+      "reasoningEffort": "max",
+      "backend": "v2",
+      "marker": "HELIOLUNE_LUNA_PEER_ROLE_APPLIED",
+      "usage": {
+        "inputTokens": 17698,
+        "cachedInputTokens": 12032,
+        "outputTokens": 38,
+        "reasoningOutputTokens": 21,
+        "totalTokens": 17736
+      }
+    },
+    {
+      "route": "Luna owner -> Spark terminal",
+      "threadId": "019fdfcb-49e2-7643-82be-e8c11a7a8e7f",
+      "parentThreadId": "019fdfca-31d7-7080-bcf9-48f6c27cc0b3",
+      "agentPath": "/root/p0_luna_owner_marker/nested_spark_terminal_probe",
+      "agentRole": "heliolune_spark_terminal",
+      "model": "gpt-5.3-codex-spark",
+      "reasoningEffort": "medium",
+      "backend": "v2",
+      "marker": "HELIOLUNE_SPARK_TERMINAL_ROLE_APPLIED",
+      "usage": {
+        "inputTokens": 16366,
+        "cachedInputTokens": 4608,
+        "outputTokens": 196,
+        "reasoningOutputTokens": 178,
+        "totalTokens": 16562
+      }
+    }
+  ],
+  "invariants": {
+    "forkTurns": "none",
+    "explicitModelOverride": false,
+    "sameWorkspaceVisibility": true,
+    "ownerFollowupReused": true,
+    "modelFallbackObserved": false,
+    "defaultMcpServers": 0
+  },
+  "singleFileTokenOptimization": {
+    "benchmarkNote": "A trivial one-file read was deliberately delegated to isolate fixed context and shell retry costs; production routing keeps such work in Sol.",
+    "runs": [
+      {
+        "threadId": "019fdfd8-bd5a-7460-8a07-a2ab6bbb9c0c",
+        "guidance": "Compact preflight plus generic anti-duplication guidance",
+        "repositoryToolCalls": 5,
+        "inputTokens": 134521,
+        "cachedInputTokens": 114944,
+        "totalTokens": 135619
+      },
+      {
+        "threadId": "019fdfdc-9904-7270-81ab-bde455234da4",
+        "guidance": "Generic Windows cmd or Node guidance",
+        "repositoryToolCalls": 4,
+        "inputTokens": 122144,
+        "cachedInputTokens": 103936,
+        "totalTokens": 125467
+      },
+      {
+        "threadId": "019fdfe0-9c7e-7a70-9070-981efe878bf6",
+        "guidance": "Deterministic system cmd.exe plus type template",
+        "repositoryToolCalls": 1,
+        "inputTokens": 56845,
+        "cachedInputTokens": 43264,
+        "totalTokens": 57484,
+        "reductionVsFourCallPercent": 54.2,
+        "reductionVsFiveCallPercent": 57.6,
+        "actualRole": "heliolune_luna_owner",
+        "actualModel": "gpt-5.6-luna",
+        "actualEffort": "max",
+        "backend": "v2",
+        "filesChanged": false
+      }
+    ],
+    "remainingCost": "Fixed Codex Desktop system, plugin, skill, and tool context is replayed across model/tool turns even with fork_turns=none. Preserve intelligence and amortize it with bounded real engineering tasks instead of trivial per-command delegation."
+  },
+  "interpretation": {
+    "roleRoutingPassed": true,
+    "tokenCaveat": "Clean child history does not remove the fixed system, skill, plugin, and tool context. Repeated owner tool turns recounted a large but mostly cached prefix.",
+    "nextStage": "0.8.0-alpha.2 matched real-engineering benchmark with one Luna writer and no Spark."
+  }
+}

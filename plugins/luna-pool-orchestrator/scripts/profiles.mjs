@@ -152,10 +152,10 @@ export function adaptiveRoute(args = {}) {
         : directoryScope
           ? "A directory-level scope keeps the full four-way review set."
           : "Three or more scoped paths justify the full four-way review set."
-  } else if (risk === "low" && scopeCount <= 2 && acceptanceCount <= 3) {
+  } else if (risk === "low" && scopeCount <= 2) {
     parallelism = 1;
     taskClass = "narrow-strong-contract";
-    reason = "A low-risk task with at most two scoped paths and three acceptance checks stays on one critical-path worker."
+    reason = "A low-risk task with at most two scoped paths stays on one critical-path worker; a detailed acceptance contract does not require duplicate exploration."
   } else {
     parallelism = 2;
     taskClass = "bounded-review";
@@ -286,8 +286,12 @@ export async function mapWithConcurrency(items, parallelism, work) {
 
 export function shouldUseBatchLeader({ profile, workstreams, outcomes, integration }) {
   if (profile !== ADAPTIVE.id) return true;
-  if (workstreams.length >= 4) return true;
   if (integration && integration.applied === false) return true;
+  if (workstreams.length >= 4) return true;
+  const terminal = outcomes.length === workstreams.length
+    && outcomes.every((outcome) => ["completed", "cancelled"].includes(outcome.status));
+  const declaredLowRisk = workstreams.every((workstream) => (workstream.risk ?? "moderate") === "low");
+  if (terminal && declaredLowRisk && workstreams.length <= 2) return false;
   return outcomes.some((outcome) => (
     !["completed", "cancelled"].includes(outcome.status)
     || outcome.needsSol?.length
@@ -329,6 +333,7 @@ export function compactBurstTask(workstream, budget) {
     workstream.candidateFingerprint
       ? `This is a clean-room post-patch challenge bound to candidate ${workstream.candidateFingerprint}. Inspect the supplied candidate checkout, do not trust owner reasoning, and include the fingerprint in the summary. If the checkout fingerprint changes, return status=blocked.`
       : "Use only the repository state and dependency evidence supplied to this node; never claim to observe an unsupplied candidate.",
+    "Keep the final payload compact: one-sentence summary and only decisive evidence, checks, risks, or Sol decisions. Do not repeat reasoning across fields.",
     "Return the schema only.",
   ].join("\n");
 }
@@ -349,6 +354,6 @@ export function compactBatchLeaderPrompt({ batchId, workstreams, outcomes, integ
 export function compactBatchSupervisorPrompt({ batchId, snapshots, schedule }) {
   return [
     `BATCH_SUPERVISE_DELTA ${JSON.stringify({ batchId, checkpointMs: schedule.checkpointMs, staleAfterMs: schedule.staleMs, workers: snapshots })}`,
-    "Manage liveness only. Workers have renewable leases and no execution deadline. For every supplied active burst slot, recommend continue while activity indicates bounded work; recommend interrupt only with high confidence after sustained silence indicates a stall. Do not inspect the repository, call tools, plan or reassign work, judge correctness, or change scope. Return the schema only.",
+    "Manage liveness only. Workers have renewable leases inside a separate deterministic total execution budget enforced by the controller. For every supplied active burst slot, recommend continue while activity indicates bounded work; recommend interrupt only with high confidence after sustained silence indicates a stall. Do not inspect the repository, call tools, plan or reassign work, judge correctness, change scope, or override the controller budget. Return the schema only.",
   ].join("\n");
 }

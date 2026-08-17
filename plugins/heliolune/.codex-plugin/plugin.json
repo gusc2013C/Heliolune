@@ -1,0 +1,36 @@
+{
+  "name": "heliolune",
+  "version": "0.8.0-alpha.3+codex.20260817170051",
+  "description": "Native V2 persistent Luna ownership with zero-model terminal I/O and independent Sol acceptance.",
+  "author": {
+    "name": "Sicheng Gu",
+    "url": "https://github.com/gusc2013C"
+  },
+  "homepage": "https://github.com/gusc2013C/Heliolune#readme",
+  "repository": "https://github.com/gusc2013C/Heliolune",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "subagents",
+    "luna",
+    "session-reuse",
+    "token-routing"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Heliolune Native",
+    "shortDescription": "Persistent Luna ownership with bounded I/O.",
+    "longDescription": "Heliolune 0.8 alpha.3 keeps and reuses one Luna/max engineering owner for bounded implementation and repair turns, uses zero-model HelioTerm I/O by default, validates structured evidence, and requires independent Sol diff and acceptance checks.",
+    "developerName": "Sicheng Gu",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/gusc2013C/Heliolune",
+    "defaultPrompt": [
+      "Use $heliolune for one validated task with a reusable Luna owner.",
+      "Use $heliolune R2 only when a reusable Luna terminal fallback is explicitly needed."
+    ]
+  }
+}

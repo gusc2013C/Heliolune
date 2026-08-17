@@ -4,32 +4,44 @@
 
 **高智力监督，低成本执行。**
 
-Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、规划、架构、风险、审查与验收，低成本 worker 在紧凑、阻塞式 MCP 边界后完成有明确 scope 的工程任务。第一个 Codex 适配器让 GPT-5.6 Sol 只发送一次紧凑任务，由 MCP 在带 detached-worktree 写隔离的 1、2 或 4 路 Luna/max worker 上执行经过验证的任务 DAG。
+Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、架构、风险与验收，低成本 worker 完成有明确 scope 的工程任务。当前 Native V2 Codex 插件把一份有界 contract 交给可复用的 Luna/max 工程 owner，普通 terminal I/O 默认走零模型 HelioTerm，并强制由 Sol 独立验收。旧 MCP 适配器继续提供带 detached-worktree 写隔离的 1、2 或 4 路任务 DAG。
 
-> 当前预发布版本：**`0.7.0-alpha.2`**。1.0 之前公共接口仍可能调整。
+> 当前预发布版本：**`0.8.0-alpha.3`**。1.0 之前公共接口仍可能调整。
+
+当前发布身份是 Native V2 `heliolune` 插件。旧版 `luna-pool-orchestrator` 仍以 `0.7.0-alpha.2` 作为兼容适配器提供。
 
 Heliolune 是 **Sicheng Gu** 的个人开源项目，与 OpenAI 无隶属或背书关系。
 
 ## 它解决什么问题
 
-便宜 worker 并不天然省钱。如果昂贵的 controller 不断轮询、重复读取探索记录、启动冷验收 session，或者接收过大的 transcript，Sol 的输入成本会吞掉 Luna 的价格优势。Heliolune 将工作封装为“启动一次、等待一次”的 MCP 边界：
+便宜 worker 并不天然省钱。如果昂贵的 controller 不断轮询、重复读取探索记录、启动冷验收 session，或者接收过大的 transcript，Sol 的输入成本会吞掉 Luna 的价格优势。Native V2 用有界 ownership 与 evidence 控制这部分开销：
 
 ```text
 Sol controller / governor
-  |  objective + acceptance + narrow scope + budget
+  |  validated owner contract + context pack
   v
-Heliolune MCP（启动一次、等待一次，Sol 不轮询）
-  |-- core / tests / integration owner
-  |-- optional verifier
-  |-- adaptive operations leader
+一个可复用的 Luna/max 工程 owner
+  |-- 实现 + 有界修复/证据轮次
+  |-- 普通命令默认零模型 HelioTerm
   v
-compact evidence + risks + checks + usage + cost
+结构化结果 + 实际路径 + 聚焦检查
   |
   v
-Sol review and final acceptance
+Sol 独立检查并最终验收
 ```
 
-## 当前能力
+## Native V2 当前能力
+
+- 一个持久 Luna/max owner 处理经过验证的精确 scope contract，最多复用三轮：实现、聚焦修复、证据恢复。
+- 紧凑 context pack 限制首次发现；公共 schema 对 scope、checks、evidence、残余风险和 objection 设定硬边界。
+- 普通 HelioTerm 命令直接执行并保持 `model=0`；只有显式语义 terminal 工作才允许复用 Luna/high terminal leaf。
+- 插件安装独立 Desktop agent profiles，并校验真实 model/effort 绑定。
+- 持久化 rollout proof 验证真实 role、model、effort、Native V2 backend、父子状态、工具预算和结果 marker。
+- Sol 独立核对实际修改路径、运行保留检查，并只接受通过确定性 gate 的结果。
+
+Alpha.3 证据见 [Luna 会话复用](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.zh-CN.md)、[HelioTerm direct 优化](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md)与[三路径测量](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md)。
+
+## 旧 pool 兼容能力
 
 - 一个紧凑 `start_task` 自动生成精确 scope owner，以及 contract、边界/测试、正确性风险三路审查。
 - 不调用模型的 `runtime_info` 在付费工作前验证精确语义版本、构建 ID、prompt 身份、默认并行度、ephemeral worker、隐藏 app-server 与状态界面；同版本旧 MCP 也会失败关闭。
@@ -68,7 +80,7 @@ Sol review and final acceptance
 
 Luna worker 只能在已授权 scope 内选择局部实现细节。Leader 只能基于 MCP 提供的运行元数据和结构化 owner/verifier 结果进行跟踪、存活判断与压缩，不得读取仓库、规划、分配工作或最终验收。
 
-## MCP 工具
+## 旧 pool MCP 工具
 
 | 工具 | 用途 |
 |---|---|
@@ -90,17 +102,19 @@ Heliolune 在 Windows 自动启动一个 WPF 悬浮窗，不再同时提供内�
 
 ## 环境要求
 
-- 当前完整测试：Windows 10/11。
-- 支持 plugin 与 MCP 的 Codex。
-- `PATH` 上存在独立官方 Codex CLI，并支持 `app-server` 与 `gpt-5.6-luna`。
+- 支持 Native V2 custom agent 且可使用 `gpt-5.6-luna` 的 Codex Desktop。
 - Node.js 20+；CI 使用 Node.js 22。
 - Git（发布打包使用）。
 - 发布脚本兼容 Windows PowerShell 5.1 与 PowerShell 7。
+
+旧 pool 适配器还要求 Windows 10/11（当前测试的原生状态界面）、Codex MCP 支持，以及 `PATH` 上支持 `app-server` 的独立官方 Codex CLI。
 
 ## 从 checkout 安装
 
 ```powershell
 codex plugin marketplace add "C:\path\to\heliolune"
+codex plugin add heliolune@heliolune
+# 可选的旧版兼容适配器：
 codex plugin add luna-pool-orchestrator@heliolune
 ```
 
@@ -109,6 +123,16 @@ codex plugin add luna-pool-orchestrator@heliolune
 ## 首次使用
 
 直接提交有界任务：
+
+```text
+使用 $heliolune 完成一个有界工程任务。
+普通 terminal 工作保持 direct HelioTerm；由一个 Luna/max owner 实现并运行聚焦检查，
+随后由 Sol 独立核对实际路径并运行保留检查。
+```
+
+### 旧 pool 兼容适配器
+
+兼容适配器继续保留“启动一次、等待一次”的任务 DAG 路径：
 
 ```text
 Use $luna-pool-orchestrator.
@@ -137,7 +161,7 @@ await 一次后，由 Sol 检查 integration.applied、审查主工作树 diff�
 
 优质任务应有明确 outcome、1–8 条可测试 acceptance、尽可能窄的文件/目录 scope，以及合理的文件/命令预算。不要把完整源码、旧 transcript 或通用项目背景粘贴给 worker；Luna 会直接读取仓库。
 
-## 路由与收尾
+## 旧 pool 路由与收尾
 
 - `core`：核心生产代码。
 - `tests`：测试、fixture、回归和失败诊断。
@@ -155,7 +179,7 @@ verification、存活判断与报告路由由内部自动管理。活动 worker 
 
 mutating batch 要求 `cwd` 是干净 Git 根目录；scope 必须是窄、仓库相对、非重叠且不含 glob/父目录跳转的路径。每个写 worker 在已验证 `HEAD` 的 fresh detached worktree 中启动。Heliolune 捕获 tracked、删除、rename、binary 与 untracked 变更，校验实际路径，全部 gate 通过后统一应用 patch、保持 index 未 staged，并清理临时 worktree。若 gate 失败，主 checkout 不变，结果返回本地 patch artifact 给 Sol；不得盲目应用。
 
-## 费用
+## 旧 pool 费用
 
 0.6.2 确定性代码测试中，Sol-only 与 Heliolune 均达到隐藏测试 12/12；墙钟分别为 123.532 秒与 127.451 秒，Luna worker 实测费用 0.457633 单位。controller 费用边界与启动工具面数据见 [0.6.2 快速启动 benchmark](docs/0.6.2-FAST-START-BENCHMARK.zh-CN.md)。
 

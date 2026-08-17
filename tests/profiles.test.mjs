@@ -62,6 +62,14 @@ test("adaptive routing uses one, two, or four workers from deterministic task si
   assert.equal(narrow.route.taskClass, "narrow-strong-contract");
   assert.deepEqual(narrow.workstreams.map(({ id }) => id), ["owner"]);
 
+  const explicitNarrow = adaptiveParallelWorkstreams({
+    lane: "core", mode: "analyze", objective: "Audit one bounded edge",
+    acceptance: ["Evidence", "Regression", "Usage", "Risk"], scope: ["src/parser.mjs"], risk: "low",
+  });
+  assert.equal(explicitNarrow.route.parallelism, 1);
+  assert.equal(explicitNarrow.route.signals.acceptanceCount, 4);
+  assert.deepEqual(explicitNarrow.workstreams.map(({ id }) => id), ["owner"]);
+
   const bounded = adaptiveParallelWorkstreams({
     lane: "core", mode: "repair", objective: "Repair bounded behavior", acceptance: ["Tests pass", "No regression", "Current evidence", "Document risk"],
     scope: ["src/parser.mjs"], risk: "moderate",
@@ -136,6 +144,13 @@ test("adaptive terminal reporting stays deterministic unless risk or failure nee
   const completed = [{ id: "owner", status: "completed", risks: [], needsSol: [] }];
   assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams, outcomes: completed, integration: { applied: true } }), false);
   assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams, outcomes: [{ ...completed[0], risks: [{ severity: "high" }] }], integration: { applied: true } }), true);
+  const lowRiskPair = [{ id: "owner", risk: "low" }, { id: "edges", risk: "low" }];
+  const boundedRisk = [
+    { ...completed[0], risks: [{ severity: "high" }], needsSol: [{ decision: "Sol review", reason: "Preserve the full outcome" }] },
+    { id: "edges", status: "completed", risks: [], needsSol: [] },
+  ];
+  assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams: lowRiskPair, outcomes: boundedRisk, integration: { applied: true } }), false);
+  assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams: lowRiskPair, outcomes: [{ ...boundedRisk[0], status: "failed" }, boundedRisk[1]], integration: { applied: true } }), true);
   assert.equal(shouldUseBatchLeader({ profile: "adaptive", workstreams, outcomes: completed, integration: { applied: false } }), true);
   assert.equal(shouldUseBatchLeader({ profile: "speed-first", workstreams, outcomes: completed, integration: { applied: true } }), true);
 });

@@ -4,6 +4,15 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.0-alpha.3] - 2026-08-17
+
+### Native V2 ownership and bounded terminal I/O
+
+- Make the Native V2 `heliolune` plugin the current release identity, with a reusable Luna owner, bounded follow-up turns, structured evidence, and independent Sol acceptance.
+- Keep the legacy `luna-pool-orchestrator` plugin and its 0.7.0-alpha.2 runtime identity as a validated compatibility adapter.
+- Ship deterministic direct HelioTerm execution by default, with explicit bounded model-backed terminal fallback and the Native V2 agent profiles required for installation and proof.
+- Add English counterparts and language links for the alpha.3 session-reuse and HelioTerm measurement notes. See [`Luna session reuse`](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.md), [`direct HelioTerm optimization`](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.md), and [`HelioTerm three-path measurements`](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.md).
+
 ## [0.7.0-alpha.2] - 2026-08-03
 
 ### Executable task graphs

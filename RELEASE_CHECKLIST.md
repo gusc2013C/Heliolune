@@ -2,6 +2,9 @@
 
 English · [简体中文](RELEASE_CHECKLIST.zh-CN.md)
 
+- [ ] Confirm the Native V2 `heliolune` manifest is the current release identity at `0.8.0-alpha.3`.
+- [ ] Confirm the legacy `luna-pool-orchestrator` marketplace entry and runtime remain `0.7.0-alpha.2`.
+- [ ] Confirm both marketplace entries, all required Native V2 files, and the bilingual alpha.3 release notes are present.
 - [ ] Confirm the semantic version in the plugin manifest and runtime constants.
 - [ ] Review public API, trust-boundary, and migration changes.
 - [ ] Run `pwsh -File .\scripts\validate-release.ps1`.

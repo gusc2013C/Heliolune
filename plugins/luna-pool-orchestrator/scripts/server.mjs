@@ -12,6 +12,7 @@ import {
   resolveCodexExecutable,
 } from "./app-server-client.mjs";
 import {
+  aggregateFailureUsage,
   compareModelCost,
   dashboardData,
   DEFAULT_ACTUAL_MODEL,
@@ -81,6 +82,19 @@ const LANE_FOCUS = {
   verifier: "Independently verify claims and patches. Do not implement unless the task explicitly asks for repair.",
   supervisor: "Act as the shared operations leader: track worker liveness and compress completed worker/verifier bundles for Sol. Never inspect the repository, plan work, assign tasks, judge correctness beyond a supplied verifier verdict, or make reserved decisions.",
 };
+const DEFAULT_EXECUTION_SECONDS = { low: 360, moderate: 600, high: 900 };
+const DEFAULT_CHALLENGE_EXECUTION_SECONDS = 360;
+
+export function executionBudgetMs(args = {}, workstream = null) {
+  const configured = Number(args.maxExecutionSeconds);
+  if (Number.isFinite(configured)) {
+    return Math.min(1_800, Math.max(120, Math.trunc(configured))) * 1_000;
+  }
+  const risk = workstream?.risk ?? args.risk ?? "moderate";
+  const defaultSeconds = DEFAULT_EXECUTION_SECONDS[risk] ?? DEFAULT_EXECUTION_SECONDS.moderate;
+  const challenge = workstream?.kind === "challenge" || workstream?.lane === "verifier";
+  return (challenge ? Math.min(defaultSeconds, DEFAULT_CHALLENGE_EXECUTION_SECONDS) : defaultSeconds) * 1_000;
+}
 
 const RESULT_SCHEMA = {
   type: "object",
@@ -291,6 +305,7 @@ const RUN_INPUT_SCHEMA = {
     profile: { type: "string", enum: ["adaptive", "throughput", "speed-first", "token-first"], default: "adaptive", description: "Adaptive uses DAG widening; throughput forces four; speed-first is its legacy alias; token-first is the isolation fallback." },
     maxFiles: { type: "integer", minimum: 3, maximum: 30 },
     maxCommands: { type: "integer", minimum: 3, maximum: 50 },
+    maxExecutionSeconds: { type: "integer", minimum: 120, maximum: 1800, description: "Optional total budget for each worker turn. Defaults by risk: low 360, moderate 600, high 900 seconds; challenges default to at most 360 seconds." },
   },
 };
 
@@ -332,6 +347,7 @@ const BATCH_INPUT_SCHEMA = {
     checkpointSeconds: { type: "integer", minimum: 30, maximum: 90, default: 90, description: "First renewable liveness check; never an execution deadline." },
     maxFiles: { type: "integer", minimum: 3, maximum: 30 },
     maxCommands: { type: "integer", minimum: 3, maximum: 50 },
+    maxExecutionSeconds: { type: "integer", minimum: 120, maximum: 1800, description: "Optional total budget for each worker turn. Defaults by risk: low 360, moderate 600, high 900 seconds; challenges default to at most 360 seconds." },
   },
 };
 
@@ -466,7 +482,11 @@ function compactTask(args) {
       scope: args.scope?.length ? args.scope : undefined,
       risk: args.risk ?? "moderate",
       reservedBoundary: args.reservedBoundary ?? false,
-      budget: { maxFiles: args.maxFiles ?? 12, maxCommands: args.maxCommands ?? 20 },
+      budget: {
+        maxFiles: args.maxFiles ?? 12,
+        maxCommands: args.maxCommands ?? 20,
+        maxExecutionSeconds: executionBudgetMs(args) / 1_000,
+      },
     })}`,
     `Work end-to-end within scope. Inspect exact repository state first. Treat scope entries as hard search boundaries. For analyze mode use shell reads only; do not use apply_patch or view_image. After ${(args.maxCommands ?? 20) - Math.ceil((args.maxCommands ?? 20) * 0.25)} tool calls at latest, stop exploration and synthesize. If scope is too broad for the budget, return status=partial with the decisive evidence already found instead of broadening or exhausting the deadline. Set needsSol=[] unless an actual reserved Sol decision blocks or materially conditions the result. Return the schema only.`,
   ].join("\n");
@@ -612,6 +632,7 @@ async function initializePool(args, context = {}) {
           renewable: true,
           afterMs: checkpointMs,
           repeatMs: 30_000,
+          maxElapsedMs: Math.max(120_000, checkpointMs * 2),
           onCheck: async (snapshot) => {
             if (snapshot?.eventCount > previousEvents || snapshot?.silentMs < 45_000) {
               previousEvents = snapshot?.eventCount ?? previousEvents;
@@ -661,6 +682,7 @@ async function runTask(args, context = {}) {
     const ownerLane = await ensureLane(instance, registry, project, args.lane, cwd, sandbox.legacy);
     const checkpointSeconds = args.checkpointSeconds ?? 90;
     const checkpointMs = checkpointSeconds * 1000;
+    const maxExecutionMs = executionBudgetMs(args);
     context.progress?.report(2, `Heliolune Leader · routed to ${args.lane} Luna/max · ${args.scope?.length ?? 0} scope entries · execution starting`, {
       force: true, workerLane: args.lane, workerStatus: "working", workerProgress: 2,
     });
@@ -687,6 +709,7 @@ async function runTask(args, context = {}) {
         renewable: true,
         afterMs: schedule.checkpointMs,
         repeatMs: schedule.repeatMs,
+        maxElapsedMs: maxExecutionMs,
         onCheck: async (rawSnapshot) => {
           softTimeoutReached = true;
           const snapshot = rawSnapshot ?? {
@@ -739,8 +762,8 @@ async function runTask(args, context = {}) {
             return supervisorResult;
           } catch (error) {
             supervisorError = error.message;
-            const failureUsage = error.activity?.usage ?? null;
-            if (failureUsage) supervisorFailureUsages.push(failureUsage);
+            const rawFailureUsage = error.usage ?? error.activity?.usage ?? null;
+            if (rawFailureUsage) supervisorFailureUsages.push(aggregateFailureUsage(error));
             return { action: "continue", confidence: "low", reason: "Supervisor check was unavailable; the worker lease remains active and will be checked again.", source: "supervisor-error" };
           }
         },
@@ -788,7 +811,7 @@ async function runTask(args, context = {}) {
             outputSchema: RESULT_SCHEMA,
             timeoutMs: checkpointMs,
             effort: args.schemaRepairEffort ?? "high",
-            watchdog: ownerWatchdog,
+            watchdog: { ...ownerWatchdog, maxElapsedMs: Math.min(ownerWatchdog.maxElapsedMs, 120_000) },
           });
           ownerRun = {
             ...synthesisRun,
@@ -808,7 +831,7 @@ async function runTask(args, context = {}) {
       } else {
         ownerLane.invalidOutputs += 1;
         const classification = classifyTurnFailure(error, schedule);
-        const ownerFailureUsage = sumUsage([error.priorUsage, error.usage ?? error.activity?.usage]);
+        const ownerFailureUsage = aggregateFailureUsage(error);
         const diagnostic = {
           occurredAt: new Date().toISOString(),
           classification,
@@ -939,7 +962,8 @@ async function runTask(args, context = {}) {
         });
       } catch (error) {
         leaderError = error.message;
-        leaderFailureUsage = error.usage ?? error.activity?.usage ?? null;
+        const rawFailureUsage = error.usage ?? error.activity?.usage ?? null;
+        leaderFailureUsage = rawFailureUsage ? aggregateFailureUsage(error) : null;
       }
       context.progress?.report(97, leaderRun
         ? "Heliolune Leader · compact handoff ready for Sol review"
@@ -1006,6 +1030,7 @@ async function runTask(args, context = {}) {
         leaderDeferred: !useLeader,
         model: "gpt-5.6-luna", effort: "max", promptVersion: PROMPT_VERSION,
         schemaRepairEffort: args.schemaRepairEffort ?? "high",
+        maxExecutionSeconds: maxExecutionMs / 1_000,
       },
       supervision: ownerRun.supervision,
       schemaRecovery,
@@ -1083,6 +1108,10 @@ async function runBatch(args, context = {}) {
     maxCommands: args.maxCommands,
   });
   const { maxFiles, maxCommands } = budgets;
+  const executionSecondsByWorkstream = Object.fromEntries(workstreams.map((workstream) => [
+    workstream.id,
+    executionBudgetMs(args, workstream) / 1_000,
+  ]));
   let completedCount = 0;
   const progressById = new Map(workstreams.map((workstream) => [workstream.id, 0]));
   const statusById = new Map(workstreams.map((workstream) => [workstream.id, "idle"]));
@@ -1144,8 +1173,8 @@ async function runBatch(args, context = {}) {
       } catch (error) {
         const managerError = compactStatusExplanation(error.message, 500);
         managerErrors.push(managerError);
-        const failureUsage = error.usage ?? error.activity?.usage ?? null;
-        if (failureUsage) managerFailureUsages.push(failureUsage);
+        const rawFailureUsage = error.usage ?? error.activity?.usage ?? null;
+        if (rawFailureUsage) managerFailureUsages.push(aggregateFailureUsage(error));
         context.progress?.report(workerPhaseProgress(), "Heliolune Leader · management check unavailable · worker leases remain active", {
           force: true, workerLane: "supervisor", workerStatus: "failed", workerProgress: 100,
           explanation: managerError,
@@ -1161,6 +1190,7 @@ async function runBatch(args, context = {}) {
       renewable: true,
       afterMs: batchSchedule.checkpointMs,
       repeatMs: batchSchedule.repeatMs,
+      maxElapsedMs: executionBudgetMs(args, workstream),
       onCheck: async (snapshot) => {
         liveSnapshots.set(slot, { workstreamId: workstream.id, snapshot });
         const circuitDecision = observeInactivity(snapshot);
@@ -1224,13 +1254,18 @@ async function runBatch(args, context = {}) {
       context.progress?.report(workerPhaseProgress(), `Heliolune Leader · ${slot} starting ${workstream.id}`, {
         force: true, workerLane: slot, workerStatus: "working", workerProgress: 2,
       });
+      let completedRun = null;
       try {
         let run;
         const outputSchema = workstream.mode === "analyze" ? REVIEW_RESULT_SCHEMA : RESULT_SCHEMA;
         try {
           run = await instance.runTurn({
             threadId: laneState.threadId,
-            text: compactBurstTask(effectiveWorkstream, { maxFiles, maxCommands }),
+            text: compactBurstTask(effectiveWorkstream, {
+              maxFiles,
+              maxCommands,
+              maxExecutionSeconds: executionSecondsByWorkstream[workstream.id],
+            }),
             cwd: workerCwd,
             sandboxPolicy: workerSandbox.policy,
             outputSchema,
@@ -1275,7 +1310,10 @@ async function runBatch(args, context = {}) {
               outputSchema,
               timeoutMs: checkpointMs,
               effort: "high",
-              watchdog: workerWatchdog(slot, workstream),
+              watchdog: {
+                ...workerWatchdog(slot, workstream),
+                maxElapsedMs: Math.min(executionBudgetMs(args, workstream), 120_000),
+              },
             });
             run = {
               ...synthesisRun,
@@ -1293,6 +1331,7 @@ async function runBatch(args, context = {}) {
             throw synthesisError;
           }
         }
+        completedRun = run;
         run.output = {
           changes: [],
           needsVerifier: false,
@@ -1335,7 +1374,10 @@ async function runBatch(args, context = {}) {
         });
         return { id: workstream.id, requestedLane: workstream.lane, slot, status: run.output.status, run, queueWaitMs, durationMs: Date.now() - streamStartedAt };
       } catch (error) {
-        const failureUsage = normalizeUsage(error.usage ?? error.activity?.usage);
+        const reportedFailureUsage = aggregateFailureUsage(error);
+        const failureUsage = reportedFailureUsage.totalTokens || reportedFailureUsage.inputTokens || reportedFailureUsage.outputTokens
+          ? reportedFailureUsage
+          : usageBreakdown(completedRun);
         const originalFailure = error.originalFailure ?? error;
         laneState.turns += 1;
         laneState.invalidOutputs += 1;
@@ -1435,6 +1477,7 @@ async function runBatch(args, context = {}) {
   const useLeader = shouldUseBatchLeader({ profile, workstreams, outcomes: leaderInput, integration });
   let leaderRun = null;
   let leaderError = null;
+  let leaderFailureUsage = null;
   let leaderMs = 0;
   if (useLeader) {
     context.progress?.report(86, `Heliolune Leader · aggregating ${workstreams.length} ${profile} outcomes`, {
@@ -1475,6 +1518,8 @@ async function runBatch(args, context = {}) {
       });
     } catch (error) {
       leaderError = compactStatusExplanation(error.message, 500);
+      const rawFailureUsage = error.usage ?? error.activity?.usage ?? null;
+      leaderFailureUsage = rawFailureUsage ? aggregateFailureUsage(error) : null;
       context.progress?.report(98, "Heliolune Leader · aggregation failed · returning direct bounded outcomes", {
         force: true, workerLane: "supervisor", workerStatus: "failed", workerProgress: 100,
         explanation: leaderError,
@@ -1492,6 +1537,7 @@ async function runBatch(args, context = {}) {
     ...managerRuns.map(usageBreakdown),
     ...managerFailureUsages,
     usageBreakdown(leaderRun),
+    leaderFailureUsage,
   ]);
   const cost = compareModelCost(usage, {
     actualModel: DEFAULT_ACTUAL_MODEL,
@@ -1521,6 +1567,7 @@ async function runBatch(args, context = {}) {
       ...managerRuns.map((run) => ({ lane: "supervisor", usage: usageBreakdown(run) })),
       ...managerFailureUsages.map((failureUsage) => ({ lane: "supervisor", usage: failureUsage })),
       ...(leaderRun ? [{ lane: "supervisor", usage: usageBreakdown(leaderRun) }] : []),
+      ...(!leaderRun && leaderFailureUsage ? [{ lane: "supervisor", usage: leaderFailureUsage }] : []),
     ],
   });
   project.lastUsedAt = new Date().toISOString();
@@ -1573,7 +1620,7 @@ async function runBatch(args, context = {}) {
         triggered: contractEscalation.length > 0,
         escalations: contractEscalation,
       },
-      budgets,
+      budgets: { ...budgets, executionSecondsByWorkstream },
     },
     integration: integration.applied || !mutatingBatch
       ? integration
@@ -1778,6 +1825,7 @@ export async function startOwnedTask(args, { store = jobs } = {}) {
       routingPlan: adaptiveRoute(args),
       maxFiles: budgets.maxFiles,
       maxCommands: budgets.maxCommands,
+      maxExecutionSeconds: args.maxExecutionSeconds,
     }, { store });
   }
   if (profile === ADAPTIVE.id) {
@@ -1791,6 +1839,7 @@ export async function startOwnedTask(args, { store = jobs } = {}) {
       routingPlan: route,
       maxFiles: budgets.maxFiles,
       maxCommands: budgets.maxCommands,
+      maxExecutionSeconds: args.maxExecutionSeconds,
     }, { store });
   }
   return startVisibleJob({

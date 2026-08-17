@@ -12,6 +12,7 @@ import {
   sameFilesystemPath,
   worktreeFor,
 } from "../plugins/luna-pool-orchestrator/scripts/worktrees.mjs";
+import { withRecoveryMetadata } from "../plugins/luna-pool-orchestrator/scripts/orchestration-policy.mjs";
 
 function git(cwd, args) {
   return new Promise((resolve, reject) => {
@@ -90,6 +91,53 @@ test("adaptive single-writer worktree applies one completed scoped patch", async
   assert.equal(integration.applied, true);
   assert.equal((await readFile(path.join(root, "a.txt"), "utf8")).replaceAll("\r\n", "\n"), "adaptive-final\n");
   assert.equal(await git(root, ["diff", "--cached", "--name-only"]), "");
+});
+
+test("partial integration applies only completed disjoint writers and quarantines held patches", async (t) => {
+  const root = await repository(t);
+  const artifacts = path.join(os.tmpdir(), `heliolune-patches-${Date.now()}-${process.pid}`);
+  t.after(() => rm(artifacts, { recursive: true, force: true }));
+  const workstreams = streams();
+  const session = await prepareParallelWriteBatch({ cwd: root, batchId: "partial", workstreams, artifactDirectory: artifacts });
+  t.after(() => cleanupParallelWriteBatch(session));
+  await writeFile(path.join(worktreeFor(session, "a"), "a.txt"), "a1\n");
+  await writeFile(path.join(worktreeFor(session, "b"), "b.txt"), "b1\n");
+  const patches = await Promise.all(workstreams.map((workstream) => collectWorktreePatch(session, workstream)));
+  const integration = await integrateParallelWriteBatch(session, patches, [
+    { id: "a", status: "completed" }, { id: "b", status: "partial" },
+  ]);
+  assert.equal(integration.applied, true);
+  assert.equal(integration.reason, "safe-partial-apply");
+  assert.equal(integration.applyMode, "partial");
+  assert.deepEqual(integration.appliedWorkstreams, ["a"]);
+  assert.deepEqual(integration.heldWorkstreams, ["b"]);
+  assert.equal((await readFile(path.join(root, "a.txt"), "utf8")).replaceAll("\r\n", "\n"), "a1\n");
+  assert.equal((await readFile(path.join(root, "b.txt"), "utf8")).replaceAll("\r\n", "\n"), "b0\n");
+  const recovery = withRecoveryMetadata(integration, patches);
+  assert.deepEqual(recovery.recoverable.candidates.map((candidate) => candidate.id), ["b"]);
+  assert.equal(recovery.recoverable.candidates[0].patchPath, patches[1].patchPath);
+});
+
+test("a batch with no completed writer applies nothing", async (t) => {
+  const root = await repository(t);
+  const artifacts = path.join(os.tmpdir(), `heliolune-patches-${Date.now()}-${process.pid}`);
+  t.after(() => rm(artifacts, { recursive: true, force: true }));
+  const workstreams = streams();
+  const session = await prepareParallelWriteBatch({ cwd: root, batchId: "none-completed", workstreams, artifactDirectory: artifacts });
+  t.after(() => cleanupParallelWriteBatch(session));
+  await writeFile(path.join(worktreeFor(session, "a"), "a.txt"), "a1\n");
+  await writeFile(path.join(worktreeFor(session, "b"), "b.txt"), "b1\n");
+  const patches = await Promise.all(workstreams.map((workstream) => collectWorktreePatch(session, workstream)));
+  const integration = await integrateParallelWriteBatch(session, patches, [
+    { id: "a", status: "partial" }, { id: "b", status: "failed" },
+  ]);
+  assert.equal(integration.applied, false);
+  assert.deepEqual(integration.appliedWorkstreams, []);
+  assert.deepEqual(integration.heldWorkstreams, ["a", "b"]);
+  assert.equal(await readFile(path.join(root, "a.txt"), "utf8"), "a0\n");
+  assert.equal(await readFile(path.join(root, "b.txt"), "utf8"), "b0\n");
+  const recovery = withRecoveryMetadata(integration, patches);
+  assert.deepEqual(recovery.recoverable.candidates.map((candidate) => candidate.id), ["a", "b"]);
 });
 
 test("out-of-scope worktree changes block integration and preserve main state", async (t) => {

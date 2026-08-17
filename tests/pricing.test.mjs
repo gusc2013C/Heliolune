@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  aggregateFailureUsage,
   compareModelCost,
   dashboardData,
   DEFAULT_PRICING,
@@ -28,6 +29,16 @@ test("sums usage and preserves derived fields", () => {
   assert.equal(usage.inputTokens, 150);
   assert.equal(usage.cachedInputTokens, 50);
   assert.equal(usage.uncachedInputTokens, 100);
+  assert.equal(usage.outputTokens, 15);
+});
+
+test("failure usage includes the original turn when schema recovery also fails", () => {
+  const usage = aggregateFailureUsage({
+    priorUsage: { inputTokens: 100, cachedInputTokens: 80, outputTokens: 10 },
+    usage: { inputTokens: 40, cachedInputTokens: 20, outputTokens: 5 },
+  });
+  assert.equal(usage.inputTokens, 140);
+  assert.equal(usage.cachedInputTokens, 100);
   assert.equal(usage.outputTokens, 15);
 });
 

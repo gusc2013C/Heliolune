@@ -64,7 +64,8 @@ test("supervisor prompt is compact and excludes reserved judgments", () => {
     schedule,
   });
   assert.match(prompt, /liveness/);
-  assert.match(prompt, /no execution deadline/);
+  assert.match(prompt, /deterministic total execution budget/);
+  assert.match(prompt, /Do not override the controller budget/);
   assert.doesNotMatch(prompt, /remainingMs|hard deadline/);
   assert.match(prompt, /Do not decide architecture/);
 });

@@ -140,29 +140,94 @@ export async function collectWorktreePatch(session, workstream) {
 
 export async function integrateParallelWriteBatch(session, patches, executions) {
   const executionById = new Map(executions.map((execution) => [execution.id, execution]));
-  const incomplete = patches
-    .filter((record) => record.mode !== "analyze" && executionById.get(record.id)?.status !== "completed")
-    .map((record) => record.id);
-  if (incomplete.length) return { applied: false, reason: "incomplete-workstreams", workstreams: incomplete, changedPaths: [] };
-  const scopeViolations = patches.filter((record) => record.outOfScope.length).map((record) => ({ id: record.id, paths: record.outOfScope }));
-  if (scopeViolations.length) return { applied: false, reason: "out-of-scope-changes", violations: scopeViolations, changedPaths: [] };
+  const mutating = patches.filter((record) => record.mode !== "analyze");
+  const completed = mutating.filter((record) => executionById.get(record.id)?.status === "completed");
+  const incomplete = mutating.filter((record) => executionById.get(record.id)?.status !== "completed");
+  const appliedWorkstreams = completed.map((record) => record.id);
+  const heldWorkstreams = incomplete.map((record) => record.id);
+  const allMutatingWorkstreams = mutating.map((record) => record.id);
 
+  // A batch with no completed writer has no safe subset to apply. Keep the
+  // incomplete writer IDs explicit so policy can quarantine only those patches.
+  if (mutating.length && !completed.length) {
+    return {
+      applied: false,
+      reason: "incomplete-workstreams",
+      workstreams: heldWorkstreams,
+      appliedWorkstreams: [],
+      heldWorkstreams,
+      changedPaths: [],
+    };
+  }
+
+  const scopeViolations = completed
+    .filter((record) => (record.outOfScope ?? []).length)
+    .map((record) => ({ id: record.id, paths: record.outOfScope ?? [] }));
+  if (scopeViolations.length) {
+    return {
+      applied: false,
+      reason: "out-of-scope-changes",
+      violations: scopeViolations,
+      appliedWorkstreams: [],
+      heldWorkstreams: allMutatingWorkstreams,
+      changedPaths: [],
+    };
+  }
+
+  // Only completed writers are eligible for application. A held writer that
+  // touches an eligible path still makes the set unsafe: applying the
+  // completed sibling would invalidate the quarantined candidate's context.
   const owners = new Map();
   const overlaps = [];
-  for (const record of patches) {
-    for (const changedPath of record.changedPaths) {
+  for (const record of completed) {
+    for (const changedPath of record.changedPaths ?? []) {
       const key = comparable(changedPath);
       if (owners.has(key)) overlaps.push({ path: changedPath, workstreams: [owners.get(key).id, record.id] });
       else owners.set(key, { id: record.id, path: changedPath });
     }
   }
-  if (overlaps.length) return { applied: false, reason: "overlapping-changes", overlaps, changedPaths: [] };
+  if (heldWorkstreams.length) {
+    for (const record of incomplete) {
+      for (const changedPath of record.changedPaths ?? []) {
+        const owner = owners.get(comparable(changedPath));
+        if (owner) overlaps.push({ path: changedPath, workstreams: [owner.id, record.id] });
+      }
+    }
+  }
+  if (overlaps.length) {
+    return {
+      applied: false,
+      reason: "overlapping-changes",
+      overlaps,
+      appliedWorkstreams: [],
+      heldWorkstreams: allMutatingWorkstreams,
+      changedPaths: [],
+    };
+  }
 
   const currentHead = text(await git(session.repoRoot, ["rev-parse", "--verify", "HEAD"]));
-  if (currentHead !== session.baseCommit) return { applied: false, reason: "head-changed", baseCommit: session.baseCommit, currentHead, changedPaths: [] };
-  if (await cleanState(session.repoRoot)) return { applied: false, reason: "main-worktree-changed", changedPaths: [] };
+  if (currentHead !== session.baseCommit) {
+    return {
+      applied: false,
+      reason: "head-changed",
+      baseCommit: session.baseCommit,
+      currentHead,
+      appliedWorkstreams: [],
+      heldWorkstreams: allMutatingWorkstreams,
+      changedPaths: [],
+    };
+  }
+  if (await cleanState(session.repoRoot)) {
+    return {
+      applied: false,
+      reason: "main-worktree-changed",
+      appliedWorkstreams: [],
+      heldWorkstreams: allMutatingWorkstreams,
+      changedPaths: [],
+    };
+  }
 
-  const applicable = patches.filter((record) => record.patchBytes > 0);
+  const applicable = completed.filter((record) => record.patchBytes > 0);
   const changedPaths = [...owners.values()].map((owner) => owner.path);
   if (applicable.length) {
     const patchPaths = applicable.map((record) => record.patchPath);
@@ -170,8 +235,20 @@ export async function integrateParallelWriteBatch(session, patches, executions) 
     await git(session.repoRoot, ["apply", "--index", "--binary", ...patchPaths]);
     if (changedPaths.length) await git(session.repoRoot, ["reset", "HEAD", "--", ...changedPaths]);
   }
-  await fs.rm(session.artifactDirectory, { recursive: true, force: true });
-  return { applied: true, reason: "safe-apply", baseCommit: session.baseCommit, changedPaths };
+  // Keep the artifact directory for a partial apply: held candidates must
+  // remain available to Sol for an explicit recovery decision. A full apply
+  // has no held artifacts and can clean up immediately as before.
+  if (!heldWorkstreams.length) await fs.rm(session.artifactDirectory, { recursive: true, force: true });
+  return {
+    applied: true,
+    reason: heldWorkstreams.length ? "safe-partial-apply" : "safe-apply",
+    applyMode: heldWorkstreams.length ? "partial" : "full",
+    partial: heldWorkstreams.length > 0,
+    baseCommit: session.baseCommit,
+    appliedWorkstreams,
+    heldWorkstreams,
+    changedPaths,
+  };
 }
 
 export async function cleanupParallelWriteBatch(session) {

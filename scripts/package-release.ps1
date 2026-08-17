@@ -9,7 +9,7 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$manifestPath = Join-Path $repoRoot 'plugins\luna-pool-orchestrator\.codex-plugin\plugin.json'
+$manifestPath = Join-Path $repoRoot 'plugins\heliolune\.codex-plugin\plugin.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $version = $manifest.version -replace '\+.*$', ''
 

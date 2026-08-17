@@ -81,11 +81,13 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   assert.equal(startTool.inputSchema.properties.profile.default, "adaptive");
   assert.deepEqual(startTool.inputSchema.required, ["cwd", "lane", "mode", "objective", "acceptance", "scope"]);
   assert.deepEqual(Object.keys(startTool.inputSchema.properties), [
-    "cwd", "lane", "mode", "objective", "acceptance", "repoState", "scope", "risk", "reservedBoundary", "profile", "maxFiles", "maxCommands",
+    "cwd", "lane", "mode", "objective", "acceptance", "repoState", "scope", "risk", "reservedBoundary", "profile", "maxFiles", "maxCommands", "maxExecutionSeconds",
   ]);
   assert.equal(startTool.inputSchema.properties.timeoutSeconds, undefined);
   assert.equal(startTool.inputSchema.properties.checkpointSeconds, undefined);
   assert.equal(startTool.inputSchema.properties.maxFiles.maximum, 30);
+  assert.equal(startTool.inputSchema.properties.maxExecutionSeconds.minimum, 120);
+  assert.equal(startTool.inputSchema.properties.maxExecutionSeconds.maximum, 1800);
   assert.equal(startTool.inputSchema.properties.verification, undefined);
   assert.equal(initialized.result.capabilities.resources, undefined);
   const batchTool = listed.result.tools.find((tool) => tool.name === "start_batch");
@@ -93,7 +95,7 @@ test("stdio MCP exposes cost dashboard without starting a model", async (t) => {
   assert.deepEqual(batchTool.inputSchema.properties.parallelism.enum, [1, 2, 4, 8]);
   assert.equal(batchTool.inputSchema.properties.workstreams.maxItems, 8);
   assert.equal(batchTool.inputSchema.properties.workstreams.minItems, 1);
-  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "profile", "parallelism", "completionQuorum", "workstreams", "checkpointSeconds", "maxFiles", "maxCommands"]);
+  assert.deepEqual(Object.keys(batchTool.inputSchema.properties), ["cwd", "profile", "parallelism", "completionQuorum", "workstreams", "checkpointSeconds", "maxFiles", "maxCommands", "maxExecutionSeconds"]);
   assert.deepEqual(batchTool.inputSchema.properties.workstreams.items.properties.dependsOn.maxItems, 7);
 
   const dashboardResponse = await request("tools/call", {

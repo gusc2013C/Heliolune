@@ -2,6 +2,9 @@
 
 [English](RELEASE_CHECKLIST.md) · 简体中文
 
+- [ ] 确认 Native V2 `heliolune` manifest 是当前 `0.8.0-alpha.3` 发布身份。
+- [ ] 确认旧版 `luna-pool-orchestrator` marketplace 条目与 runtime 仍为 `0.7.0-alpha.2`。
+- [ ] 确认两个 marketplace 条目、全部 Native V2 必需文件和 alpha.3 双语发布记录均已存在。
 - [ ] manifest 与 runtime 常量版本一致。
 - [ ] 审查公共 API、信任边界和迁移变化。
 - [ ] 在 Windows PowerShell 5.1 与 PowerShell 7 运行 `scripts/validate-release.ps1`。

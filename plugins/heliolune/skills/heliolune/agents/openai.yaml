@@ -1,0 +1,4 @@
+interface:
+  display_name: "Heliolune Persistent Luna"
+  short_description: "Reusable Luna owner with bounded followups"
+  default_prompt: "Use $heliolune with one reusable Luna owner and zero-model HelioTerm by default."

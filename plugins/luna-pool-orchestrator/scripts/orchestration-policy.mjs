@@ -7,9 +7,14 @@ export function contractGuardEscalations(workstreamId, output) {
 }
 
 export function withRecoveryMetadata(integration, patchRecords = []) {
-  if (integration?.applied) return integration;
+  const hasHeldList = Array.isArray(integration?.heldWorkstreams);
+  const heldIds = hasHeldList ? new Set(integration.heldWorkstreams) : null;
+  // A partial safe apply still has quarantined artifacts. Full applies retain
+  // the historical compact result and have no recovery candidates.
+  if (integration?.applied && (!heldIds || heldIds.size === 0)) return integration;
   const candidates = patchRecords
     .filter((record) => record.patchBytes > 0 && record.changedPaths?.length > 0)
+    .filter((record) => !heldIds || heldIds.has(record.id))
     .map((record) => ({
       id: record.id,
       patchPath: record.patchPath,

@@ -1,9 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JobStore } from "../plugins/luna-pool-orchestrator/scripts/jobs.mjs";
-import { startVisibleJob } from "../plugins/luna-pool-orchestrator/scripts/server.mjs";
+import { executionBudgetMs, startVisibleJob } from "../plugins/luna-pool-orchestrator/scripts/server.mjs";
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+test("worker execution budgets are risk-aware, challenge-bounded, and explicitly overridable", () => {
+  assert.equal(executionBudgetMs({ risk: "low" }), 360_000);
+  assert.equal(executionBudgetMs({ risk: "moderate" }), 600_000);
+  assert.equal(executionBudgetMs({ risk: "high" }), 900_000);
+  assert.equal(executionBudgetMs({}, { risk: "high", kind: "challenge", lane: "verifier" }), 360_000);
+  assert.equal(executionBudgetMs({ maxExecutionSeconds: 1_200 }, { risk: "low", kind: "challenge" }), 1_200_000);
+  assert.equal(executionBudgetMs({ maxExecutionSeconds: 20 }), 120_000);
+  assert.equal(executionBudgetMs({ maxExecutionSeconds: 9_999 }), 1_800_000);
+});
 
 test("visible job owner persists independent heartbeats and never overwrites its terminal record", async () => {
   const records = [];
