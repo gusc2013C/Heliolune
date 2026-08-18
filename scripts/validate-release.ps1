@@ -1,9 +1,76 @@
 [CmdletBinding()]
-param()
+param(
+    [switch]$Compact
+)
 
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -lt 5) {
     throw 'Windows PowerShell 5.1 or PowerShell 7+ is required.'
+}
+
+if ($Compact) {
+    $compactTempPath = [IO.Path]::Combine(
+        [IO.Path]::GetTempPath(),
+        'heliolune-release-validation-' + [guid]::NewGuid().ToString('N') + '.log'
+    )
+    $compactFailure = $null
+    $compactExitCode = 0
+    try {
+        $LASTEXITCODE = 0
+        & $PSCommandPath > $compactTempPath 2>&1
+        if ($null -ne $LASTEXITCODE) {
+            $compactExitCode = [int]$LASTEXITCODE
+        }
+    } catch {
+        $compactFailure = $_.ToString()
+        $compactExitCode = 1
+    }
+
+    try {
+        $compactOutput = @()
+        if (Test-Path -LiteralPath $compactTempPath) {
+            $compactOutput = @(Get-Content -LiteralPath $compactTempPath -Tail 40 -ErrorAction SilentlyContinue)
+        }
+        if ($null -ne $compactFailure) {
+            $compactOutput += $compactFailure
+        }
+
+        if ($compactExitCode -eq 0) {
+            $successLines = @(
+                $compactOutput |
+                    ForEach-Object { $_.ToString() } |
+                    Where-Object { $_ -match '^Release validation passed:' } |
+                    Select-Object -Last 1
+            )
+            if ($successLines.Count -gt 0) {
+                Write-Output $successLines[0]
+            } else {
+                Write-Output 'Release validation passed (compact).'
+            }
+        } else {
+            Write-Output 'Release validation failed (compact).'
+            $diagnosticLines = @(
+                $compactOutput |
+                    ForEach-Object { $_.ToString() } |
+                    Select-Object -Last 40
+            )
+            $diagnosticText = ($diagnosticLines -join [Environment]::NewLine)
+            if ($diagnosticText.Length -gt 8192) {
+                $diagnosticText = $diagnosticText.Substring($diagnosticText.Length - 8192)
+            }
+            if (-not [string]::IsNullOrWhiteSpace($diagnosticText)) {
+                Write-Output $diagnosticText
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $compactTempPath) {
+            Remove-Item -LiteralPath $compactTempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ($compactExitCode -ne 0) {
+        throw 'Release validation failed (compact).'
+    }
+    return
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -98,6 +165,9 @@ $required = @(
     (Join-Path $repoRoot 'docs\0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md'),
     (Join-Path $repoRoot 'docs\0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md'),
     (Join-Path $repoRoot 'benchmarks\results\0.8.0-alpha.4-token-efficiency.json'),
+    (Join-Path $repoRoot 'docs\0.8.0-STABLE-TOKEN-EFFICIENCY.md'),
+    (Join-Path $repoRoot 'docs\0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md'),
+    (Join-Path $repoRoot 'benchmarks\results\0.8.0-stable-token-efficiency.json'),
     (Join-Path $repoRoot 'docs\ARCHITECTURE.zh-CN.md'),
     (Join-Path $repoRoot 'docs\BENCHMARKS.zh-CN.md'),
     (Join-Path $repoRoot 'docs\0.6-RESEARCH.md'),
@@ -176,7 +246,7 @@ foreach ($profileFile in $nativeProfileFiles) {
         throw "Project standalone profile is stale: $profileFile"
     }
 }
-if ($manifest.version -notmatch '^0\.8\.0-alpha\.4(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.8\.0(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 $releaseVersion = $manifest.version -replace '\+codex\..*$', ''
@@ -251,8 +321,8 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
 
 $changelogEnglish = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md') -Raw -Encoding UTF8
 $changelogChinese = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.zh-CN.md') -Raw -Encoding UTF8
-if (($changelogEnglish -notmatch '\[0\.8\.0-alpha\.4\]') -or ($changelogChinese -notmatch '\[0\.8\.0-alpha\.4\]')) {
-    throw 'Both changelogs must document the current Native V2 prerelease.'
+if (($changelogEnglish -notmatch '\[0\.8\.0\]') -or ($changelogChinese -notmatch '\[0\.8\.0\]')) {
+    throw 'Both changelogs must document the current Native V2 stable release.'
 }
 if (($changelogEnglish -notmatch '\(CHANGELOG\.zh-CN\.md\)') -or ($changelogChinese -notmatch '\[English\]\(CHANGELOG\.md\)')) {
     throw 'Changelog language switch links are missing.'
@@ -262,7 +332,8 @@ $releaseDocPairs = @(
     @('0.8.0-ALPHA.3-LUNA-SESSION-REUSE.md', '0.8.0-ALPHA.3-LUNA-SESSION-REUSE.zh-CN.md'),
     @('0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.md', '0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md'),
     @('0.8.0-ALPHA.3-HELIOTERM-AB3.md', '0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md'),
-    @('0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md', '0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md')
+    @('0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md', '0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md'),
+    @('0.8.0-STABLE-TOKEN-EFFICIENCY.md', '0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md')
 )
 foreach ($pair in $releaseDocPairs) {
     $englishDoc = Get-Content -LiteralPath (Join-Path $repoRoot "docs\$($pair[0])") -Raw -Encoding UTF8
@@ -276,8 +347,8 @@ $tokenAuditPath = Join-Path $repoRoot 'benchmarks\results\0.8.0-alpha.4-token-ef
 $tokenAuditRaw = Get-Content -LiteralPath $tokenAuditPath -Raw -Encoding UTF8
 $tokenAudit = $tokenAuditRaw | ConvertFrom-Json
 if ($tokenAudit.schemaVersion -ne 'HELIOLUNE_TOKEN_EFFICIENCY_AUDIT_V1' -or
-    $tokenAudit.releaseVersion -ne $releaseVersion -or
-    $tokenAudit.buildIdentity -ne $manifest.version -or
+    $tokenAudit.releaseVersion -ne '0.8.0-alpha.4' -or
+    $tokenAudit.buildIdentity -ne '0.8.0-alpha.4+codex.20260818140328' -or
     $tokenAudit.releaseDate -ne '2026-08-18' -or
     $tokenAudit.measurementClass -ne 'diagnostic' -or
     $tokenAudit.tokenMeaning -ne 'rollout counters, not billing tokens') {
@@ -354,6 +425,97 @@ if (-not $ordinaryFailure -or
     $testDiagnostic.after.route -ne 'luna' -or
     $testDiagnostic.after.semanticScore -ne 3) {
     throw 'Alpha.4 HelioTerm routing comparison does not match the retained A/B evidence.'
+}
+
+$stableAuditPath = Join-Path $repoRoot 'benchmarks\results\0.8.0-stable-token-efficiency.json'
+$stableAuditRaw = Get-Content -LiteralPath $stableAuditPath -Raw -Encoding UTF8
+$stableAudit = $stableAuditRaw | ConvertFrom-Json
+if ($stableAudit.schemaVersion -ne 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1' -or
+    $stableAudit.releaseVersion -ne $releaseVersion -or
+    $stableAudit.buildIdentity -ne $manifest.version -or
+    $stableAudit.releaseDate -ne '2026-08-18' -or
+    $stableAudit.measurementClass -ne 'diagnostic' -or
+    $stableAudit.tokenMeaning -ne 'rollout counters and bytes/4 content estimates, not billing tokens') {
+    throw 'Stable token-efficiency audit metadata is invalid.'
+}
+$stableAllowedProperties = @(
+    'schemaVersion', 'releaseVersion', 'buildIdentity', 'releaseDate', 'measurementClass',
+    'tokenMeaning', 'solRollout', 'helioterm', 'validatorAb', 'acceptedOwnerProof', 'claims'
+)
+$stableUnexpectedProperties = @($stableAudit.PSObject.Properties.Name | Where-Object { $stableAllowedProperties -notcontains $_ })
+if ($stableUnexpectedProperties.Count -gt 0) {
+    throw "Stable token-efficiency audit contains unsupported fields: $($stableUnexpectedProperties -join ', ')"
+}
+if ($stableAuditRaw -match '(?i)(prompt|environment|stdin|secret|task\s*id|raw\s+tool|raw\s+output)') {
+    throw 'Stable token-efficiency audit contains private or raw execution content.'
+}
+$solAudit = $stableAudit.solRollout
+if (-not $solAudit -or
+    $solAudit.inputTokens -ne 71502261 -or
+    $solAudit.cachedInputTokens -ne 70178816 -or
+    $solAudit.uncachedInputTokens -ne 1323445 -or
+    $solAudit.cacheRatePercent -ne 98.15 -or
+    $solAudit.outputTokens -ne 204516 -or
+    $solAudit.reasoningTokens -ne 71609 -or
+    $solAudit.totalDiagnosticTokens -ne 71706777 -or
+    $solAudit.samples -ne 615 -or
+    $solAudit.userTurns -ne 9 -or
+    $solAudit.samplesPerUser -ne 68.33 -or
+    $solAudit.latestEstimatedContextTokens -ne 118609 -or
+    $solAudit.toolWrappers -ne 468 -or
+    $solAudit.singleCallWrappers -ne 405 -or
+    $solAudit.singleCallWrapperPercent -ne 86.54 -or
+    $solAudit.toolOutputBytes -ne 1638055 -or
+    $solAudit.compactions -ne 3 -or
+    $solAudit.automaticMigrationEnabled -ne $false -or
+    $solAudit.retrospectiveSavingsClaim -ne $false) {
+    throw 'Stable Sol rollout counters do not match the retained diagnostic snapshot.'
+}
+$termAudit = $stableAudit.helioterm
+if (-not $termAudit -or
+    $termAudit.runs -ne 337 -or
+    $termAudit.inputBytes -ne 1485884 -or
+    $termAudit.compactBytes -ne 833431 -or
+    $termAudit.savedBytes -ne 652453 -or
+    $termAudit.savedPercent -ne 43.9 -or
+    $termAudit.estimatedNetContentTokensSaved -ne 163065 -or
+    $termAudit.avoidedWakeups -ne 80 -or
+    $termAudit.avoidedSamplingBoundaries -ne 80 -or
+    $termAudit.estimationMethod -ne 'bytes4-content-estimate-not-billing') {
+    throw 'Stable HelioTerm counters do not match the retained deterministic meter.'
+}
+$validatorAudit = $stableAudit.validatorAb
+if (-not $validatorAudit -or
+    $validatorAudit.fullTestCount -ne 205 -or
+    $validatorAudit.baselineSuccessBytes -ne 18538 -or
+    $validatorAudit.compactSuccessBytes -ne 65 -or
+    $validatorAudit.reductionBytes -ne 18473 -or
+    $validatorAudit.reductionPercent -ne 99.65 -or
+    $validatorAudit.fullSuiteStillRuns -ne $true -or
+    $validatorAudit.failureTailLines -ne 40 -or
+    $validatorAudit.failureTailBytes -ne 8192 -or
+    $validatorAudit.projectedThreePassSavedBytes -ne 55419 -or
+    $validatorAudit.projectedThreePassContentTokenEstimate -ne 13855) {
+    throw 'Stable validator A/B evidence is invalid.'
+}
+$stableOwner = $stableAudit.acceptedOwnerProof
+if (-not $stableOwner -or
+    $stableOwner.model -ne 'gpt-5.6-luna' -or
+    $stableOwner.effort -ne 'max' -or
+    $stableOwner.nativeV2 -ne $true -or
+    $stableOwner.turns -ne 2 -or
+    $stableOwner.toolCalls -ne 9 -or
+    $stableOwner.maxPersistedToolOutputBytes -ne 7025 -or
+    $stableOwner.totalPersistedToolOutputBytes -ne 18146 -or
+    $stableOwner.totalDiagnosticTokens -ne 316841 -or
+    $stableOwner.passedMaxToolOutputBytes -ne 24576 -or
+    $stableOwner.passedMaxTotalToolOutputBytes -ne 196608) {
+    throw 'Stable Luna owner proof does not match persisted Native V2 evidence.'
+}
+if ($stableAudit.claims.diagnosticOnly -ne $true -or
+    $stableAudit.claims.billingTokens -ne $false -or
+    $stableAudit.claims.retrospectiveSolSavings -ne $false) {
+    throw 'Stable token-efficiency claims are not conservatively labelled.'
 }
 
 foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'schema-recovery.mjs', 'orchestration-policy.mjs', 'leader.mjs', 'profiles.mjs', 'task-dag.mjs', 'task-telemetry.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'job-runner.mjs', 'job-runner-launch.mjs', 'status-window.mjs')) {

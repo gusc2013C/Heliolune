@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1",
+  "releaseVersion": "0.8.0",
+  "buildIdentity": "0.8.0+codex.20260818153255",
+  "releaseDate": "2026-08-18",
+  "measurementClass": "diagnostic",
+  "tokenMeaning": "rollout counters and bytes/4 content estimates, not billing tokens",
+  "solRollout": {
+    "inputTokens": 71502261,
+    "cachedInputTokens": 70178816,
+    "uncachedInputTokens": 1323445,
+    "cacheRatePercent": 98.15,
+    "outputTokens": 204516,
+    "reasoningTokens": 71609,
+    "totalDiagnosticTokens": 71706777,
+    "samples": 615,
+    "userTurns": 9,
+    "samplesPerUser": 68.33,
+    "latestEstimatedContextTokens": 118609,
+    "toolWrappers": 468,
+    "singleCallWrappers": 405,
+    "singleCallWrapperPercent": 86.54,
+    "toolOutputBytes": 1638055,
+    "compactions": 3,
+    "automaticMigrationEnabled": false,
+    "retrospectiveSavingsClaim": false
+  },
+  "helioterm": {
+    "runs": 337,
+    "inputBytes": 1485884,
+    "compactBytes": 833431,
+    "savedBytes": 652453,
+    "savedPercent": 43.9,
+    "estimatedNetContentTokensSaved": 163065,
+    "avoidedWakeups": 80,
+    "avoidedSamplingBoundaries": 80,
+    "estimationMethod": "bytes4-content-estimate-not-billing"
+  },
+  "validatorAb": {
+    "fullTestCount": 205,
+    "baselineSuccessBytes": 18538,
+    "compactSuccessBytes": 65,
+    "reductionBytes": 18473,
+    "reductionPercent": 99.65,
+    "fullSuiteStillRuns": true,
+    "failureTailLines": 40,
+    "failureTailBytes": 8192,
+    "projectedThreePassSavedBytes": 55419,
+    "projectedThreePassContentTokenEstimate": 13855
+  },
+  "acceptedOwnerProof": {
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "nativeV2": true,
+    "turns": 2,
+    "toolCalls": 9,
+    "maxPersistedToolOutputBytes": 7025,
+    "totalPersistedToolOutputBytes": 18146,
+    "totalDiagnosticTokens": 316841,
+    "passedMaxToolOutputBytes": 24576,
+    "passedMaxTotalToolOutputBytes": 196608
+  },
+  "claims": {
+    "diagnosticOnly": true,
+    "billingTokens": false,
+    "retrospectiveSolSavings": false
+  }
+}

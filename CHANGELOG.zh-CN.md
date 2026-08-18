@@ -4,6 +4,19 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.0] - 2026-08-18
+
+### 稳定 Native V2 与紧凑 Sol 验收
+
+- 将 Native V2 插件提升为稳定版 `0.8.0+codex.20260818153255`，同时把 alpha.3 与 alpha.4 证据保留为历史记录。
+- 新增 `validate-release.ps1 -Compact`：仍完整执行 205 项发布测试，输出流写入临时文件，成功时只输出 65 字节，失败时保留有界的 40 行/8 KiB 诊断尾部。
+- 发布打包改用紧凑验证；Sol 必须批量执行互不重复的验收检查，不重跑 owner checks，并优先采用紧凑 HelioTerm evidence。
+- 实测 validator 从 18,538 字节降至 65 字节，减少 18,473（99.65%）；HelioTerm 累计压缩 652,453 字节（43.9%），避免 80 个模型边界。
+- Rollout counter 仍明确属于非计费诊断证据：观测到的长 Sol 任务输入缓存率为 98.15%，但任务过长与 86.54% 的单调用 wrapper 只作为前瞻优化目标，不声称追溯性节省。
+- 已验收的实现 owner 经持久化证明为 `gpt-5.6-luna` / `max`、Native V2，共 9 次工具调用，累计持久化工具输出 18,146 字节。
+
+详见 [稳定版 token-efficiency 发布说明](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md) 与 [English version](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md)。
+
 ## [0.8.0-alpha.4] - 2026-08-18
 
 - Owner 输出预算现在采用前瞻性边界：read/search 证据上限为 12 KiB/160 行，每个 tool result 上限为 24 KiB，累计 tool output 上限为 192 KiB，并使用紧凑 verification 输出；不宣称追溯性节省。

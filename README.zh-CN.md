@@ -7,9 +7,9 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、架构、风险与验收，低成本 worker 完成有明确 scope 的工程任务。当前 Native V2 Codex 插件把一份有界 contract 交给可复用的 Luna/max 工程 owner，普通 terminal I/O 默认走零模型 HelioTerm，并强制由 Sol 独立验收。旧 MCP 适配器继续提供带 detached-worktree 写隔离的 1、2 或 4 路任务 DAG。
 
-> 当前预发布版本：**`0.8.0-alpha.4`**。1.0 之前公共接口仍可能调整。
+> 当前稳定版本：**`0.8.0`**。1.0 之前公共接口仍可能调整。
 >
-> Alpha.4 token-efficiency 发布说明：[English](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md) · [简体中文](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md)
+> 0.8.0 token-efficiency 发布说明：[English](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md) · [简体中文](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md)
 
 当前发布身份是 Native V2 `heliolune` 插件。旧版 `luna-pool-orchestrator` 仍以 `0.7.0-alpha.2` 作为兼容适配器提供。
 
@@ -43,6 +43,8 @@ Sol 独立检查并最终验收
 - Sol 独立核对实际修改路径、运行保留检查，并只接受通过确定性 gate 的结果。
 
 Alpha.3 证据见 [Luna 会话复用](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.zh-CN.md)、[HelioTerm direct 优化](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md)与[三路径测量](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md)。
+
+Alpha.4 的有界发现和历史 token audit 见 [alpha.4 token-efficiency 说明](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md)。稳定版 0.8.0 进一步加入紧凑、去重的 Sol 验收，并以非计费口径记录 validator 与 HelioTerm 的输出节省。
 
 ## 旧 pool 兼容能力
 

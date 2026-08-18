@@ -18,7 +18,10 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 
 Get-Command git -ErrorAction Stop | Out-Null
-& (Join-Path $PSScriptRoot 'validate-release.ps1')
+& (Join-Path $PSScriptRoot 'validate-release.ps1') -Compact
+if ($LASTEXITCODE -ne 0) {
+    throw 'Release validation failed.'
+}
 
 & git -C $repoRoot rev-parse --verify HEAD *> $null
 if ($LASTEXITCODE -ne 0) {

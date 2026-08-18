@@ -4,11 +4,11 @@ English · [简体中文](README.zh-CN.md)
 
 **High-intelligence supervision, low-cost execution.**
 
-Heliolune is an alpha-stage orchestration project for pairing a capable controller with economical worker models. The current Native V2 Codex plugin gives one bounded contract to a reusable Luna/max engineering owner, keeps ordinary terminal I/O on zero-model HelioTerm, and requires independent Sol acceptance. The legacy MCP adapter remains available for validated task-DAG execution on one, two, or four Luna/max workers with detached-worktree write isolation.
+Heliolune is a pre-1.0 orchestration project for pairing a capable controller with economical worker models. The current Native V2 Codex plugin gives one bounded contract to a reusable Luna/max engineering owner, keeps ordinary terminal I/O on zero-model HelioTerm, and requires independent Sol acceptance. The legacy MCP adapter remains available for validated task-DAG execution on one, two, or four Luna/max workers with detached-worktree write isolation.
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current prerelease: **`0.8.0-alpha.4`**. Public contracts may change before 1.0.
+> Current stable release: **`0.8.0`**. Public contracts may still change before 1.0.
 
 The current release identity is the Native V2 `heliolune` plugin. The legacy `luna-pool-orchestrator` plugin remains available at `0.7.0-alpha.2` as a compatibility adapter.
 
@@ -46,6 +46,8 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 See the alpha.3 notes for [Luna session reuse](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.md), [direct HelioTerm optimization](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.md), and [three-path HelioTerm measurements](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.md).
 
 Alpha.4 adds the bounded `readFirst`/anchor-first discovery gate and a privacy-safe token-efficiency audit. Read the [bilingual alpha.4 token-efficiency release note](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md) or its [简体中文 counterpart](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md).
+
+Stable 0.8.0 adds compact, non-duplicative Sol acceptance and records the measured validator and HelioTerm output savings without treating diagnostic counters as billing. Read the [stable token-efficiency note](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md) or its [简体中文 counterpart](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md).
 
 ## Legacy pool compatibility capabilities
 
@@ -123,7 +125,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.8.0-alpha.4` |
+| Plugin version | `0.8.0` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 

@@ -4,6 +4,19 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.0] - 2026-08-18
+
+### Stable Native V2 and compact Sol acceptance
+
+- Promote the Native V2 plugin to stable `0.8.0+codex.20260818153255` while retaining alpha.3 and alpha.4 evidence as historical records.
+- Add `validate-release.ps1 -Compact`: it still executes the complete 205-test release suite, streams output to a temporary file, emits 65 bytes on success, and preserves a bounded 40-line/8 KiB diagnostic tail on failure.
+- Make release packaging use compact validation and instruct Sol to batch distinct acceptance checks, never rerun owner checks, and prefer compact HelioTerm evidence.
+- Record a measured validator reduction from 18,538 to 65 bytes (18,473 bytes, 99.65%) and HelioTerm cumulative compression of 652,453 bytes (43.9%) with 80 avoided model boundaries.
+- Retain diagnostic rollout counters as non-billing evidence: the observed long Sol task had a 98.15% input-cache rate, but excessive task length and 86.54% single-call wrappers remain forward-looking optimization targets rather than retrospective savings claims.
+- Prove the accepted implementation owner was `gpt-5.6-luna` / `max`, Native V2, with 9 tool calls and 18,146 cumulative persisted tool-output bytes.
+
+See the [stable token-efficiency release note](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md) and [简体中文版本](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md).
+
 ## [0.8.0-alpha.4] - 2026-08-18
 
 ### Bounded discovery and token-efficiency evidence
