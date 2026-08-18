@@ -82,7 +82,20 @@ try {
     }
 }
 
-$hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$sha256 = $null
+$fileStream = $null
+try {
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $fileStream = [System.IO.File]::OpenRead($archivePath)
+    $hash = ([System.BitConverter]::ToString($sha256.ComputeHash($fileStream)).Replace('-', '')).ToLowerInvariant()
+} finally {
+    if ($fileStream) {
+        $fileStream.Dispose()
+    }
+    if ($sha256) {
+        $sha256.Dispose()
+    }
+}
 "$hash  $(Split-Path -Leaf $archivePath)" | Set-Content -LiteralPath $checksumPath -Encoding ascii
 
 Write-Output "Created: $archivePath"

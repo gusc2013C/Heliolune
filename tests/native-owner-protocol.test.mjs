@@ -235,6 +235,12 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   assert.match(packaging, /\$LASTEXITCODE -ne 0/);
   assert.match(packaging, /bootstrap-install\.mjs/);
   assert.match(packaging, /--skip-codex --write --compact/);
+  assert.doesNotMatch(packaging, /Get-FileHash/);
+  assert.match(packaging, /\[System\.Security\.Cryptography\.SHA256\]::Create\(\)/);
+  assert.match(packaging, /\[System\.IO\.File\]::OpenRead\(\$archivePath\)/);
+  assert.match(packaging, /ComputeHash\(\$fileStream\)/);
+  assert.match(packaging, /\$fileStream\.Dispose\(\)/);
+  assert.match(packaging, /\$sha256\.Dispose\(\)/);
   assert.doesNotMatch(attributes, /^(?:CONTRIBUTING|RELEASE_CHECKLIST)(?:\.zh-CN)?\.md\s+export-ignore$/mu);
   assert.match(skill, /batches distinct acceptance checks/i);
   assert.match(skill, /never reruns `verification\.owner`/i);
