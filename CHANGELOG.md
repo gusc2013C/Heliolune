@@ -4,6 +4,13 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.4] - 2026-08-18
+
+### V2-default owner dispatch
+
+- Require `HELIOLUNE_OWNER_CONTRACT_V2` for every new Luna owner dispatch and make the public compact example V2-only.
+- Keep V1 parsing and its legacy fixed limits solely for historical contract and rollout validation; active owner profiles reject V1 implementation work.
+
 ## [0.8.3] - 2026-08-18
 
 ### Task-shaped resource leases

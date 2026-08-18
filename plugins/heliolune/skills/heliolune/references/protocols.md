@@ -2,7 +2,9 @@
 
 Use repository-relative `/` paths. Keep contracts below 1,500 tokens and results compact.
 
-## `HELIOLUNE_OWNER_CONTRACT_V1`
+Use `HELIOLUNE_OWNER_CONTRACT_V2` for every new owner dispatch. V1 remains readable only for historical validation and rollout audit compatibility; never use it to start new implementation work.
+
+## Historical `HELIOLUNE_OWNER_CONTRACT_V1`
 
 Required fields:
 

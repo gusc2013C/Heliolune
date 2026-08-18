@@ -2,7 +2,7 @@
 
 English · [简体中文](RELEASE_CHECKLIST.zh-CN.md)
 
-- [ ] Confirm the Native V2 `heliolune` manifest is the current stable release identity at `0.8.3` with build `0.8.3+codex.20260818175641`.
+- [ ] Confirm the Native V2 `heliolune` manifest is the current stable release identity at `0.8.4` with build `0.8.4+codex.20260818180751`.
 - [ ] Confirm the legacy `luna-pool-orchestrator` marketplace entry and runtime remain `0.7.0-alpha.2`.
 - [ ] Confirm both marketplace entries, all required Native V2 files, the historical alpha.3/alpha.4 documents, and the bilingual stable token-efficiency note plus benchmark JSON are present.
 - [ ] Confirm the Heliolune 1..4 `readFirst`/anchor-first gate uses one targeted anchor query followed by bounded slices.

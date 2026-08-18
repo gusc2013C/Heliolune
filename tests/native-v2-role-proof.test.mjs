@@ -34,26 +34,25 @@ test('distributable and project custom agents satisfy the Desktop 0.147 standalo
   }
 });
 
-test('bundled and installed Luna owner profiles require anchor-first bounded discovery', () => {
+test('bundled and installed Luna owner profiles require V2-only anchor-first discovery', () => {
   const profiles = [
     ['bundled', readFileSync(resolve(repositoryRoot, 'plugins', 'heliolune', 'agents', 'luna-owner.toml'), 'utf8')],
     ['installed', readFileSync(resolve(repositoryRoot, '.codex', 'agents', 'luna-owner.toml'), 'utf8')],
   ];
   for (const [label, profile] of profiles) {
     for (const anchor of [
-      'mandatory anchor query consumes one of five initial repository calls',
-      'readFirst is limited to 1..4 paths',
+      'HELIOLUNE_OWNER_CONTRACT_V1 is historical validation data and is not a valid owner dispatch input',
+      'For V2 owner work',
       'Use context.anchors in one targeted `rg` call across all readFirst paths',
       'Use bounded slices instead of full-file reads',
-      'initial read pass in at most five repository calls',
-      'at most five initial repository calls',
-      '12 KiB (12288 bytes)',
-      '160 lines',
-      '24 KiB (24576 bytes)',
-      '192 KiB (196608 bytes)',
-      'verification output stays compact',
+      'Follow only the explicit resourceLease dimensions',
+      'Tool-call and edit-call counts are post-call diagnostics, not token or cost proxies',
+      'Return exactly one HELIOLUNE_OWNER_RESULT_V2 JSON object',
     ]) {
       assert.equal(profile.includes(anchor), true, `${label}: ${anchor}`);
+    }
+    for (const legacy of ['Use at most 36 total tool calls', 'use at most two edit calls per turn', 'mandatory anchor query consumes one of five initial repository calls']) {
+      assert.equal(profile.includes(legacy), false, `${label}: legacy active-owner budget ${legacy}`);
     }
     assert.equal(profile.includes('For one-file reads use `type path'), false, `${label}: obsolete full-file read instruction`);
     assert.equal(profile.includes('For bounded Windows slices, use `powershell -NoProfile -Command'), true, `${label}: bounded Windows read example`);
@@ -288,7 +287,7 @@ test('native preflight fails closed when the objection blocking type anchor is a
 
 test('native preflight fails closed when owner top-level result-shape anchors are absent', () => {
   const cases = [
-    ['schemaVersion', '`schemaVersion` is exactly `HELIOLUNE_OWNER_RESULT_V1`', '`schemaVersion` is unconstrained'],
+    ['schemaVersion', '`schemaVersion` is exactly `HELIOLUNE_OWNER_RESULT_V2`', '`schemaVersion` is unconstrained'],
     ['status', '`status` is exactly `completed`, `blocked`, or `objection`', '`status` may vary'],
   ];
   for (const [label, anchor, replacement] of cases) {

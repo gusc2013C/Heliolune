@@ -248,7 +248,7 @@ foreach ($profileFile in $nativeProfileFiles) {
         throw "Project standalone profile is stale: $profileFile"
     }
 }
-if ($manifest.version -notmatch '^0\.8\.3(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.8\.4(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 $releaseVersion = $manifest.version -replace '\+codex\..*$', ''

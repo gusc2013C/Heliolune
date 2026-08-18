@@ -65,7 +65,7 @@ function tomlString(source, name) {
   return match?.[1] ?? match?.[2] ?? null;
 }
 
-check('native-version', /^0\.8\.3(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
+check('native-version', /^0\.8\.4(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
 check('zero-mcp-manifest', !Object.hasOwn(manifest, 'mcpServers'), 'mcpServers must be absent');
 check('zero-mcp-file', !existsSync(resolve(pluginRoot, '.mcp.json')), '.mcp.json must be absent');
 check('bindings-schema', bindings.schemaVersion === 'HELIOLUNE_MODEL_BINDINGS_V1', bindings.schemaVersion ?? null);
@@ -79,9 +79,10 @@ check(
     && gate.includes('context-read-first')
     && gate.includes('max: 4')
     && skill.includes('1 to 4 exact `readFirst` files')
-    && skill.includes('mandatory anchor query consumes one of the five initial repository calls')
+    && skill.includes('Use `HELIOLUNE_OWNER_CONTRACT_V2` for all new owner work')
+    && skill.includes('never dispatch a new owner with V1')
     && skill.includes('bounded slices instead of full-file reads'),
-  'owner discovery reserves one anchor query and at most four bounded reads',
+  'new owner work defaults to V2 with one anchor query and bounded reads',
 );
 check(
   'persistent-owner-policy',
@@ -90,8 +91,9 @@ check(
     && gate.includes('maxEditCalls: 6')
     && gate.includes('HELIOLUNE_OWNER_CONTRACT_V2')
     && gate.includes('resourceLease')
+    && skill.includes('Use `HELIOLUNE_OWNER_CONTRACT_V2` for all new owner work')
     && skill.includes('Reuse that owner with `followup_task`'),
-  'V1 historical policy remains readable and V2 uses a task-shaped lease',
+  'V1 historical policy remains readable while new owner work requires V2',
 );
 check(
   'v2-independent-acceptance',
@@ -177,7 +179,13 @@ const ownerOutputBudgetAnchors = [
   '192 KiB (196608 bytes)',
   'verification output stays compact',
 ];
-check('owner-output-budget-policy', [skill, protocols].every((source) => ownerOutputBudgetAnchors.every((anchor) => source.includes(anchor))), '12 KiB/160 lines read evidence, 24 KiB tool results, and 192 KiB cumulative output');
+check(
+  'owner-output-budget-policy',
+  ownerOutputBudgetAnchors.every((anchor) => protocols.includes(anchor))
+    && skill.includes("without inheriting V1's fixed call/read/edit/output caps")
+    && skill.includes('Historical V1 shape and limits remain documented only'),
+  'fixed output limits remain historical V1 evidence and active V2 follows its explicit lease',
+);
 check('role-proof-tool-call-budget', roleProof.includes("['custom_tool_call', 'function_call'].includes(row.payload?.type)") && roleProof.includes("nonNegativeIntegerOption('--expect-max-tool-calls')") && roleProof.includes('toolCallCount') && roleProof.includes('diagnostic observation'), 'real persisted function/custom calls counted as post-call diagnostics');
 check('no-pre-call-resource-claim', roleProof.includes('preCallEnforcement: false') && skill.includes('no\npre-call interception path'), 'resource compliance is observed after calls');
 check('role-proof-tool-output-measurement', roleProof.includes("['custom_tool_call_output', 'function_call_output'].includes(payloadType)") && roleProof.includes("Buffer.byteLength(line, 'utf8')") && roleProof.includes('toolOutputBytes') && roleProof.includes('toolOutputCount'), 'persisted custom/function output envelopes are measured without retaining content');
@@ -219,33 +227,30 @@ for (const [name, binding] of Object.entries(bindings).filter(([name]) => name !
     check('owner-no-duplicate-preflight', role.includes('never rerun Heliolune or HelioTerm preflight'), 'preflight evidence is root-owned');
     check(
       'owner-context-budget',
-      role.includes('initial read pass in at most five repository calls')
-        && role.includes('at most five initial repository calls')
+      role.includes('HELIOLUNE_OWNER_CONTRACT_V1 is historical validation data and is not a valid owner dispatch input')
+        && role.includes('For V2 owner work')
         && role.includes('Use context.anchors in one targeted `rg` call across all readFirst paths')
         && role.includes('Use bounded slices instead of full-file reads')
-        && role.includes('readFirst is limited to 1..4 paths')
         && role.includes('Do not run `rg --files`')
-        && role.includes('For V1 contracts')
-        && role.includes('For V2 contracts')
-        && role.includes("do not inherit V1's fixed call, read, or output caps"),
-      'schema-conditional anchor-first discovery without repository enumeration',
+        && role.includes("without inheriting V1's fixed call, read, edit, or output caps")
+        && role.includes('explicit resourceLease dimensions'),
+      'V2-only anchor-first discovery without repository enumeration or legacy budgets',
     );
-    check('owner-tool-output-budget', ownerOutputBudgetAnchors.every((anchor) => role.includes(anchor)), 'bounded read/search evidence and owner tool-output budgets');
+    check('owner-resource-lease', role.includes('Follow only the explicit resourceLease dimensions') && role.includes('post-call diagnostics, not token or cost proxies'), 'explicit V2 resource lease with diagnostic call counts');
     check('owner-session-reuse', role.includes('Remain reusable for at most three turns') && role.includes('HELIOLUNE_OWNER_FOLLOWUP_V1'), 'same-contract implementation, repair, and evidence turns');
     check('owner-persistent-helioterm', role.includes('exactly one configured `heliolune_helioterm`') && role.includes('Reuse that exact child with `followup_task`'), 'one reusable HelioTerm child');
     check(
       'owner-tool-call-budget',
-      role.includes('For V1, use at most two edit calls per turn and six across the reused session')
-        && role.includes('V1 uses its historical maxToolCalls 36')
-        && role.includes('V2 does not inherit those legacy totals')
-        && role.includes('resourceLease dimensions'),
-      'schema-conditional V1 edit cap and V2 explicit resource lease policy',
+      role.includes('HELIOLUNE_OWNER_CONTRACT_V1 is historical validation data and is not a valid owner dispatch input')
+        && !role.includes('Use at most 36 total tool calls')
+        && !role.includes('use at most two edit calls per turn'),
+      'new owner dispatch rejects V1 fixed tool/edit budgets',
     );
     check('owner-neutral-result', role.includes('terminalUsed, terminalAgentPath, terminalEvidence'), 'neutral result fields');
     check(
       'owner-result-shape',
       [
-        '`schemaVersion` is exactly `HELIOLUNE_OWNER_RESULT_V1`',
+        '`schemaVersion` is exactly `HELIOLUNE_OWNER_RESULT_V2`',
         '`ownerTurn` is an integer',
         '`ownerSessionComplete` and `terminalUsed` are booleans',
         '`status` is exactly `completed`, `blocked`, or `objection`',
@@ -261,7 +266,7 @@ for (const [name, binding] of Object.entries(bindings).filter(([name]) => name !
         '`blocking` is a boolean',
         'No alternate field names or object arrays are allowed',
       ].every((anchor) => role.includes(anchor)),
-      'self-contained HELIOLUNE_OWNER_RESULT_V1 field shapes',
+      'self-contained HELIOLUNE_OWNER_RESULT_V2 field shapes',
     );
     check(
       'owner-v2-result-shape',

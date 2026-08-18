@@ -4,6 +4,13 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.4] - 2026-08-18
+
+### 默认使用 V2 owner dispatch
+
+- 所有新的 Luna owner dispatch 必须使用 `HELIOLUNE_OWNER_CONTRACT_V2`，公开紧凑示例也只展示 V2。
+- V1 解析及其旧固定上限只保留用于历史 contract 与 rollout 验证；活跃 owner profile 会拒绝使用 V1 执行新实现。
+
 ## [0.8.3] - 2026-08-18
 
 ### 任务专属资源租约

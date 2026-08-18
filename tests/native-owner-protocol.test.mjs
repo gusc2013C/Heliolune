@@ -240,7 +240,7 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   assert.match(skill, /never reruns `verification\.owner`/i);
   assert.match(skill, /compact HelioTerm evidence/i);
   assert.match(skill, /pure version\/release-note propagation in Sol/i);
-  assert.match(manifest.version, /^0\.8\.3\+codex\.[A-Za-z0-9.-]+$/u);
+  assert.match(manifest.version, /^0\.8\.4\+codex\.[A-Za-z0-9.-]+$/u);
   assert.equal(audit.schemaVersion, 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1');
   assert.equal(audit.validatorAb.reductionBytes, 18473);
   assert.equal(audit.helioterm.savedBytes, 652453);
@@ -362,18 +362,19 @@ test('V2 CLI exposes an accepted quality result and an independent resource over
   }
 });
 
-test('V1 legacy budgets and V2 resource leases are schema-conditional in owner guidance', () => {
+test('new owner dispatch is V2-only while V1 remains deterministic historical input', () => {
   const role = readFileSync(resolve('plugins/heliolune/agents/luna-owner.toml'), 'utf8');
   const installedRole = readFileSync(resolve('.codex/agents/luna-owner.toml'), 'utf8');
   const skill = readFileSync(resolve('plugins/heliolune/skills/heliolune/SKILL.md'), 'utf8');
   for (const source of [role, installedRole]) {
-    assert.equal(source.includes('For V1 contracts'), true);
-    assert.equal(source.includes("For V2 contracts, use the context pack and targeted anchors but do not inherit V1's fixed call, read, or output caps"), true);
-    assert.equal(source.includes('For V1, use at most two edit calls per turn and six across the reused session'), true);
-    assert.equal(source.includes('For V2 contracts'), true);
-    assert.equal(source.includes('Return exactly one schema-matched owner result JSON object'), true);
-    assert.equal(source.includes('Return exactly one HELIOLUNE_OWNER_RESULT_V1 JSON object'), false);
+    assert.equal(source.includes('HELIOLUNE_OWNER_CONTRACT_V1 is historical validation data and is not a valid owner dispatch input'), true);
+    assert.equal(source.includes('For V2 owner work'), true);
+    assert.equal(source.includes('Use at most 36 total tool calls'), false);
+    assert.equal(source.includes('use at most two edit calls per turn'), false);
+    assert.equal(source.includes('Return exactly one HELIOLUNE_OWNER_RESULT_V2 JSON object'), true);
+    assert.equal(source.includes('HELIOLUNE_OWNER_RESULT_V1 JSON object'), false);
   }
-  assert.equal(skill.includes('For V1 contracts'), true);
-  assert.equal(skill.includes("For V2 contracts, use targeted anchors and bounded slices but do not inherit V1's fixed call/read/output caps"), true);
+  assert.equal(skill.includes('Use `HELIOLUNE_OWNER_CONTRACT_V2` for all new owner work'), true);
+  assert.equal(skill.includes('never dispatch a new owner with V1'), true);
+  assert.equal(skill.includes('"schemaVersion": "HELIOLUNE_OWNER_CONTRACT_V1"'), false);
 });
