@@ -7,7 +7,7 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、架构、风险与验收，低成本 worker 完成有明确 scope 的工程任务。当前 Native V2 Codex 插件把一份有界 contract 交给可复用的 Luna/max 工程 owner，普通 terminal I/O 默认走零模型 HelioTerm，并强制由 Sol 独立验收。旧 MCP 适配器继续提供带 detached-worktree 写隔离的 1、2 或 4 路任务 DAG。
 
-> 当前稳定版本：**`0.8.4`**。1.0 之前公共接口仍可能调整。
+> 当前稳定版本：**`0.8.5`**。1.0 之前公共接口仍可能调整。
 >
 > 0.8.0 token-efficiency 发布说明：[English](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md) · [简体中文](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md)
 
@@ -128,7 +128,7 @@ Bootstrap 会在当前 Codex profile 注册本地 marketplace、安装 `heliolun
 直接从 Git marketplace 安装时请显式固定 release tag：
 
 ```powershell
-codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.4
+codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.5
 codex plugin add heliolune@heliolune
 ```
 

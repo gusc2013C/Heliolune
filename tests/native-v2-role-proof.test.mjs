@@ -47,6 +47,7 @@ test('bundled and installed Luna owner profiles require V2-only anchor-first dis
       'Use bounded slices instead of full-file reads',
       'Follow only the explicit resourceLease dimensions',
       'Tool-call and edit-call counts are post-call diagnostics, not token or cost proxies',
+      'Direct zero-model HelioTerm I/O required by the surrounding task policy is allowed',
       'Return exactly one HELIOLUNE_OWNER_RESULT_V2 JSON object',
     ]) {
       assert.equal(profile.includes(anchor), true, `${label}: ${anchor}`);
@@ -55,6 +56,7 @@ test('bundled and installed Luna owner profiles require V2-only anchor-first dis
       assert.equal(profile.includes(legacy), false, `${label}: legacy active-owner budget ${legacy}`);
     }
     assert.equal(profile.includes('For one-file reads use `type path'), false, `${label}: obsolete full-file read instruction`);
+    assert.equal(profile.includes('For route R1, do not spawn any child or use HelioTerm.'), false, `${label}: R1 must not forbid direct zero-model I/O`);
     assert.equal(profile.includes('For bounded Windows slices, use `powershell -NoProfile -Command'), true, `${label}: bounded Windows read example`);
   }
 });

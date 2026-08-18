@@ -4,6 +4,13 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.5] - 2026-08-18
+
+### 如实的资源合规与 R1 终端语义
+
+- 只有所有已声明的 V2 租约维度都已观测且不超限时，owner 才能报告 `resourceCompliance=compliant`；部分观测必须报告 `unmeasured`，任一已观测超限仍报告 `exceeded`。
+- R1 owner 可使用直接的零模型 HelioTerm I/O，不设置模型终端结果字段；R1 仍禁止模型终端子代理。
+
 ## [0.8.4] - 2026-08-18
 
 ### 默认使用 V2 owner dispatch

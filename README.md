@@ -8,7 +8,7 @@ Heliolune is a pre-1.0 orchestration project for pairing a capable controller wi
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current stable release: **`0.8.4`**. Public contracts may still change before 1.0.
+> Current stable release: **`0.8.5`**. Public contracts may still change before 1.0.
 
 The current release identity is the Native V2 `heliolune` plugin. The legacy `luna-pool-orchestrator` plugin remains available at `0.7.0-alpha.2` as a compatibility adapter.
 
@@ -127,7 +127,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | PowerShell | 7.x |
 | Git | Required by HelioTerm observations |
 | ripgrep (`rg`) | Required by HelioTerm search |
-| Plugin version | `0.8.4` |
+| Plugin version | `0.8.5` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -144,7 +144,7 @@ The bootstrap registers the local marketplace in the active Codex profile, insta
 For a direct Git marketplace install, pin the release tag explicitly:
 
 ```powershell
-codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.4
+codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.5
 codex plugin add heliolune@heliolune
 ```
 

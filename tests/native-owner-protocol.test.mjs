@@ -240,7 +240,7 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   assert.match(skill, /never reruns `verification\.owner`/i);
   assert.match(skill, /compact HelioTerm evidence/i);
   assert.match(skill, /pure version\/release-note propagation in Sol/i);
-  assert.match(manifest.version, /^0\.8\.4\+codex\.[A-Za-z0-9.-]+$/u);
+  assert.match(manifest.version, /^0\.8\.5\+codex\.[A-Za-z0-9.-]+$/u);
   assert.equal(audit.schemaVersion, 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1');
   assert.equal(audit.validatorAb.reductionBytes, 18473);
   assert.equal(audit.helioterm.savedBytes, 652453);
@@ -333,6 +333,24 @@ test('V2 reports quality acceptance independently from resource compliance', () 
   assert.equal(quality.find((entry) => entry.name === 'quality-acceptance-status').pass, true);
   assert.equal(resources.find((entry) => entry.name === 'resource-compliance-status').pass, false);
   assert.equal(acceptanceChecks(v2Contract, exceeded, exceeded.changedPaths, solChecks).every((entry) => entry.pass), true);
+});
+
+test('V2 requires every declared resource dimension for compliance and preserves partial overruns', () => {
+  const partial = structuredClone(v2Result);
+  delete partial.resourceCompliance.observed.totalTokens;
+  const partialChecks = resourceComplianceChecks(v2Contract, partial);
+  assert.equal(partialChecks.find((entry) => entry.name === 'resource-compliance-within-lease').pass, false);
+
+  partial.resourceCompliance.status = 'unmeasured';
+  const unmeasuredChecks = resourceComplianceChecks(v2Contract, partial);
+  assert.equal(unmeasuredChecks.find((entry) => entry.name === 'resource-compliance-within-lease').pass, true);
+
+  const exceeded = structuredClone(v2Result);
+  exceeded.resourceCompliance.status = 'exceeded';
+  exceeded.resourceCompliance.observed.toolOutputBytes = 25000;
+  delete exceeded.resourceCompliance.observed.totalTokens;
+  const exceededChecks = resourceComplianceChecks(v2Contract, exceeded);
+  assert.equal(exceededChecks.find((entry) => entry.name === 'resource-compliance-within-lease').pass, true);
 });
 
 test('V2 CLI exposes an accepted quality result and an independent resource overrun', () => {

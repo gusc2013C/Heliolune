@@ -43,8 +43,17 @@ from scope or acceptance counts. `toolCallCount` is retained as post-call diagno
 evidence, never a lease dimension or token/cost proxy, and no component claims
 pre-call enforcement. V2 uses `HELIOLUNE_OWNER_RESULT_V2` and reports
 `qualityAcceptance` (`passed`/`failed`) separately from `resourceCompliance`
-(`compliant`/`exceeded`/`unmeasured`). Resource observations remain independently
-auditable even when implementation-quality checks pass.
+(`compliant`/`exceeded`/`unmeasured`). A `compliant` report requires every declared
+lease dimension to be observed and within its limit; partial observations are
+`unmeasured`. An `exceeded` report is truthful when at least one observed declared
+dimension exceeds its limit, even if another declared dimension is unavailable.
+Resource observations remain independently auditable even when implementation-
+quality checks pass.
+
+R1 forbids a model-backed terminal child, not direct zero-model HelioTerm I/O used
+under the surrounding task's terminal policy. Direct I/O does not change the route
+and leaves `terminalUsed=false`, `terminalAgentPath=null`, and `terminalEvidence=[]`;
+those fields describe only the optional R2 `heliolune_helioterm` child.
 
 ## `HELIOLUNE_OWNER_RESULT_V1`
 

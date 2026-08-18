@@ -4,6 +4,13 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.5] - 2026-08-18
+
+### Truthful resource compliance and R1 terminal semantics
+
+- Require every declared V2 lease dimension to be observed and within its limit before an owner may report `resourceCompliance=compliant`; partial observations are `unmeasured`, while any observed overrun remains `exceeded`.
+- Allow R1 owners to use direct zero-model HelioTerm I/O without setting the model-terminal result fields; R1 still forbids a model-backed terminal child.
+
 ## [0.8.4] - 2026-08-18
 
 ### V2-default owner dispatch

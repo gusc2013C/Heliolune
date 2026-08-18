@@ -336,12 +336,26 @@ function validResourceCompliance(value) {
 
 function resourceLeaseComparison(lease, observation) {
   const dimensions = resourceLeaseDimensions(lease).dimensions;
-  if (!record(dimensions)) return { comparable: false, within: false };
-  const pairs = RESOURCE_DIMENSIONS
-    .filter((key) => observation[key] !== undefined && dimensions[key] !== undefined);
+  if (!record(dimensions)) {
+    return {
+      comparable: false,
+      within: false,
+      fullyObserved: false,
+      missing: [],
+      exceeded: [],
+    };
+  }
+  const declared = RESOURCE_DIMENSIONS.filter((key) => dimensions[key] !== undefined);
+  const pairs = declared.filter((key) => observation[key] !== undefined);
+  const missing = declared.filter((key) => observation[key] === undefined);
+  const exceeded = pairs.filter((key) => observation[key] > dimensions[key]);
+  const fullyObserved = declared.length > 0 && missing.length === 0;
   return {
     comparable: pairs.length > 0,
-    within: pairs.length > 0 && pairs.every((key) => observation[key] <= dimensions[key]),
+    within: fullyObserved && pairs.length > 0 && exceeded.length === 0,
+    fullyObserved,
+    missing,
+    exceeded,
   };
 }
 
@@ -425,7 +439,9 @@ export function resourceComplianceChecks(contract, result) {
     check('resource-compliance-shape', validResourceCompliance(result?.resourceCompliance), result?.resourceCompliance ?? null, 'resourceCompliance report'),
     check('resource-compliance-status', status === 'compliant', status, 'compliant'),
     check('resource-compliance-lease', leaseValid, lease ?? null, RESOURCE_LEASE_SCHEMA_V2),
-    check('resource-compliance-within-lease', status === 'unmeasured' || (status === 'compliant' && comparison.comparable && comparison.within) || (status === 'exceeded' && comparison.comparable && !comparison.within), { status, observation, comparison }, 'truthful lease observation'),
+    check('resource-compliance-within-lease', status === 'unmeasured'
+      || (status === 'compliant' && comparison.comparable && comparison.fullyObserved && comparison.within)
+      || (status === 'exceeded' && comparison.comparable && comparison.exceeded.length > 0), { status, observation, comparison }, 'truthful lease observation'),
   ];
 }
 
