@@ -7,7 +7,7 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、架构、风险与验收，低成本 worker 完成有明确 scope 的工程任务。当前 Native V2 Codex 插件把一份有界 contract 交给可复用的 Luna/max 工程 owner，普通 terminal I/O 默认走零模型 HelioTerm，并强制由 Sol 独立验收。旧 MCP 适配器继续提供带 detached-worktree 写隔离的 1、2 或 4 路任务 DAG。
 
-> 当前稳定版本：**`0.8.0`**。1.0 之前公共接口仍可能调整。
+> 当前稳定版本：**`0.8.1`**。1.0 之前公共接口仍可能调整。
 >
 > 0.8.0 token-efficiency 发布说明：[English](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md) · [简体中文](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md)
 
@@ -116,14 +116,22 @@ Heliolune 在 Windows 自动启动一个 WPF 悬浮窗，不再同时提供内�
 
 ## 从 checkout 安装
 
+从 checkout 运行安全 bootstrap。除非显式提供 `--write`，脚本只预览写入：
+
 ```powershell
-codex plugin marketplace add "C:\path\to\heliolune"
-codex plugin add heliolune@heliolune
-# 可选的旧版兼容适配器：
-codex plugin add luna-pool-orchestrator@heliolune
+node .\scripts\bootstrap-install.mjs --project C:\path\to\your-project --write
 ```
 
-如果 checkout 不在该路径，请替换为实际目录。安装/更新后必须新建一个 Codex 任务，才能加载新的 Skill 与 MCP 进程。
+Bootstrap 会在当前 Codex profile 注册本地 marketplace、安装 `heliolune`、把 standalone profile 复制到目标项目的 `.codex\agents`，并运行紧凑 Native V2 preflight。`--codex-home <隔离目录>` 仅用于 CI 或一次性测试。安装后请启动**新的 Codex task**，让 Codex 加载新 Skill 与 MCP 进程。隔离 source smoke 可额外使用 `--skip-codex`，它仍会安装 profile 并运行 preflight。
+
+直接从 Git marketplace 安装时请显式固定 release tag：
+
+```powershell
+codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.1
+codex plugin add heliolune@heliolune
+```
+
+Git 直装只安装插件，不能把 standalone Native V2 profile 复制到项目中；首次完整安装请使用上面的 checkout bootstrap。
 
 ## 首次使用
 

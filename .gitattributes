@@ -9,7 +9,3 @@
 .github export-ignore
 .gitignore export-ignore
 .gitattributes export-ignore
-CONTRIBUTING.md export-ignore
-CONTRIBUTING.zh-CN.md export-ignore
-RELEASE_CHECKLIST.md export-ignore
-RELEASE_CHECKLIST.zh-CN.md export-ignore

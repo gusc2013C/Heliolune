@@ -41,6 +41,7 @@ if ($status) {
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $archivePath = Join-Path $OutputDirectory "heliolune-$version.zip"
 $checksumPath = "$archivePath.sha256"
+$extractionDirectory = Join-Path ([IO.Path]::GetTempPath()) ('heliolune-release-' + [guid]::NewGuid().ToString('N'))
 
 if (Test-Path -LiteralPath $archivePath) {
     Remove-Item -LiteralPath $archivePath -Force
@@ -52,6 +53,33 @@ if (Test-Path -LiteralPath $checksumPath) {
 & git -C $repoRoot archive --format=zip --output=$archivePath HEAD
 if ($LASTEXITCODE -ne 0) {
     throw 'git archive failed.'
+}
+
+try {
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $extractionDirectory -Force
+    $extractedValidator = Join-Path $extractionDirectory 'scripts\validate-release.ps1'
+    if (-not (Test-Path -LiteralPath $extractedValidator -PathType Leaf)) {
+        throw 'The release archive does not contain scripts\validate-release.ps1.'
+    }
+    & $extractedValidator -Compact
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Extracted release validation failed.'
+    }
+
+    $extractedBootstrap = Join-Path $extractionDirectory 'scripts\bootstrap-install.mjs'
+    $consumerProject = Join-Path $extractionDirectory '.release-smoke\project'
+    $consumerCodexHome = Join-Path $extractionDirectory '.release-smoke\codex-home'
+    & node $extractedBootstrap --project $consumerProject --codex-home $consumerCodexHome --skip-codex --write --compact
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Extracted release bootstrap smoke failed.'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $consumerProject '.codex\agents\luna-owner.toml') -PathType Leaf)) {
+        throw 'Extracted release bootstrap did not install the Luna owner profile.'
+    }
+} finally {
+    if (Test-Path -LiteralPath $extractionDirectory) {
+        Remove-Item -LiteralPath $extractionDirectory -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 $hash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()

@@ -8,7 +8,7 @@ Heliolune is a pre-1.0 orchestration project for pairing a capable controller wi
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current stable release: **`0.8.0`**. Public contracts may still change before 1.0.
+> Current stable release: **`0.8.1`**. Public contracts may still change before 1.0.
 
 The current release identity is the Native V2 `heliolune` plugin. The legacy `luna-pool-orchestrator` plugin remains available at `0.7.0-alpha.2` as a compatibility adapter.
 
@@ -125,22 +125,28 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | Node.js | Syntax validated locally; CI uses Node.js 22 |
 | Windows PowerShell | 5.1 |
 | PowerShell | 7.x |
-| Plugin version | `0.8.0` |
+| Plugin version | `0.8.1` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
 ## Install from a checkout
 
-Clone or extract the repository, then register its root as a local marketplace:
+Clone or extract the repository, then run the safe bootstrap from that checkout. It previews every write unless `--write` is supplied:
 
 ```powershell
-codex plugin marketplace add "C:\path\to\heliolune"
-codex plugin add heliolune@heliolune
-# Optional legacy compatibility adapter:
-codex plugin add luna-pool-orchestrator@heliolune
+node .\scripts\bootstrap-install.mjs --project C:\path\to\your-project --write
 ```
 
-Use the actual checkout path if it differs. Start a **new Codex task** after installation so Codex loads the newly installed skill and MCP process.
+The bootstrap registers the local marketplace in the active Codex profile, installs `heliolune`, copies the standalone profiles into the target project's `.codex\agents`, and runs the compact Native V2 preflight. Use `--codex-home <isolated-directory>` only for CI or disposable testing. Start a **new Codex task** after installation so Codex loads the newly installed skill and MCP process. Add `--skip-codex` only for an isolated source smoke test; it still installs profiles and runs preflight.
+
+For a direct Git marketplace install, pin the release tag explicitly:
+
+```powershell
+codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.1
+codex plugin add heliolune@heliolune
+```
+
+The direct Git path installs the plugin but cannot copy standalone Native V2 profiles into a project. Use the checkout bootstrap above for a complete first installation.
 
 ## First use
 
@@ -296,7 +302,7 @@ dist/heliolune-<version>.zip
 dist/heliolune-<version>.zip.sha256
 ```
 
-It uses `git archive HEAD`, so untracked files and local caches cannot silently enter the release.
+It uses `git archive HEAD`, extracts the resulting ZIP into a disposable directory, and runs the same release validator from the extracted files before writing the checksum. Untracked files and local caches cannot silently enter the release.
 
 ## Repository layout
 

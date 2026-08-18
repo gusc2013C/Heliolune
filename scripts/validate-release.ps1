@@ -216,6 +216,8 @@ $required = @(
     (Join-Path $repoRoot 'scripts\run-speed-batch-smoke.mjs'),
     (Join-Path $repoRoot 'scripts\run-parallel-write-smoke.mjs'),
     (Join-Path $repoRoot 'scripts\run-dag-write-smoke.mjs'),
+    (Join-Path $repoRoot 'scripts\bootstrap-install.mjs'),
+    (Join-Path $repoRoot 'scripts\package-release.ps1'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis.json'),
     (Join-Path $repoRoot 'benchmarks\bounded-analysis-direct.json'),
     (Join-Path $repoRoot 'benchmarks\renewable-liveness.json'),
@@ -246,7 +248,7 @@ foreach ($profileFile in $nativeProfileFiles) {
         throw "Project standalone profile is stale: $profileFile"
     }
 }
-if ($manifest.version -notmatch '^0\.8\.0(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.8\.1(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 $releaseVersion = $manifest.version -replace '\+codex\..*$', ''
@@ -321,7 +323,7 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
 
 $changelogEnglish = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md') -Raw -Encoding UTF8
 $changelogChinese = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.zh-CN.md') -Raw -Encoding UTF8
-if (($changelogEnglish -notmatch '\[0\.8\.0\]') -or ($changelogChinese -notmatch '\[0\.8\.0\]')) {
+if (($changelogEnglish -notmatch '\[0\.8\.1\]') -or ($changelogChinese -notmatch '\[0\.8\.1\]')) {
     throw 'Both changelogs must document the current Native V2 stable release.'
 }
 if (($changelogEnglish -notmatch '\(CHANGELOG\.zh-CN\.md\)') -or ($changelogChinese -notmatch '\[English\]\(CHANGELOG\.md\)')) {
@@ -431,8 +433,8 @@ $stableAuditPath = Join-Path $repoRoot 'benchmarks\results\0.8.0-stable-token-ef
 $stableAuditRaw = Get-Content -LiteralPath $stableAuditPath -Raw -Encoding UTF8
 $stableAudit = $stableAuditRaw | ConvertFrom-Json
 if ($stableAudit.schemaVersion -ne 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1' -or
-    $stableAudit.releaseVersion -ne $releaseVersion -or
-    $stableAudit.buildIdentity -ne $manifest.version -or
+    $stableAudit.releaseVersion -ne '0.8.0' -or
+    $stableAudit.buildIdentity -ne '0.8.0+codex.20260818153255' -or
     $stableAudit.releaseDate -ne '2026-08-18' -or
     $stableAudit.measurementClass -ne 'diagnostic' -or
     $stableAudit.tokenMeaning -ne 'rollout counters and bytes/4 content estimates, not billing tokens') {

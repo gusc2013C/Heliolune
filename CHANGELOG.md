@@ -4,6 +4,14 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.1] - 2026-08-18
+
+### Installation and release hardening
+
+- Add an explicit bootstrap command that previews writes, supports an isolated `CODEX_HOME` for CI, installs Native V2 profiles, and runs preflight.
+- Pin the public Git marketplace install example to `v0.8.1` and validate the final extracted release ZIP with the shipped validator.
+- Add a clean temporary clone packaging smoke to CI so release checks do not depend on the developer worktree.
+
 ## [0.8.0] - 2026-08-18
 
 ### Stable Native V2 and compact Sol acceptance

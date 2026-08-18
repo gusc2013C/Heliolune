@@ -4,6 +4,14 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.1] - 2026-08-18
+
+### 安装与发布加固
+
+- 新增显式 bootstrap 命令：默认只预览写入，CI 可选隔离 `CODEX_HOME`，并安装 Native V2 profile 后运行 preflight。
+- 公开 Git marketplace 安装示例固定到 `v0.8.1`，并使用随包 validator 校验最终解压后的 ZIP。
+- CI 增加干净临时 clone 的打包 smoke，发布检查不再依赖开发工作树。
+
 ## [0.8.0] - 2026-08-18
 
 ### 稳定 Native V2 与紧凑 Sol 验收

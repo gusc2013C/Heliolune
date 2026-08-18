@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -184,6 +184,7 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   const { readFileSync } = await import('node:fs');
   const validation = readFileSync(new URL('../scripts/validate-release.ps1', import.meta.url), 'utf8');
   const packaging = readFileSync(new URL('../scripts/package-release.ps1', import.meta.url), 'utf8');
+  const attributes = readFileSync(new URL('../.gitattributes', import.meta.url), 'utf8');
   const skill = readFileSync(new URL('../plugins/heliolune/skills/heliolune/SKILL.md', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../plugins/heliolune/.codex-plugin/plugin.json', import.meta.url), 'utf8'));
   const audit = JSON.parse(readFileSync(new URL('../benchmarks/results/0.8.0-stable-token-efficiency.json', import.meta.url), 'utf8'));
@@ -196,16 +197,42 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   assert.match(validation, /Release validation failed \(compact\)/i);
   assert.match(packaging, /validate-release\.ps1'\)\s+-Compact/);
   assert.match(packaging, /\$LASTEXITCODE -ne 0/);
+  assert.match(packaging, /bootstrap-install\.mjs/);
+  assert.match(packaging, /--skip-codex --write --compact/);
+  assert.doesNotMatch(attributes, /^(?:CONTRIBUTING|RELEASE_CHECKLIST)(?:\.zh-CN)?\.md\s+export-ignore$/mu);
   assert.match(skill, /batches distinct acceptance checks/i);
   assert.match(skill, /never reruns `verification\.owner`/i);
   assert.match(skill, /compact HelioTerm evidence/i);
   assert.match(skill, /pure version\/release-note propagation in Sol/i);
-  assert.equal(manifest.version, '0.8.0+codex.20260818153255');
+  assert.match(manifest.version, /^0\.8\.1\+codex\.[A-Za-z0-9.-]+$/u);
   assert.equal(audit.schemaVersion, 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1');
   assert.equal(audit.validatorAb.reductionBytes, 18473);
   assert.equal(audit.helioterm.savedBytes, 652453);
   assert.equal(audit.acceptedOwnerProof.model, 'gpt-5.6-luna');
   assert.equal(audit.acceptedOwnerProof.effort, 'max');
+});
+
+test('bootstrap previews writes, rejects option typos, and installs profiles without requiring an isolated Codex home', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-bootstrap-'));
+  const script = resolve('scripts/bootstrap-install.mjs');
+  try {
+    const preview = spawnSync(process.execPath, [script, '--project', directory, '--compact'], { encoding: 'utf8' });
+    assert.equal(preview.status, 0, preview.stderr || preview.stdout);
+    assert.equal(JSON.parse(preview.stdout).written, false);
+    assert.equal(existsSync(resolve(directory, '.codex')), false);
+
+    const typo = spawnSync(process.execPath, [script, '--project', directory, '--skip-codez', '--write', '--compact'], { encoding: 'utf8' });
+    assert.notEqual(typo.status, 0);
+    assert.equal(existsSync(resolve(directory, '.codex')), false);
+
+    const written = spawnSync(process.execPath, [script, '--project', directory, '--skip-codex', '--write', '--compact'], { encoding: 'utf8' });
+    assert.equal(written.status, 0, written.stderr || written.stdout);
+    const payload = JSON.parse(written.stdout);
+    assert.equal(payload.codexHome, null);
+    assert.equal(existsSync(resolve(directory, '.codex', 'agents', 'luna-owner.toml')), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('acceptance rejects owner preflight/full-suite violations and missing Sol checks', () => {
