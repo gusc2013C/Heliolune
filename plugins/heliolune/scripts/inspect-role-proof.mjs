@@ -26,6 +26,8 @@ function nonNegativeIntegerOption(name, expectedDescription = 'non-negative inte
 }
 
 const expectedMaxToolCalls = nonNegativeIntegerOption('--expect-max-tool-calls');
+const expectedMaxToolOutputBytes = nonNegativeIntegerOption('--expect-max-tool-output-bytes', 'non-negative safe integer');
+const expectedMaxTotalToolOutputBytes = nonNegativeIntegerOption('--expect-max-total-tool-output-bytes', 'non-negative safe integer');
 const expectedMaxTotalTokens = nonNegativeIntegerOption('--expect-max-total-tokens', 'non-negative safe integer');
 const expectedMaxReasoningTokens = nonNegativeIntegerOption('--expect-max-reasoning-tokens', 'non-negative safe integer');
 const expectedMaxOutputTokens = nonNegativeIntegerOption('--expect-max-output-tokens', 'non-negative safe integer');
@@ -33,21 +35,29 @@ const expectedMaxCachedInputTokens = nonNegativeIntegerOption('--expect-max-cach
 const expectedMaxInputTokens = nonNegativeIntegerOption('--expect-max-input-tokens', 'non-negative safe integer');
 const rolloutArgument = option('--rollout');
 if (!rolloutArgument) {
-  process.stderr.write('Usage: inspect-role-proof.mjs --rollout <jsonl> --expect-role <name> --expect-model <model> --expect-effort <effort> --expect-marker <marker> [--expect-max-tool-calls <non-negative integer>] [--expect-max-total-tokens <non-negative safe integer>] [--expect-max-reasoning-tokens <non-negative safe integer>] [--expect-max-output-tokens <non-negative safe integer>] [--expect-max-cached-input-tokens <non-negative safe integer>] [--expect-max-input-tokens <non-negative safe integer>]\n');
+  process.stderr.write('Usage: inspect-role-proof.mjs --rollout <jsonl> --expect-role <name> --expect-model <model> --expect-effort <effort> --expect-marker <marker> [--expect-max-tool-calls <non-negative integer>] [--expect-max-tool-output-bytes <non-negative safe integer>] [--expect-max-total-tool-output-bytes <non-negative safe integer>] [--expect-max-total-tokens <non-negative safe integer>] [--expect-max-reasoning-tokens <non-negative safe integer>] [--expect-max-output-tokens <non-negative safe integer>] [--expect-max-cached-input-tokens <non-negative safe integer>] [--expect-max-input-tokens <non-negative safe integer>]\n');
   process.exit(2);
 }
 
 const rolloutPath = resolve(rolloutArgument);
-const rows = readFileSync(rolloutPath, 'utf8')
-  .split(/\r?\n/u)
-  .filter(Boolean)
-  .map((line, index) => {
-    try {
-      return JSON.parse(line);
-    } catch (error) {
-      throw new Error(`Invalid JSONL at line ${index + 1}: ${error.message}`);
-    }
-  });
+const persistedLines = readFileSync(rolloutPath, 'utf8').split(/\r?\n/u).filter(Boolean);
+const rows = [];
+const toolOutputBytes = [];
+for (const [index, line] of persistedLines.entries()) {
+  let row;
+  try {
+    row = JSON.parse(line);
+  } catch (error) {
+    throw new Error(`Invalid JSONL at line ${index + 1}: ${error.message}`);
+  }
+  const payloadType = row.type === 'response_item' ? row.payload?.type : null;
+  if (['custom_tool_call_output', 'function_call_output'].includes(payloadType)) {
+    toolOutputBytes.push(Buffer.byteLength(line, 'utf8'));
+    rows.push({ type: row.type, payload: { type: payloadType } });
+  } else {
+    rows.push(row);
+  }
+}
 
 const metadata = rows.find((row) => row.type === 'session_meta')?.payload ?? {};
 const turnContexts = rows
@@ -75,6 +85,8 @@ const everyTurnContext = (predicate) => turnContexts.length > 0 && turnContexts.
 const tokenEvents = rows.filter((row) => row.type === 'event_msg' && row.payload?.type === 'token_count');
 const usage = tokenEvents.at(-1)?.payload?.info?.total_token_usage ?? null;
 const toolCallCount = rows.filter((row) => row.type === 'response_item' && ['custom_tool_call', 'function_call'].includes(row.payload?.type)).length;
+const maxToolOutputBytes = toolOutputBytes.length > 0 ? Math.max(...toolOutputBytes) : 0;
+const totalToolOutputBytes = toolOutputBytes.reduce((total, bytes) => total + bytes, 0);
 const assistantText = rows
   .filter((row) => row.type === 'response_item' && row.payload?.type === 'message' && row.payload?.role === 'assistant')
   .flatMap((row) => row.payload.content ?? [])
@@ -88,6 +100,8 @@ const expected = {
   marker: option('--expect-marker'),
   cwd: option('--expect-cwd'),
   ...(expectedMaxToolCalls === null ? {} : { maxToolCalls: expectedMaxToolCalls }),
+  ...(expectedMaxToolOutputBytes === null ? {} : { maxToolOutputBytes: expectedMaxToolOutputBytes }),
+  ...(expectedMaxTotalToolOutputBytes === null ? {} : { maxTotalToolOutputBytes: expectedMaxTotalToolOutputBytes }),
   ...(expectedMaxTotalTokens === null ? {} : { maxTotalTokens: expectedMaxTotalTokens }),
   ...(expectedMaxReasoningTokens === null ? {} : { maxReasoningTokens: expectedMaxReasoningTokens }),
   ...(expectedMaxOutputTokens === null ? {} : { maxOutputTokens: expectedMaxOutputTokens }),
@@ -110,6 +124,9 @@ const actual = {
   turnContextDistinctValues,
   markerSeen: expected.marker ? assistantText.includes(expected.marker) : null,
   toolCallCount,
+  toolOutputCount: toolOutputBytes.length,
+  maxToolOutputBytes,
+  totalToolOutputBytes,
   usage,
 };
 
@@ -130,6 +147,22 @@ if (expectedMaxToolCalls !== null) {
     pass: actual.toolCallCount <= expectedMaxToolCalls,
     expected: expectedMaxToolCalls,
     actual: actual.toolCallCount,
+  });
+}
+if (expectedMaxToolOutputBytes !== null) {
+  checks.push({
+    name: 'max-tool-output-bytes',
+    pass: Number.isSafeInteger(actual.maxToolOutputBytes) && actual.maxToolOutputBytes >= 0 && actual.maxToolOutputBytes <= expectedMaxToolOutputBytes,
+    expected: expectedMaxToolOutputBytes,
+    actual: actual.maxToolOutputBytes,
+  });
+}
+if (expectedMaxTotalToolOutputBytes !== null) {
+  checks.push({
+    name: 'max-total-tool-output-bytes',
+    pass: Number.isSafeInteger(actual.totalToolOutputBytes) && actual.totalToolOutputBytes >= 0 && actual.totalToolOutputBytes <= expectedMaxTotalToolOutputBytes,
+    expected: expectedMaxTotalToolOutputBytes,
+    actual: actual.totalToolOutputBytes,
   });
 }
 if (expectedMaxTotalTokens !== null) {

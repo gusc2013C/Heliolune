@@ -2,9 +2,12 @@
 
 English · [简体中文](RELEASE_CHECKLIST.zh-CN.md)
 
-- [ ] Confirm the Native V2 `heliolune` manifest is the current release identity at `0.8.0-alpha.3`.
+- [ ] Confirm the Native V2 `heliolune` manifest is the current release identity at `0.8.0-alpha.4` with build `0.8.0-alpha.4+codex.20260818140328`.
 - [ ] Confirm the legacy `luna-pool-orchestrator` marketplace entry and runtime remain `0.7.0-alpha.2`.
-- [ ] Confirm both marketplace entries, all required Native V2 files, and the bilingual alpha.3 release notes are present.
+- [ ] Confirm both marketplace entries, all required Native V2 files, the historical alpha.3 documents, and the bilingual alpha.4 token-efficiency note plus benchmark JSON are present.
+- [ ] Confirm the Heliolune 1..4 `readFirst`/anchor-first gate uses one targeted anchor query followed by bounded slices.
+- [ ] Confirm ordinary HelioTerm failures use `model=0`/`semanticScore=0`, while explicit semantic requests and real test diagnostics retain `semanticScore=3`.
+- [ ] Confirm the token-efficiency JSON is aggregate diagnostic evidence, explicitly not billing tokens, and contains no private or raw execution content.
 - [ ] Confirm the semantic version in the plugin manifest and runtime constants.
 - [ ] Review public API, trust-boundary, and migration changes.
 - [ ] Run `pwsh -File .\scripts\validate-release.ps1`.

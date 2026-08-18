@@ -4,6 +4,20 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.0-alpha.4] - 2026-08-18
+
+- Owner 输出预算现在采用前瞻性边界：read/search 证据上限为 12 KiB/160 行，每个 tool result 上限为 24 KiB，累计 tool output 上限为 192 KiB，并使用紧凑 verification 输出；不宣称追溯性节省。
+
+### 有界发现与 token 效率证据
+
+- 将 Native V2 manifest 更新为 `0.8.0-alpha.4+codex.20260818140328`，并保留 alpha.3 文档作为历史发布证据。
+- 固定 1..4 `readFirst`/anchor-first 有界切片 gate：一次跨所有路径的定向 anchor 查询消耗首个发现调用，之后最多读取四个有界切片。
+- 在隐私安全的诊断 JSON audit 中记录聚合 rollout counter 与 HelioTerm A/B 路由事实；这些计数明确不是 billing token，不包含 prompt、命令载荷、环境、stdin、secret、task ID 或 raw tool output。
+- 普通 HelioTerm 失败（8.8 KB 单输入与 15.0 KB 批量输入）改走 `model=0` 且 `semanticScore=0`；显式语义请求和真实测试诊断仍走 Luna 且 `semanticScore=3`。
+- 记录 single-Luna repair 对比：当前单轮 repair 为 3,724,754 个诊断 token，之前双轮为 4,347,302，减少 622,548（14.32%）。
+
+详见 [alpha.4 token-efficiency 发布说明](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md) 与 [English version](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md)。
+
 ## [0.8.0-alpha.3] - 2026-08-17
 
 ### Native V2 owner 与有界 terminal I/O

@@ -9,9 +9,10 @@ Required fields:
 - `route`: `R1` for one model-bound owner without HelioTerm, or `R2` for one owner with one persistent HelioTerm.
 - `objective`, `acceptance`, `scope`, `reserved`, and `risk`: the bounded outcome and Sol-retained decisions.
 - `contractId`: stable 8–64 character lowercase identifier reused by bounded followups.
-- `context`: `HELIOLUNE_CONTEXT_PACK_V1` with 1–12 exact in-scope `readFirst` paths, 1–24 targeted `anchors`, and 0–12 `constraints`. This pack replaces open-ended discovery.
+- `context`: `HELIOLUNE_CONTEXT_PACK_V1` with 1–4 exact in-scope `readFirst` paths, 1–24 targeted `anchors`, and 0–12 `constraints`. Reserve one of the five initial repository calls for a single anchor query across all `readFirst` paths, then use bounded slices instead of full-file reads. This pack replaces open-ended discovery.
 - `preflight`: passing compact `HELIOLUNE_NATIVE_PREFLIGHT_V1` evidence.
 - `ownerPolicy`: exactly `{"persistent":true,"maxTurns":3,"maxToolCalls":36,"maxEditCalls":6}`.
+- Owner output budgets: read/search evidence is at most 12 KiB (12288 bytes) and 160 lines, every tool result is at most 24 KiB (24576 bytes), cumulative owner tool output is at most 192 KiB (196608 bytes), and verification output stays compact.
 - `terminalPolicy`: `forbidden` on R1. On R2 it is exactly `{"persistent":true,"maxRequests":8,"maxCommandsPerRequest":4,"maxRequestBytes":64,"maxResponseBytes":256}`.
 - `verification.owner`: 1–8 focused commands run by the owner.
 - `verification.sol`: 1–8 distinct broader commands reserved for Sol.

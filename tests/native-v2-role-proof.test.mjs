@@ -34,6 +34,32 @@ test('distributable and project custom agents satisfy the Desktop 0.147 standalo
   }
 });
 
+test('bundled and installed Luna owner profiles require anchor-first bounded discovery', () => {
+  const profiles = [
+    ['bundled', readFileSync(resolve(repositoryRoot, 'plugins', 'heliolune', 'agents', 'luna-owner.toml'), 'utf8')],
+    ['installed', readFileSync(resolve(repositoryRoot, '.codex', 'agents', 'luna-owner.toml'), 'utf8')],
+  ];
+  for (const [label, profile] of profiles) {
+    for (const anchor of [
+      'mandatory anchor query consumes one of five initial repository calls',
+      'readFirst is limited to 1..4 paths',
+      'Use context.anchors in one targeted `rg` call across all readFirst paths',
+      'Use bounded slices instead of full-file reads',
+      'initial read pass in at most five repository calls',
+      'at most five initial repository calls',
+      '12 KiB (12288 bytes)',
+      '160 lines',
+      '24 KiB (24576 bytes)',
+      '192 KiB (196608 bytes)',
+      'verification output stays compact',
+    ]) {
+      assert.equal(profile.includes(anchor), true, `${label}: ${anchor}`);
+    }
+    assert.equal(profile.includes('For one-file reads use `type path'), false, `${label}: obsolete full-file read instruction`);
+    assert.equal(profile.includes('For bounded Windows slices, use `powershell -NoProfile -Command'), true, `${label}: bounded Windows read example`);
+  }
+});
+
 test('standalone installer is bounded, deterministic, and preserves unrelated profiles', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-agent-install-'));
   try {
@@ -849,6 +875,85 @@ test('role proof inspector fails closed on a model fallback', () => {
     assert.equal(payload.checks.some((entry) => entry.name === 'max-output-tokens'), false);
     assert.equal(payload.checks.some((entry) => entry.name === 'max-cached-input-tokens'), false);
     assert.equal(payload.checks.some((entry) => entry.name === 'max-input-tokens'), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('role proof inspector measures persisted tool-output envelopes without retaining content', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-role-proof-'));
+  try {
+    const rollout = resolve(directory, 'rollout.jsonl');
+    const outputOne = 'x'.repeat(100);
+    const outputTwo = 'y'.repeat(50);
+    writeFileSync(rollout, [
+      JSON.stringify({ type: 'session_meta', payload: { originator: 'Codex Desktop', multi_agent_version: 'v2' } }),
+      JSON.stringify({ type: 'turn_context', payload: { multi_agent_version: 'v2' } }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call-1', output: outputOne } }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'call-2', output: outputTwo } }),
+    ].join('\n'));
+    const result = spawnSync(process.execPath, [
+      inspectorScript,
+      '--rollout', rollout,
+      '--expect-max-tool-output-bytes', '24576',
+      '--expect-max-total-tool-output-bytes', '196608',
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.pass, true);
+    assert.equal(payload.actual.toolOutputCount, 2);
+    assert.equal(payload.actual.maxToolOutputBytes > 0, true);
+    assert.equal(payload.actual.totalToolOutputBytes >= payload.actual.maxToolOutputBytes, true);
+    assert.equal(JSON.stringify(payload).includes(outputOne), false);
+    assert.equal(JSON.stringify(payload).includes(outputTwo), false);
+    assert.equal(payload.checks.find((entry) => entry.name === 'max-tool-output-bytes').pass, true);
+    assert.equal(payload.checks.find((entry) => entry.name === 'max-total-tool-output-bytes').pass, true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('role proof inspector fails when persisted tool-output byte budgets are exceeded', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-role-proof-'));
+  try {
+    const overMaximum = resolve(directory, 'over-maximum.jsonl');
+    writeFileSync(overMaximum, [
+      JSON.stringify({ type: 'session_meta', payload: {} }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'custom_tool_call_output', output: 'x'.repeat(24700) } }),
+    ].join('\n'));
+    const maximumResult = spawnSync(process.execPath, [inspectorScript, '--rollout', overMaximum, '--expect-max-tool-output-bytes', '24576', '--expect-max-total-tool-output-bytes', '196608'], { encoding: 'utf8' });
+    assert.equal(maximumResult.status, 1);
+    const maximumPayload = JSON.parse(maximumResult.stdout);
+    assert.equal(maximumPayload.checks.find((entry) => entry.name === 'max-tool-output-bytes').pass, false);
+
+    const overTotal = resolve(directory, 'over-total.jsonl');
+    writeFileSync(overTotal, [
+      JSON.stringify({ type: 'session_meta', payload: {} }),
+      ...Array.from({ length: 9 }, (_, index) => JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', call_id: `call-${index}`, output: 'y'.repeat(22000) } })),
+    ].join('\n'));
+    const totalResult = spawnSync(process.execPath, [inspectorScript, '--rollout', overTotal, '--expect-max-tool-output-bytes', '24576', '--expect-max-total-tool-output-bytes', '196608'], { encoding: 'utf8' });
+    assert.equal(totalResult.status, 1);
+    const totalPayload = JSON.parse(totalResult.stdout);
+    assert.equal(totalPayload.checks.find((entry) => entry.name === 'max-tool-output-bytes').pass, true);
+    assert.equal(totalPayload.checks.find((entry) => entry.name === 'max-total-tool-output-bytes').pass, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('role proof inspector rejects invalid tool-output byte budget options', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-role-proof-'));
+  try {
+    const rollout = resolve(directory, 'rollout.jsonl');
+    writeFileSync(rollout, `${JSON.stringify({ type: 'session_meta', payload: {} })}\n`);
+    for (const flag of ['--expect-max-tool-output-bytes', '--expect-max-total-tool-output-bytes']) {
+      for (const invalid of [[flag], [flag, '-1'], [flag, '1.5'], [flag, 'many'], [flag, '9007199254740992']]) {
+        const result = spawnSync(process.execPath, [inspectorScript, '--rollout', rollout, ...invalid], { encoding: 'utf8' });
+        assert.equal(result.status, 2, `${invalid.join(' ')}\n${result.stderr || result.stdout}`);
+        assert.match(result.stderr, new RegExp(`${flag} requires a non-negative safe integer`, 'u'));
+        assert.equal(result.stdout, '');
+      }
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

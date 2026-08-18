@@ -1,6 +1,6 @@
 {
   "name": "heliolune",
-  "version": "0.8.0-alpha.3+codex.20260817170051",
+  "version": "0.8.0-alpha.4+codex.20260818140328",
   "description": "Native V2 persistent Luna ownership with zero-model terminal I/O and independent Sol acceptance.",
   "author": {
     "name": "Sicheng Gu",
@@ -20,7 +20,7 @@
   "interface": {
     "displayName": "Heliolune Native",
     "shortDescription": "Persistent Luna ownership with bounded I/O.",
-    "longDescription": "Heliolune 0.8 alpha.3 keeps and reuses one Luna/max engineering owner for bounded implementation and repair turns, uses zero-model HelioTerm I/O by default, validates structured evidence, and requires independent Sol diff and acceptance checks.",
+    "longDescription": "Heliolune 0.8 alpha.4 keeps and reuses one Luna/max engineering owner for bounded implementation and repair turns, uses zero-model HelioTerm I/O by default, validates structured evidence, and requires independent Sol diff and acceptance checks.",
     "developerName": "Sicheng Gu",
     "category": "Productivity",
     "capabilities": [

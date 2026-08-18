@@ -25,6 +25,7 @@ const paths = {
   manifest: resolve(pluginRoot, '.codex-plugin', 'plugin.json'),
   bindings: resolve(pluginRoot, 'model-bindings.json'),
   skill: resolve(pluginRoot, 'skills', 'heliolune', 'SKILL.md'),
+  protocols: resolve(pluginRoot, 'skills', 'heliolune', 'references', 'protocols.md'),
   terminalSkill: resolve(pluginRoot, 'skills', 'helioterm', 'SKILL.md'),
   gate: resolve(pluginRoot, 'scripts', 'native-owner-gate.mjs'),
   roleProof: resolve(pluginRoot, 'scripts', 'inspect-role-proof.mjs'),
@@ -47,6 +48,7 @@ const config = read(paths.config);
 const manifest = existsSync(paths.manifest) ? JSON.parse(read(paths.manifest)) : {};
 const bindings = existsSync(paths.bindings) ? JSON.parse(read(paths.bindings)) : {};
 const skill = read(paths.skill);
+const protocols = read(paths.protocols);
 const terminalSkill = read(paths.terminalSkill);
 const gate = read(paths.gate);
 const roleProof = read(paths.roleProof);
@@ -59,7 +61,7 @@ function tomlString(source, name) {
   return match?.[1] ?? match?.[2] ?? null;
 }
 
-check('native-version', /^0\.8\.0-alpha\.3(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
+check('native-version', /^0\.8\.0-alpha\.4(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
 check('zero-mcp-manifest', !Object.hasOwn(manifest, 'mcpServers'), 'mcpServers must be absent');
 check('zero-mcp-file', !existsSync(resolve(pluginRoot, '.mcp.json')), '.mcp.json must be absent');
 check('bindings-schema', bindings.schemaVersion === 'HELIOLUNE_MODEL_BINDINGS_V1', bindings.schemaVersion ?? null);
@@ -67,7 +69,16 @@ check('bundled-helioterm', manifest.skills === './skills/' && existsSync(paths.t
 check('direct-helioterm-default', terminalSkill.includes('no MCP and no child model') && terminalSkill.includes('model=0'), 'ordinary HelioTerm is zero-model direct');
 check('direct-helioterm-binding', bindings.terminal?.defaultMode === 'direct' && bindings.terminal?.directRunner === 'components/helioterm/direct-runner.mjs', bindings.terminal);
 check('clean-child-invariant', skill.includes('fork_turns="none"'), 'roles use clean child sessions');
-check('context-pack-invariant', gate.includes('HELIOLUNE_CONTEXT_PACK_V1') && gate.includes('context-read-first') && skill.includes('at most five repository calls'), 'owner discovery requires a bounded context pack');
+check(
+  'context-pack-invariant',
+  gate.includes('HELIOLUNE_CONTEXT_PACK_V1')
+    && gate.includes('context-read-first')
+    && gate.includes('max: 4')
+    && skill.includes('1 to 4 exact `readFirst` files')
+    && skill.includes('mandatory anchor query consumes one of the five initial repository calls')
+    && skill.includes('bounded slices instead of full-file reads'),
+  'owner discovery reserves one anchor query and at most four bounded reads',
+);
 check('persistent-owner-policy', gate.includes('maxTurns: 3') && gate.includes('maxToolCalls: 36') && gate.includes('maxEditCalls: 6') && skill.includes('Reuse that owner with `followup_task`'), 'one bounded reusable Luna owner session');
 const neutralTerminalAliasChecks = [
   "check('terminal-policy-alias', !terminalPolicyAlias.conflict",
@@ -135,7 +146,22 @@ const tokenBudgets = [
   ['cached-input', 'cached_input_tokens', 'cachedInputTokens'],
   ['input', 'input_tokens', 'inputTokens'],
 ];
+const ownerOutputBudgetAnchors = [
+  '12 KiB (12288 bytes)',
+  '160 lines',
+  '24 KiB (24576 bytes)',
+  '192 KiB (196608 bytes)',
+  'verification output stays compact',
+];
+check('owner-output-budget-policy', [skill, protocols].every((source) => ownerOutputBudgetAnchors.every((anchor) => source.includes(anchor))), '12 KiB/160 lines read evidence, 24 KiB tool results, and 192 KiB cumulative output');
 check('role-proof-tool-call-budget', roleProof.includes("['custom_tool_call', 'function_call'].includes(row.payload?.type)") && roleProof.includes("nonNegativeIntegerOption('--expect-max-tool-calls')") && roleProof.includes('toolCallCount'), 'real persisted function/custom calls counted');
+check('role-proof-tool-output-measurement', roleProof.includes("['custom_tool_call_output', 'function_call_output'].includes(payloadType)") && roleProof.includes("Buffer.byteLength(line, 'utf8')") && roleProof.includes('toolOutputBytes') && roleProof.includes('toolOutputCount'), 'persisted custom/function output envelopes are measured without retaining content');
+for (const [name, flag, field] of [
+  ['tool-output', '--expect-max-tool-output-bytes', 'maxToolOutputBytes'],
+  ['total-tool-output', '--expect-max-total-tool-output-bytes', 'totalToolOutputBytes'],
+]) {
+  check(`role-proof-${name}-budget`, roleProof.includes(`nonNegativeIntegerOption('${flag}', 'non-negative safe integer')`) && roleProof.includes(`actual.${field}`), `persisted ${field} budget`);
+}
 check(
   'role-proof-all-turn-contexts',
   roleProof.includes("const turnContexts = rows\n  .filter((row) => row.type === 'turn_context')")
@@ -166,7 +192,17 @@ for (const [name, binding] of Object.entries(bindings).filter(([name]) => name !
   if (name === 'owner') {
     check('owner-identity-marker', role.includes('Begin the first owner turn with exactly HELIOLUNE_ENGINEERING_OWNER_ROLE_APPLIED'), 'marker before first tool call');
     check('owner-no-duplicate-preflight', role.includes('never rerun Heliolune or HelioTerm preflight'), 'preflight evidence is root-owned');
-    check('owner-context-budget', role.includes('initial read pass in at most five repository calls') && role.includes('Do not run `rg --files`'), 'bounded discovery without repository enumeration');
+    check(
+      'owner-context-budget',
+      role.includes('initial read pass in at most five repository calls')
+        && role.includes('at most five initial repository calls')
+        && role.includes('Use context.anchors in one targeted `rg` call across all readFirst paths')
+        && role.includes('Use bounded slices instead of full-file reads')
+        && role.includes('readFirst is limited to 1..4 paths')
+      && role.includes('Do not run `rg --files`'),
+      'bounded anchor-first discovery without repository enumeration',
+    );
+    check('owner-tool-output-budget', ownerOutputBudgetAnchors.every((anchor) => role.includes(anchor)), 'bounded read/search evidence and owner tool-output budgets');
     check('owner-session-reuse', role.includes('Remain reusable for at most three turns') && role.includes('HELIOLUNE_OWNER_FOLLOWUP_V1'), 'same-contract implementation, repair, and evidence turns');
     check('owner-persistent-helioterm', role.includes('exactly one configured `heliolune_helioterm`') && role.includes('Reuse that exact child with `followup_task`'), 'one reusable HelioTerm child');
     check('owner-tool-call-budget', role.includes('at most 36 total tool calls') && role.includes('six across the reused session'), 'owner cumulative tool/edit cap');

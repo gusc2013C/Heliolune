@@ -22,7 +22,7 @@ const contract = {
   },
   reserved: ['public API changes require Sol'],
   risk: 'medium',
-  preflight: { schemaVersion: 'HELIOLUNE_NATIVE_PREFLIGHT_V1', pass: true, version: '0.8.0-alpha.3' },
+  preflight: { schemaVersion: 'HELIOLUNE_NATIVE_PREFLIGHT_V1', pass: true, version: '0.8.0-alpha.4' },
   ownerPolicy: { ...OWNER_SESSION_LIMITS },
   terminalPolicy: 'forbidden',
   verification: {
@@ -52,6 +52,23 @@ const solChecks = [{ command: 'node --test tests/*.test.mjs', status: 'passed', 
 test('R1 owner contract and result validate', () => {
   assert.equal(validateContract(contract).every((entry) => entry.pass), true);
   assert.equal(validateResult(result).every((entry) => entry.pass), true);
+});
+
+test('context packs reserve one call for anchors and cap readFirst at four paths', () => {
+  const fourPaths = structuredClone(contract);
+  fourPaths.context.readFirst = [
+    'plugins/heliolune/scripts/native-owner-gate.mjs',
+    'plugins/heliolune/scripts/preflight.mjs',
+    'plugins/heliolune/scripts/terminal-firewall.mjs',
+    'tests/native-owner-protocol.test.mjs',
+  ];
+  assert.equal(validateContract(fourPaths).find((entry) => entry.name === 'context-read-first').pass, true);
+
+  const fivePaths = structuredClone(fourPaths);
+  fivePaths.context.readFirst.push('plugins/heliolune/scripts/install-agents.mjs');
+  const check = validateContract(fivePaths).find((entry) => entry.name === 'context-read-first');
+  assert.equal(check.pass, false);
+  assert.equal(check.expected, '1..4 safe in-scope paths');
 });
 
 test('owner and terminal policies reject unbounded extra fields', () => {

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "HELIOLUNE_TOKEN_EFFICIENCY_AUDIT_V1",
+  "releaseVersion": "0.8.0-alpha.4",
+  "buildIdentity": "0.8.0-alpha.4+codex.20260818140328",
+  "releaseDate": "2026-08-18",
+  "measurementClass": "diagnostic",
+  "tokenMeaning": "rollout counters, not billing tokens",
+  "ownerRollout": {
+    "runCount": 7,
+    "totalDiagnosticTokens": 2752349,
+    "inputTokens": 2670303,
+    "cachedInputTokens": 2290688,
+    "outputTokens": 82046,
+    "reasoningTokens": 50589,
+    "toolCalls": 59,
+    "toolOutputBytes": 624332,
+    "enforcedOutputBudgets": {
+      "readSearchEvidenceBytes": 12288,
+      "readSearchEvidenceLines": 160,
+      "maxToolResultBytes": 24576,
+      "maxTotalOwnerToolOutputBytes": 196608,
+      "verificationOutput": "compact",
+      "retrospectiveSavingsClaim": false
+    }
+  },
+  "freshCompliantProof": {
+    "model": "gpt-5.6-luna",
+    "effort": "max",
+    "toolCalls": 4,
+    "maxPersistedToolOutputBytes": 6977,
+    "totalPersistedToolOutputBytes": 10461,
+    "totalDiagnosticTokens": 102468,
+    "nativeV2Identity": true,
+    "passedMaxToolOutputBytes": 24576,
+    "passedMaxTotalToolOutputBytes": 196608,
+    "retrospectiveImplementationSavingsClaim": false
+  },
+  "avoidableSessions": {
+    "count": 2,
+    "totalDiagnosticTokens": 364015,
+    "sharePercent": 13.23
+  },
+  "repairComparison": {
+    "previousTurns": 2,
+    "previousDiagnosticTokens": 4347302,
+    "currentTurns": 1,
+    "currentDiagnosticTokens": 3724754,
+    "reductionDiagnosticTokens": 622548,
+    "reductionPercent": 14.32
+  },
+  "routingComparison": {
+    "ordinaryFailure": {
+      "singleFailureBytes": 8800,
+      "batchFailureBytes": 15000,
+      "beforeRoute": "luna",
+      "after": {
+        "model": 0,
+        "semanticScore": 0
+      }
+    },
+    "explicitSemantic": {
+      "after": {
+        "route": "luna",
+        "semanticScore": 3
+      }
+    },
+    "testDiagnostic": {
+      "after": {
+        "route": "luna",
+        "semanticScore": 3
+      }
+    }
+  }
+}

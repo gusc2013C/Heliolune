@@ -83,7 +83,7 @@ export function validateContract(contract) {
     check('acceptance', stringArray(contract?.acceptance, { min: 1, max: 12 }), contract?.acceptance ?? null, '1..12 strings'),
     check('scope', stringArray(contract?.scope, { min: 1, max: 32 }) && scope.every(safeRelativePath), contract?.scope ?? null, '1..32 safe repository-relative paths'),
     check('context-schema', context?.schemaVersion === 'HELIOLUNE_CONTEXT_PACK_V1', context?.schemaVersion ?? null, 'HELIOLUNE_CONTEXT_PACK_V1'),
-    check('context-read-first', stringArray(context?.readFirst, { min: 1, max: 12 }) && readFirst.every((path) => safeRelativePath(path) && pathInScope(path, scope)), context?.readFirst ?? null, '1..12 safe in-scope paths'),
+    check('context-read-first', stringArray(context?.readFirst, { min: 1, max: 4 }) && readFirst.every((path) => safeRelativePath(path) && pathInScope(path, scope)), context?.readFirst ?? null, '1..4 safe in-scope paths'),
     check('context-anchors', stringArray(context?.anchors, { min: 1, max: 24, itemMax: 500 }), context?.anchors ?? null, '1..24 targeted anchors'),
     check('context-constraints', stringArray(context?.constraints, { min: 0, max: 12, itemMax: 500 }), context?.constraints ?? null, '0..12 constraints'),
     check('reserved', stringArray(contract?.reserved, { min: 0, max: 16 }), contract?.reserved ?? null, '0..16 strings'),

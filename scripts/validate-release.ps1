@@ -95,6 +95,9 @@ $required = @(
     (Join-Path $repoRoot 'docs\0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md'),
     (Join-Path $repoRoot 'docs\0.8.0-ALPHA.3-HELIOTERM-AB3.md'),
     (Join-Path $repoRoot 'docs\0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md'),
+    (Join-Path $repoRoot 'docs\0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md'),
+    (Join-Path $repoRoot 'docs\0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md'),
+    (Join-Path $repoRoot 'benchmarks\results\0.8.0-alpha.4-token-efficiency.json'),
     (Join-Path $repoRoot 'docs\ARCHITECTURE.zh-CN.md'),
     (Join-Path $repoRoot 'docs\BENCHMARKS.zh-CN.md'),
     (Join-Path $repoRoot 'docs\0.6-RESEARCH.md'),
@@ -173,7 +176,7 @@ foreach ($profileFile in $nativeProfileFiles) {
         throw "Project standalone profile is stale: $profileFile"
     }
 }
-if ($manifest.version -notmatch '^0\.8\.0-alpha\.3(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.8\.0-alpha\.4(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 $releaseVersion = $manifest.version -replace '\+codex\..*$', ''
@@ -248,7 +251,7 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
 
 $changelogEnglish = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md') -Raw -Encoding UTF8
 $changelogChinese = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.zh-CN.md') -Raw -Encoding UTF8
-if (($changelogEnglish -notmatch '\[0\.8\.0-alpha\.3\]') -or ($changelogChinese -notmatch '\[0\.8\.0-alpha\.3\]')) {
+if (($changelogEnglish -notmatch '\[0\.8\.0-alpha\.4\]') -or ($changelogChinese -notmatch '\[0\.8\.0-alpha\.4\]')) {
     throw 'Both changelogs must document the current Native V2 prerelease.'
 }
 if (($changelogEnglish -notmatch '\(CHANGELOG\.zh-CN\.md\)') -or ($changelogChinese -notmatch '\[English\]\(CHANGELOG\.md\)')) {
@@ -258,7 +261,8 @@ if (($changelogEnglish -notmatch '\(CHANGELOG\.zh-CN\.md\)') -or ($changelogChin
 $releaseDocPairs = @(
     @('0.8.0-ALPHA.3-LUNA-SESSION-REUSE.md', '0.8.0-ALPHA.3-LUNA-SESSION-REUSE.zh-CN.md'),
     @('0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.md', '0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md'),
-    @('0.8.0-ALPHA.3-HELIOTERM-AB3.md', '0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md')
+    @('0.8.0-ALPHA.3-HELIOTERM-AB3.md', '0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md'),
+    @('0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md', '0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md')
 )
 foreach ($pair in $releaseDocPairs) {
     $englishDoc = Get-Content -LiteralPath (Join-Path $repoRoot "docs\$($pair[0])") -Raw -Encoding UTF8
@@ -266,6 +270,90 @@ foreach ($pair in $releaseDocPairs) {
     if (($englishDoc -notmatch [regex]::Escape("]($($pair[1]))")) -or ($chineseDoc -notmatch [regex]::Escape("[English]($($pair[0]))"))) {
         throw "Release documentation language links are missing: $($pair[0])"
     }
+}
+
+$tokenAuditPath = Join-Path $repoRoot 'benchmarks\results\0.8.0-alpha.4-token-efficiency.json'
+$tokenAuditRaw = Get-Content -LiteralPath $tokenAuditPath -Raw -Encoding UTF8
+$tokenAudit = $tokenAuditRaw | ConvertFrom-Json
+if ($tokenAudit.schemaVersion -ne 'HELIOLUNE_TOKEN_EFFICIENCY_AUDIT_V1' -or
+    $tokenAudit.releaseVersion -ne $releaseVersion -or
+    $tokenAudit.buildIdentity -ne $manifest.version -or
+    $tokenAudit.releaseDate -ne '2026-08-18' -or
+    $tokenAudit.measurementClass -ne 'diagnostic' -or
+    $tokenAudit.tokenMeaning -ne 'rollout counters, not billing tokens') {
+    throw 'Alpha.4 token-efficiency audit metadata is invalid.'
+}
+$auditPropertyNames = @($tokenAudit.PSObject.Properties.Name)
+$auditAllowedProperties = @(
+    'schemaVersion', 'releaseVersion', 'buildIdentity', 'releaseDate', 'measurementClass',
+    'tokenMeaning', 'ownerRollout', 'freshCompliantProof', 'avoidableSessions', 'repairComparison', 'routingComparison'
+)
+$unexpectedAuditProperties = @($auditPropertyNames | Where-Object { $auditAllowedProperties -notcontains $_ })
+if ($unexpectedAuditProperties.Count -gt 0) {
+    throw "Alpha.4 token-efficiency audit contains unsupported fields: $($unexpectedAuditProperties -join ', ')"
+}
+if ($tokenAuditRaw -match '(?i)(prompt|environment|stdin|secret|task\s*id|raw\s+tool|raw\s+output)') {
+    throw 'Alpha.4 token-efficiency audit contains private or raw execution content.'
+}
+$ownerRollout = $tokenAudit.ownerRollout
+if (-not $ownerRollout -or
+    $ownerRollout.runCount -ne 7 -or
+    $ownerRollout.totalDiagnosticTokens -ne 2752349 -or
+    $ownerRollout.inputTokens -ne 2670303 -or
+    $ownerRollout.cachedInputTokens -ne 2290688 -or
+    $ownerRollout.outputTokens -ne 82046 -or
+    $ownerRollout.reasoningTokens -ne 50589 -or
+    $ownerRollout.toolCalls -ne 59 -or
+    $ownerRollout.toolOutputBytes -ne 624332) {
+    throw 'Alpha.4 owner rollout counters do not match the retained aggregate evidence.'
+}
+$freshCompliantProof = $tokenAudit.freshCompliantProof
+if (-not $freshCompliantProof -or
+    $freshCompliantProof.model -ne 'gpt-5.6-luna' -or
+    $freshCompliantProof.effort -ne 'max' -or
+    $freshCompliantProof.toolCalls -ne 4 -or
+    $freshCompliantProof.maxPersistedToolOutputBytes -ne 6977 -or
+    $freshCompliantProof.totalPersistedToolOutputBytes -ne 10461 -or
+    $freshCompliantProof.totalDiagnosticTokens -ne 102468 -or
+    $freshCompliantProof.nativeV2Identity -ne $true -or
+    $freshCompliantProof.passedMaxToolOutputBytes -ne 24576 -or
+    $freshCompliantProof.passedMaxTotalToolOutputBytes -ne 196608 -or
+    $freshCompliantProof.retrospectiveImplementationSavingsClaim -ne $false) {
+    throw 'Alpha.4 fresh compliant proof does not match the required bounded owner evidence.'
+}
+$avoidableSessions = $tokenAudit.avoidableSessions
+if (-not $avoidableSessions -or
+    $avoidableSessions.count -ne 2 -or
+    $avoidableSessions.totalDiagnosticTokens -ne 364015 -or
+    $avoidableSessions.sharePercent -ne 13.23) {
+    throw 'Alpha.4 avoidable-session counters do not match the retained aggregate evidence.'
+}
+$repairComparison = $tokenAudit.repairComparison
+if (-not $repairComparison -or
+    $repairComparison.previousTurns -ne 2 -or
+    $repairComparison.previousDiagnosticTokens -ne 4347302 -or
+    $repairComparison.currentTurns -ne 1 -or
+    $repairComparison.currentDiagnosticTokens -ne 3724754 -or
+    $repairComparison.reductionDiagnosticTokens -ne 622548 -or
+    $repairComparison.reductionPercent -ne 14.32) {
+    throw 'Alpha.4 repair comparison does not match the retained aggregate evidence.'
+}
+$ordinaryFailure = $tokenAudit.routingComparison.ordinaryFailure
+$explicitSemantic = $tokenAudit.routingComparison.explicitSemantic
+$testDiagnostic = $tokenAudit.routingComparison.testDiagnostic
+if (-not $ordinaryFailure -or
+    $ordinaryFailure.singleFailureBytes -ne 8800 -or
+    $ordinaryFailure.batchFailureBytes -ne 15000 -or
+    $ordinaryFailure.beforeRoute -ne 'luna' -or
+    $ordinaryFailure.after.model -ne 0 -or
+    $ordinaryFailure.after.semanticScore -ne 0 -or
+    -not $explicitSemantic -or
+    $explicitSemantic.after.route -ne 'luna' -or
+    $explicitSemantic.after.semanticScore -ne 3 -or
+    -not $testDiagnostic -or
+    $testDiagnostic.after.route -ne 'luna' -or
+    $testDiagnostic.after.semanticScore -ne 3) {
+    throw 'Alpha.4 HelioTerm routing comparison does not match the retained A/B evidence.'
 }
 
 foreach ($script in @('server.mjs', 'await-server.mjs', 'app-server-client.mjs', 'pricing.mjs', 'supervision.mjs', 'schema-recovery.mjs', 'orchestration-policy.mjs', 'leader.mjs', 'profiles.mjs', 'task-dag.mjs', 'task-telemetry.mjs', 'worktrees.mjs', 'progress.mjs', 'jobs.mjs', 'job-files.mjs', 'job-runner.mjs', 'job-runner-launch.mjs', 'status-window.mjs')) {

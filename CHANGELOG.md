@@ -4,6 +4,19 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.0-alpha.4] - 2026-08-18
+
+### Bounded discovery and token-efficiency evidence
+
+- Update the Native V2 manifest to `0.8.0-alpha.4+codex.20260818140328` and keep alpha.3 documents as historical release evidence.
+- Require the 1..4 `readFirst`/anchor-first bounded-slice gate: one targeted anchor query consumes the first discovery call, followed by at most four bounded reads.
+- Record aggregate rollout counters and HelioTerm A/B routing facts in a privacy-safe diagnostic JSON audit. The counters are explicitly not billing tokens and contain no prompts, command payloads, environment data, stdin, secrets, task IDs, or raw tool output.
+- Route ordinary HelioTerm failures (8.8 KB single-input and 15.0 KB batch-input cases) to `model=0` with `semanticScore=0`, while explicit semantic requests and real test diagnostics retain Luna routing with `semanticScore=3`.
+- Measure the single-Luna repair comparison: the current one-turn repair used 3,724,754 diagnostic tokens versus 4,347,302 for the previous two-turn repair, a reduction of 622,548 (14.32%).
+- Enforce forward-looking owner evidence budgets of 12 KiB/160 lines for read and search, 24 KiB per tool result, 192 KiB cumulative tool output, and compact verification output; these controls do not claim retrospective savings.
+
+See the [alpha.4 token-efficiency release note](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.md) and [简体中文版本](docs/0.8.0-ALPHA.4-TOKEN-EFFICIENCY.zh-CN.md).
+
 ## [0.8.0-alpha.3] - 2026-08-17
 
 ### Native V2 ownership and bounded terminal I/O

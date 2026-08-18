@@ -1,8 +1,15 @@
 # 发布检查单
 
+
 [English](RELEASE_CHECKLIST.md) · 简体中文
 
-- [ ] 确认 Native V2 `heliolune` manifest 是当前 `0.8.0-alpha.3` 发布身份。
+- [ ] 确认 Native V2 `heliolune` manifest 的当前发布版本是 `0.8.0-alpha.4`，构建是 `0.8.0-alpha.4+codex.20260818140328`。
+- [ ] 确认 alpha.3 历史文档以及 alpha.4 双语 token-efficiency 说明与机器可读 audit JSON 均已存在。
+- [ ] 确认 1..4 `readFirst`/anchor-first gate 先运行一次目标搜索再读取有界切片。
+- [ ] 确认普通 HelioTerm 失败使用 `model=0`/`semanticScore=0`，语义请求和真实测试诊断保留 `semanticScore=3`。
+- [ ] 确认 audit JSON 只包含聚合诊断计数，明确不是 billing token，不包含私有或原始执行内容。
+
+- [ ] 确认 Native V2 `heliolune` manifest 是当前 `0.8.0-alpha.4` 发布身份。
 - [ ] 确认旧版 `luna-pool-orchestrator` marketplace 条目与 runtime 仍为 `0.7.0-alpha.2`。
 - [ ] 确认两个 marketplace 条目、全部 Native V2 必需文件和 alpha.3 双语发布记录均已存在。
 - [ ] manifest 与 runtime 常量版本一致。
