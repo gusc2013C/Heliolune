@@ -204,7 +204,7 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   assert.match(skill, /never reruns `verification\.owner`/i);
   assert.match(skill, /compact HelioTerm evidence/i);
   assert.match(skill, /pure version\/release-note propagation in Sol/i);
-  assert.match(manifest.version, /^0\.8\.1\+codex\.[A-Za-z0-9.-]+$/u);
+  assert.match(manifest.version, /^0\.8\.2\+codex\.[A-Za-z0-9.-]+$/u);
   assert.equal(audit.schemaVersion, 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1');
   assert.equal(audit.validatorAb.reductionBytes, 18473);
   assert.equal(audit.helioterm.savedBytes, 652453);

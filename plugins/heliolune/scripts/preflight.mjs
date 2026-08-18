@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,7 +42,10 @@ const checks = [];
 function check(name, pass, detail) {
   checks.push({ name, pass: Boolean(pass), detail });
 }
+const commandAvailable = (file) => spawnSync(file, ['--version'], { encoding: 'utf8', windowsHide: true }).status === 0;
 for (const [name, path] of Object.entries(paths)) check(`${name}-present`, existsSync(path), path);
+check('git-available', commandAvailable('git'), 'git --version');
+check('ripgrep-available', commandAvailable('rg'), 'rg --version');
 
 const read = (path) => existsSync(path) ? readFileSync(path, 'utf8') : '';
 const config = read(paths.config);
@@ -61,7 +65,7 @@ function tomlString(source, name) {
   return match?.[1] ?? match?.[2] ?? null;
 }
 
-check('native-version', /^0\.8\.1(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
+check('native-version', /^0\.8\.2(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
 check('zero-mcp-manifest', !Object.hasOwn(manifest, 'mcpServers'), 'mcpServers must be absent');
 check('zero-mcp-file', !existsSync(resolve(pluginRoot, '.mcp.json')), '.mcp.json must be absent');
 check('bindings-schema', bindings.schemaVersion === 'HELIOLUNE_MODEL_BINDINGS_V1', bindings.schemaVersion ?? null);

@@ -4,6 +4,13 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.2] - 2026-08-18
+
+### Dependency preflight
+
+- Fail bootstrap preflight when Git or ripgrep is unavailable instead of deferring the error until the first HelioTerm observation.
+- Install ripgrep explicitly in CI so clean-runner validation matches the documented runtime requirements.
+
 ## [0.8.1] - 2026-08-18
 
 ### Installation and release hardening

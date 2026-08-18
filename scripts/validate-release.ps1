@@ -248,7 +248,7 @@ foreach ($profileFile in $nativeProfileFiles) {
         throw "Project standalone profile is stale: $profileFile"
     }
 }
-if ($manifest.version -notmatch '^0\.8\.1(?:\+codex\.[0-9A-Za-z.-]+)?$') {
+if ($manifest.version -notmatch '^0\.8\.2(?:\+codex\.[0-9A-Za-z.-]+)?$') {
     throw "Unexpected release version: $($manifest.version)"
 }
 $releaseVersion = $manifest.version -replace '\+codex\..*$', ''
@@ -323,7 +323,7 @@ if (($readmeEnglish -notmatch $readmeVersionPattern) -or ($readmeChinese -notmat
 
 $changelogEnglish = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.md') -Raw -Encoding UTF8
 $changelogChinese = Get-Content -LiteralPath (Join-Path $repoRoot 'CHANGELOG.zh-CN.md') -Raw -Encoding UTF8
-if (($changelogEnglish -notmatch '\[0\.8\.1\]') -or ($changelogChinese -notmatch '\[0\.8\.1\]')) {
+if (($changelogEnglish -notmatch '\[0\.8\.2\]') -or ($changelogChinese -notmatch '\[0\.8\.2\]')) {
     throw 'Both changelogs must document the current Native V2 stable release.'
 }
 if (($changelogEnglish -notmatch '\(CHANGELOG\.zh-CN\.md\)') -or ($changelogChinese -notmatch '\[English\]\(CHANGELOG\.md\)')) {

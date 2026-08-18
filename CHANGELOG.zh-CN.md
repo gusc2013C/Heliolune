@@ -4,6 +4,13 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.2] - 2026-08-18
+
+### 依赖 preflight
+
+- Git 或 ripgrep 不可用时 bootstrap preflight 立即失败，不再延迟到首次 HelioTerm observation。
+- CI 显式安装 ripgrep，使干净 runner 验证与公开运行要求一致。
+
 ## [0.8.1] - 2026-08-18
 
 ### 安装与发布加固

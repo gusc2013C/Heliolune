@@ -229,6 +229,17 @@ test('native preflight validates the zero-MCP role bundle', () => {
   });
 });
 
+test('native preflight fails closed when Git and ripgrep are unavailable', () => {
+  const result = spawnSync(process.execPath, [preflightScript, '--repo', repositoryRoot, '--compact'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: '' },
+  });
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.pass, false);
+  assert.deepEqual(payload.failedChecks.filter((name) => name.endsWith('-available')).sort(), ['git-available', 'ripgrep-available']);
+});
+
 test('native preflight fails closed when the owner result-shape invariant is absent', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-result-shape-'));
   try {
