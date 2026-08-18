@@ -136,6 +136,14 @@ const tokenBudgets = [
   ['input', 'input_tokens', 'inputTokens'],
 ];
 check('role-proof-tool-call-budget', roleProof.includes("['custom_tool_call', 'function_call'].includes(row.payload?.type)") && roleProof.includes("nonNegativeIntegerOption('--expect-max-tool-calls')") && roleProof.includes('toolCallCount'), 'real persisted function/custom calls counted');
+check(
+  'role-proof-all-turn-contexts',
+  roleProof.includes("const turnContexts = rows\n  .filter((row) => row.type === 'turn_context')")
+    && roleProof.includes('everyTurnContext')
+    && roleProof.includes('turnContextCount')
+    && roleProof.includes('turnContextDistinctValues'),
+  'every persisted turn_context model, effort, backend, and cwd is evaluated',
+);
 for (const [flag, field, variable] of tokenBudgets) {
   check(
     `role-proof-${flag}-token-budget`,
@@ -163,6 +171,27 @@ for (const [name, binding] of Object.entries(bindings).filter(([name]) => name !
     check('owner-persistent-helioterm', role.includes('exactly one configured `heliolune_helioterm`') && role.includes('Reuse that exact child with `followup_task`'), 'one reusable HelioTerm child');
     check('owner-tool-call-budget', role.includes('at most 36 total tool calls') && role.includes('six across the reused session'), 'owner cumulative tool/edit cap');
     check('owner-neutral-result', role.includes('terminalUsed, terminalAgentPath, terminalEvidence'), 'neutral result fields');
+    check(
+      'owner-result-shape',
+      [
+        '`schemaVersion` is exactly `HELIOLUNE_OWNER_RESULT_V1`',
+        '`ownerTurn` is an integer',
+        '`ownerSessionComplete` and `terminalUsed` are booleans',
+        '`status` is exactly `completed`, `blocked`, or `objection`',
+        '`complete` is forbidden',
+        '`changedPaths` is a string array',
+        '`terminalAgentPath` is a string or `null`',
+        '`checks` is an array of records with string fields `command`, `status`, and `summary`',
+        'each check `status` is exactly `passed` or `failed`',
+        '`residualRisks`, `evidence`, and `protocolViolations` are arrays of strings',
+        '`objection` is either `null` or a structured object with exactly `decision`, `evidence`, `issue`, `options`, `recommendation`, and `blocking` fields',
+        '`decision`, `issue`, and `recommendation` are strings',
+        '`evidence` and `options` are arrays of strings',
+        '`blocking` is a boolean',
+        'No alternate field names or object arrays are allowed',
+      ].every((anchor) => role.includes(anchor)),
+      'self-contained HELIOLUNE_OWNER_RESULT_V1 field shapes',
+    );
   }
   if (name === 'terminal') {
     check('terminal-identity-marker', role.includes('HELIOTERM_ROLE_APPLIED'), 'HelioTerm identity marker');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -203,6 +203,82 @@ test('native preflight validates the zero-MCP role bundle', () => {
   });
 });
 
+test('native preflight fails closed when the owner result-shape invariant is absent', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-result-shape-'));
+  try {
+    const pluginDirectory = resolve(directory, 'plugins', 'heliolune');
+    mkdirSync(dirname(pluginDirectory), { recursive: true });
+    cpSync(resolve(repositoryRoot, 'plugins', 'heliolune'), pluginDirectory, { recursive: true });
+    const agentsDirectory = resolve(directory, '.codex', 'agents');
+    mkdirSync(resolve(directory, '.codex'), { recursive: true });
+    cpSync(resolve(repositoryRoot, '.codex', 'agents'), agentsDirectory, { recursive: true });
+    const ownerPath = resolve(pluginDirectory, 'agents', 'luna-owner.toml');
+    const owner = readFileSync(ownerPath, 'utf8');
+    writeFileSync(ownerPath, owner.replace('No alternate field names or object arrays are allowed.', 'Alternate result fields may be used.'));
+
+    const result = spawnSync(process.execPath, [resolve(pluginDirectory, 'scripts', 'preflight.mjs'), '--repo', directory, '--agents-dir', agentsDirectory, '--compact'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.pass, false);
+    assert.ok(payload.failedChecks.includes('owner-result-shape'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('native preflight fails closed when the objection blocking type anchor is absent', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-result-shape-blocking-'));
+  try {
+    const pluginDirectory = resolve(directory, 'plugins', 'heliolune');
+    mkdirSync(dirname(pluginDirectory), { recursive: true });
+    cpSync(resolve(repositoryRoot, 'plugins', 'heliolune'), pluginDirectory, { recursive: true });
+    const agentsDirectory = resolve(directory, '.codex', 'agents');
+    mkdirSync(resolve(directory, '.codex'), { recursive: true });
+    cpSync(resolve(repositoryRoot, '.codex', 'agents'), agentsDirectory, { recursive: true });
+    const ownerPath = resolve(pluginDirectory, 'agents', 'luna-owner.toml');
+    const owner = readFileSync(ownerPath, 'utf8');
+    writeFileSync(ownerPath, owner.replace('`blocking` is a boolean', '`blocking` may be omitted'));
+
+    const result = spawnSync(process.execPath, [resolve(pluginDirectory, 'scripts', 'preflight.mjs'), '--repo', directory, '--agents-dir', agentsDirectory, '--compact'], { encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.pass, false);
+    assert.ok(payload.failedChecks.includes('owner-result-shape'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('native preflight fails closed when owner top-level result-shape anchors are absent', () => {
+  const cases = [
+    ['schemaVersion', '`schemaVersion` is exactly `HELIOLUNE_OWNER_RESULT_V1`', '`schemaVersion` is unconstrained'],
+    ['status', '`status` is exactly `completed`, `blocked`, or `objection`', '`status` may vary'],
+  ];
+  for (const [label, anchor, replacement] of cases) {
+    const directory = mkdtempSync(resolve(tmpdir(), `heliolune-result-shape-${label}-`));
+    try {
+      const pluginDirectory = resolve(directory, 'plugins', 'heliolune');
+      mkdirSync(dirname(pluginDirectory), { recursive: true });
+      cpSync(resolve(repositoryRoot, 'plugins', 'heliolune'), pluginDirectory, { recursive: true });
+      const agentsDirectory = resolve(directory, '.codex', 'agents');
+      mkdirSync(resolve(directory, '.codex'), { recursive: true });
+      cpSync(resolve(repositoryRoot, '.codex', 'agents'), agentsDirectory, { recursive: true });
+      const ownerPath = resolve(pluginDirectory, 'agents', 'luna-owner.toml');
+      const owner = readFileSync(ownerPath, 'utf8');
+      assert.equal(owner.includes(anchor), true, anchor);
+      writeFileSync(ownerPath, owner.replace(anchor, replacement));
+
+      const result = spawnSync(process.execPath, [resolve(pluginDirectory, 'scripts', 'preflight.mjs'), '--repo', directory, '--agents-dir', agentsDirectory, '--compact'], { encoding: 'utf8' });
+      assert.equal(result.status, 1, result.stderr || result.stdout);
+      const payload = JSON.parse(result.stdout);
+      assert.equal(payload.pass, false);
+      assert.ok(payload.failedChecks.includes('owner-result-shape'));
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+});
+
 test('native preflight proves every neutral terminal alias conflict check', () => {
   const gate = readFileSync(ownerGateScript, 'utf8');
   for (const anchor of [
@@ -306,13 +382,79 @@ test('role proof inspector requires real V2 metadata, model, role, and marker', 
     assert.equal(payload.expected.maxReasoningTokens, 4321);
     assert.equal(payload.expected.maxOutputTokens, 6789);
     assert.equal(payload.expected.maxCachedInputTokens, 6789);
-    assert.equal(payload.expected.maxInputTokens, 5678);
-    assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-tool-calls'), { name: 'max-tool-calls', pass: true, expected: 3, actual: 3 });
+  assert.equal(payload.expected.maxInputTokens, 5678);
+  assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-tool-calls'), { name: 'max-tool-calls', pass: true, expected: 3, actual: 3 });
     assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-total-tokens'), { name: 'max-total-tokens', pass: true, expected: 12345, actual: 12345 });
     assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-reasoning-tokens'), { name: 'max-reasoning-tokens', pass: true, expected: 4321, actual: 4321 });
     assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-output-tokens'), { name: 'max-output-tokens', pass: true, expected: 6789, actual: 6789 });
     assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-cached-input-tokens'), { name: 'max-cached-input-tokens', pass: true, expected: 6789, actual: 6789 });
     assert.deepEqual(payload.checks.find((entry) => entry.name === 'max-input-tokens'), { name: 'max-input-tokens', pass: true, expected: 5678, actual: 5678 });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('role proof inspector evaluates every persisted turn context for model', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-role-proof-all-turns-model-'));
+  try {
+    const rollout = resolve(directory, 'rollout.jsonl');
+    writeFileSync(rollout, [
+      JSON.stringify({ type: 'session_meta', payload: { originator: 'Codex Desktop', multi_agent_version: 'v2', source: { subagent: { thread_spawn: { agent_role: 'heliolune_luna_owner' } } } } }),
+      JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5.6-luna', effort: 'max', multi_agent_version: 'v2', cwd: 'D:\\code\\heliolune' } }),
+      JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5.6-terra', effort: 'max', multi_agent_version: 'v2', cwd: 'D:\\code\\heliolune' } }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: 'HELIOLUNE_LUNA_OWNER_ROLE_APPLIED' }] } }),
+    ].join('\n'));
+    const result = spawnSync(process.execPath, [
+      inspectorScript,
+      '--rollout', rollout,
+      '--expect-role', 'heliolune_luna_owner',
+      '--expect-model', 'gpt-5.6-luna',
+      '--expect-effort', 'max',
+      '--expect-cwd', 'D:\\code\\heliolune',
+      '--expect-marker', 'HELIOLUNE_LUNA_OWNER_ROLE_APPLIED',
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.pass, false);
+    assert.equal(payload.actual.turnContextCount, 2);
+    assert.deepEqual(payload.actual.turnContextDistinctValues.model, ['gpt-5.6-luna', 'gpt-5.6-terra']);
+    assert.equal(payload.checks.find((entry) => entry.name === 'model').pass, false);
+    assert.equal(payload.checks.find((entry) => entry.name === 'effort').pass, true);
+    assert.equal(payload.checks.find((entry) => entry.name === 'turn-v2').pass, true);
+    assert.equal(payload.checks.find((entry) => entry.name === 'cwd').pass, true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('role proof inspector evaluates every persisted turn context for effort', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-role-proof-all-turns-effort-'));
+  try {
+    const rollout = resolve(directory, 'rollout.jsonl');
+    writeFileSync(rollout, [
+      JSON.stringify({ type: 'session_meta', payload: { originator: 'Codex Desktop', multi_agent_version: 'v2', source: { subagent: { thread_spawn: { agent_role: 'heliolune_luna_owner' } } } } }),
+      JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5.6-luna', effort: 'max', multi_agent_version: 'v2', cwd: 'D:\\code\\heliolune' } }),
+      JSON.stringify({ type: 'turn_context', payload: { model: 'gpt-5.6-luna', effort: 'high', multi_agent_version: 'v2', cwd: 'D:\\code\\heliolune' } }),
+      JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: 'HELIOLUNE_LUNA_OWNER_ROLE_APPLIED' }] } }),
+    ].join('\n'));
+    const result = spawnSync(process.execPath, [
+      inspectorScript,
+      '--rollout', rollout,
+      '--expect-role', 'heliolune_luna_owner',
+      '--expect-model', 'gpt-5.6-luna',
+      '--expect-effort', 'max',
+      '--expect-cwd', 'D:\\code\\heliolune',
+      '--expect-marker', 'HELIOLUNE_LUNA_OWNER_ROLE_APPLIED',
+    ], { encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.pass, false);
+    assert.equal(payload.actual.turnContextCount, 2);
+    assert.deepEqual(payload.actual.turnContextDistinctValues.effort, ['max', 'high']);
+    assert.equal(payload.checks.find((entry) => entry.name === 'model').pass, true);
+    assert.equal(payload.checks.find((entry) => entry.name === 'effort').pass, false);
+    assert.equal(payload.checks.find((entry) => entry.name === 'turn-v2').pass, true);
+    assert.equal(payload.checks.find((entry) => entry.name === 'cwd').pass, true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

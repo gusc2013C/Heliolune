@@ -50,7 +50,28 @@ const rows = readFileSync(rolloutPath, 'utf8')
   });
 
 const metadata = rows.find((row) => row.type === 'session_meta')?.payload ?? {};
-const context = rows.find((row) => row.type === 'turn_context')?.payload ?? {};
+const turnContexts = rows
+  .filter((row) => row.type === 'turn_context')
+  .map((row) => row.payload ?? {});
+const context = turnContexts[0] ?? {};
+const maxDistinctContextValues = 8;
+function boundedDistinctContextValues(values) {
+  const distinct = [];
+  for (const value of values) {
+    const normalized = typeof value === 'string' ? value : value ?? null;
+    if (distinct.some((entry) => Object.is(entry, normalized))) continue;
+    distinct.push(normalized);
+    if (distinct.length >= maxDistinctContextValues) break;
+  }
+  return distinct;
+}
+const turnContextDistinctValues = {
+  model: boundedDistinctContextValues(turnContexts.map((entry) => entry.model)),
+  effort: boundedDistinctContextValues(turnContexts.map((entry) => entry.effort)),
+  multiAgentVersion: boundedDistinctContextValues(turnContexts.map((entry) => entry.multi_agent_version)),
+  cwd: boundedDistinctContextValues(turnContexts.map((entry) => entry.cwd)),
+};
+const everyTurnContext = (predicate) => turnContexts.length > 0 && turnContexts.every(predicate);
 const tokenEvents = rows.filter((row) => row.type === 'event_msg' && row.payload?.type === 'token_count');
 const usage = tokenEvents.at(-1)?.payload?.info?.total_token_usage ?? null;
 const toolCallCount = rows.filter((row) => row.type === 'response_item' && ['custom_tool_call', 'function_call'].includes(row.payload?.type)).length;
@@ -85,6 +106,8 @@ const actual = {
   metadataBackend: metadata.multi_agent_version ?? null,
   turnBackend: context.multi_agent_version ?? null,
   cwd: context.cwd ?? metadata.cwd ?? null,
+  turnContextCount: turnContexts.length,
+  turnContextDistinctValues,
   markerSeen: expected.marker ? assistantText.includes(expected.marker) : null,
   toolCallCount,
   usage,
@@ -93,14 +116,14 @@ const actual = {
 const checks = [
   { name: 'desktop-origin', pass: actual.originator === 'Codex Desktop', actual: actual.originator },
   { name: 'metadata-v2', pass: actual.metadataBackend === 'v2', actual: actual.metadataBackend },
-  { name: 'turn-v2', pass: actual.turnBackend === 'v2', actual: actual.turnBackend },
+  { name: 'turn-v2', pass: everyTurnContext((entry) => entry.multi_agent_version === 'v2'), actual: actual.turnBackend },
 ];
 
 for (const key of ['role', 'model', 'effort']) {
-  if (expected[key]) checks.push({ name: key, pass: actual[key] === expected[key], expected: expected[key], actual: actual[key] });
+  if (expected[key]) checks.push({ name: key, pass: key === 'role' ? actual[key] === expected[key] : everyTurnContext((entry) => entry[key] === expected[key]), expected: expected[key], actual: actual[key] });
 }
 if (expected.marker) checks.push({ name: 'marker', pass: actual.markerSeen, expected: expected.marker, actual: actual.markerSeen });
-if (expected.cwd) checks.push({ name: 'cwd', pass: actual.cwd === expected.cwd, expected: expected.cwd, actual: actual.cwd });
+if (expected.cwd) checks.push({ name: 'cwd', pass: everyTurnContext((entry) => entry.cwd === expected.cwd), expected: expected.cwd, actual: actual.cwd });
 if (expectedMaxToolCalls !== null) {
   checks.push({
     name: 'max-tool-calls',
