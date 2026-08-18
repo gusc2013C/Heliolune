@@ -17,6 +17,33 @@ Required fields:
 - `verification.owner`: 1–8 focused commands run by the owner.
 - `verification.sol`: 1–8 distinct broader commands reserved for Sol.
 
+## `HELIOLUNE_OWNER_CONTRACT_V2`
+
+V2 keeps the V1 contract fields and validation readable, but replaces the universal
+`ownerPolicy.maxToolCalls`/`maxEditCalls` requirement with a task-shaped lease:
+
+```json
+{
+  "schemaVersion": "HELIOLUNE_OWNER_CONTRACT_V2",
+  "taskComplexity": "medium",
+  "ownerPolicy": {"persistent":true,"maxTurns":3},
+  "resourceLease": {
+    "schemaVersion": "HELIOLUNE_RESOURCE_LEASE_V2",
+    "taskComplexity": "medium",
+    "taskShape": {"scopeSize":2,"acceptanceSize":2,"risk":"medium"},
+    "dimensions": {"turns":2,"toolOutputBytes":24576,"totalTokens":12000}
+  }
+}
+```
+
+The lease is supplied as contract data and validated; numeric limits are not inferred
+from scope or acceptance counts. `toolCallCount` is retained as post-call diagnostic
+evidence, never a lease dimension or token/cost proxy, and no component claims
+pre-call enforcement. V2 uses `HELIOLUNE_OWNER_RESULT_V2` and reports
+`qualityAcceptance` (`passed`/`failed`) separately from `resourceCompliance`
+(`compliant`/`exceeded`/`unmeasured`). Resource observations remain independently
+auditable even when implementation-quality checks pass.
+
 ## `HELIOLUNE_OWNER_RESULT_V1`
 
 ```json

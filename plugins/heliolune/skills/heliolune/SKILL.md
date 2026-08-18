@@ -18,16 +18,20 @@ Change a binding with `node plugins/heliolune/scripts/configure-models.mjs --own
 ## Native Owner route
 
 1. Keep trivial work and pure version/release-note propagation in Sol. Use Heliolune for bounded cross-file engineering where ownership separation and cached implementation context are useful.
-2. Create `HELIOLUNE_OWNER_CONTRACT_V1` with one objective, observable acceptance, narrow scope, reserved decisions, compact preflight evidence, and one `HELIOLUNE_CONTEXT_PACK_V1`. See [protocols.md](references/protocols.md).
-3. The context pack may name 1 to 4 exact `readFirst` files and 1 to 24 anchors. The mandatory anchor query consumes one of the five initial repository calls, so four files is the maximum. Use `context.anchors` in one targeted `rg` call across all `readFirst` paths first, then request bounded slices instead of full-file reads. Read/search evidence is capped at 12 KiB (12288 bytes) and 160 lines; every tool result is capped at 24 KiB (24576 bytes), cumulative owner tool output is capped at 192 KiB (196608 bytes), and verification output stays compact. Supply enough context for a first pass in at most five repository calls; do not pass an implementation plan.
+2. Create a versioned `HELIOLUNE_OWNER_CONTRACT_V1` or `HELIOLUNE_OWNER_CONTRACT_V2` with one objective, observable acceptance, narrow scope, reserved decisions, compact preflight evidence, and one `HELIOLUNE_CONTEXT_PACK_V1`. V2 carries or derives a task-shaped `resourceLease`; see [protocols.md](references/protocols.md).
+3. For V1 contracts, the context pack may name 1 to 4 exact `readFirst` files and 1 to 24 anchors. The mandatory anchor query consumes one of the five initial repository calls, so four files is the maximum. Use `context.anchors` in one targeted `rg` call across all `readFirst` paths first, then request bounded slices instead of full-file reads. Read/search evidence is capped at 12 KiB (12288 bytes) and 160 lines; every tool result is capped at 24 KiB (24576 bytes), cumulative owner tool output is capped at 192 KiB (196608 bytes), and verification output stays compact. Supply enough context for a first pass in at most five repository calls. For V2 contracts, use targeted anchors and bounded slices but do not inherit V1's fixed call/read/output caps; follow only the explicit `resourceLease` and record call/edit counts diagnostically. Do not pass an implementation plan.
 4. Add the exact persistent `ownerPolicy`, validate the contract, then spawn exactly one `heliolune_engineering_owner`. Retain its canonical path and keep it as the only writer.
 5. Reuse that owner with `followup_task` for at most three turns total: initial implementation, failed focused-check repair, then evidence recovery. Validate each `HELIOLUNE_OWNER_FOLLOWUP_V1`. Reuse only while contractId, objective, scope, reserved decisions, branch, and worktree stay unchanged; otherwise start a fresh owner.
 6. Choose R1 by default. Choose R2 only when a model-backed terminal is explicitly requested. R2 uses one reusable Luna/high `heliolune_helioterm`; Spark is not an active binding. Allow at most 8 requests, 4 calls/request, 64 request bytes, and 256 response bytes. HelioTerm remains an observation leaf.
 7. Put focused commands in `verification.owner` and broader acceptance in `verification.sol`. The owner runs only its list and never reruns preflight. Sol batches distinct acceptance checks, never reruns `verification.owner`, and prefers compact HelioTerm evidence over duplicated command output.
-8. Require exactly one `HELIOLUNE_OWNER_RESULT_V1` JSON object with neutral `terminalUsed`, `terminalAgentPath`, and `terminalEvidence` fields. Root independently inspects actual paths and runs all Sol checks.
+8. Require exactly one `HELIOLUNE_OWNER_RESULT_V1` JSON object for V1 or `HELIOLUNE_OWNER_RESULT_V2` JSON object for V2, with neutral `terminalUsed`, `terminalAgentPath`, and `terminalEvidence` fields. V2 also reports `qualityAcceptance` and `resourceCompliance` independently. Root independently inspects actual paths and runs all Sol checks.
 9. Run the acceptance gate with independent path and Sol-check JSON. Put temporary artifacts in the task's writable visualization root or system temp, never in the repository.
-10. Locate the owner rollout by canonical path + `heliolune_engineering_owner`; locate R2 HelioTerm by canonical path + role + owner parent UUID. Inspect the owner with `--expect-max-tool-calls 36`, `--expect-max-tool-output-bytes 24576`, `--expect-max-total-tool-output-bytes 196608`, and the configured binding. Inspect R2 HelioTerm dynamically. Require Native V2, exact parent/leaf state, evidence counts, and budgets.
+10. Locate the owner rollout by canonical path + `heliolune_engineering_owner`; locate R2 HelioTerm by canonical path + role + owner parent UUID. For historical V1 rollouts, inspect the owner with `--expect-max-tool-calls 36`, `--expect-max-tool-output-bytes 24576`, and `--expect-max-total-tool-output-bytes 196608`; for V2, inspect the persisted `toolCallCount` as diagnostic evidence alongside the task-shaped lease, never as a token or cost proxy. Inspect R2 HelioTerm dynamically. Require Native V2, exact parent/leaf state, evidence counts, and budgets.
 11. Accept only when deterministic gates pass and Sol's quality review agrees.
+
+V2 resource compliance is a post-call observation because Codex Desktop exposes no
+pre-call interception path. Report `qualityAcceptance` and `resourceCompliance`
+independently so a quality result is not mistaken for a resource result.
 
 ## Compact contract
 
@@ -53,6 +57,21 @@ Change a binding with `node plugins/heliolune/scripts/configure-models.mjs --own
   "verification": {
     "owner": ["node --test tests/focused.test.mjs"],
     "sol": ["node --test tests/*.test.mjs"]
+  }
+}
+```
+
+V2 replaces the universal call/edit limits with a task-shaped lease:
+
+```json
+{
+  "schemaVersion": "HELIOLUNE_OWNER_CONTRACT_V2",
+  "taskComplexity": "medium",
+  "ownerPolicy": {"persistent":true,"maxTurns":3},
+  "resourceLease": {
+    "schemaVersion": "HELIOLUNE_RESOURCE_LEASE_V2",
+    "taskComplexity": "medium",
+    "dimensions": {"turns":2,"toolOutputBytes":24576,"totalTokens":12000}
   }
 }
 ```

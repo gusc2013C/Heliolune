@@ -4,6 +4,15 @@
 
 Heliolune 遵循语义化版本。`0.4.0` 为当前 Git 仓库之前的原型历史，`0.5.0-alpha.1` 是当前仓库保留的第一个提交版本。
 
+## [0.8.3] - 2026-08-18
+
+### 任务专属资源租约
+
+- 新增 `HELIOLUNE_OWNER_CONTRACT_V2`、`HELIOLUNE_RESOURCE_LEASE_V2` 与 `HELIOLUNE_OWNER_RESULT_V2`，同时保留历史 V1 contract 与 rollout 验证兼容性。
+- 移除 V2 的通用工具调用和 edit 调用预算。V2 只接受显式提供的字节/token 资源上限；持久化的工具/edit 调用数仅作为事后诊断，不作为 token 或成本代理。
+- 独立报告 `qualityPass` 与 `resourcePass`，真实的资源超限不再否定已经通过质量验收的实现。
+- 将旧的五次发现调用、36 次会话调用、六次 edit 和固定输出上限明确限定到 V1 owner 指令。Codex Desktop 当前没有逐调用前置拦截 hook，因此 V2 不宣称实时强制执行。
+
 ## [0.8.2] - 2026-08-18
 
 ### 依赖 preflight

@@ -8,9 +8,23 @@ import { fileURLToPath } from 'node:url';
 import { TERMINAL_LIMITS, measureExchange } from './terminal-firewall.mjs';
 
 const CONTRACT_SCHEMA = 'HELIOLUNE_OWNER_CONTRACT_V1';
+export const CONTRACT_SCHEMA_V2 = 'HELIOLUNE_OWNER_CONTRACT_V2';
 const RESULT_SCHEMA = 'HELIOLUNE_OWNER_RESULT_V1';
+export const RESULT_SCHEMA_V2 = 'HELIOLUNE_OWNER_RESULT_V2';
 const FOLLOWUP_SCHEMA = 'HELIOLUNE_OWNER_FOLLOWUP_V1';
 export const OWNER_SESSION_LIMITS = Object.freeze({ persistent: true, maxTurns: 3, maxToolCalls: 36, maxEditCalls: 6 });
+export const RESOURCE_LEASE_SCHEMA_V2 = 'HELIOLUNE_RESOURCE_LEASE_V2';
+
+const RESOURCE_DIMENSIONS = Object.freeze([
+  'turns',
+  'toolOutputBytes',
+  'totalToolOutputBytes',
+  'totalTokens',
+  'reasoningTokens',
+  'outputTokens',
+  'cachedInputTokens',
+  'inputTokens',
+]);
 
 function nonEmptyString(value, max = 4000) {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= max;
@@ -43,6 +57,114 @@ function safeRelativePath(value) {
     && !normalized.split('/').includes('.git');
 }
 
+function record(value) {
+  return value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safePositiveInteger(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+const COMPLEXITY_ALIASES = Object.freeze({
+  tiny: 'low',
+  small: 'low',
+  low: 'low',
+  medium: 'medium',
+  large: 'high',
+  high: 'high',
+});
+
+function normalizeTaskComplexity(value) {
+  return typeof value === 'string' ? COMPLEXITY_ALIASES[value.trim().toLowerCase()] ?? null : null;
+}
+
+function explicitTaskComplexity(task) {
+  const candidates = [
+    task?.taskComplexity,
+    task?.complexity,
+    task?.taskShape?.complexity,
+    task?.resourceLease?.taskComplexity,
+    task?.resourceLease?.complexity,
+  ];
+  return candidates.find((value) => value !== undefined) ?? null;
+}
+
+/**
+ * Normalize an explicitly supplied task-shaped V2 lease. Numeric resource
+ * limits are contract data; they are never inferred from scope or acceptance.
+ */
+export function deriveResourceLease(task = {}) {
+  const explicit = explicitTaskComplexity(task);
+  const suppliedDimensions = record(task?.resourceDimensions)
+    ? task.resourceDimensions
+    : record(task?.resourceBudget)
+      ? task.resourceBudget
+      : record(task?.resourceLease?.dimensions)
+        ? task.resourceLease.dimensions
+        : record(task?.resourceLease?.limits)
+          ? task.resourceLease.limits
+          : null;
+  if (explicit === null || !record(suppliedDimensions)) return null;
+  const taskComplexity = normalizeTaskComplexity(explicit);
+  if (taskComplexity === null) return null;
+  return {
+    schemaVersion: RESOURCE_LEASE_SCHEMA_V2,
+    taskComplexity,
+    ...(record(task?.taskShape) ? { taskShape: task.taskShape } : {}),
+    dimensions: { ...suppliedDimensions },
+  };
+}
+
+function resourceLeaseDimensions(lease) {
+  const hasDimensions = record(lease) && Object.hasOwn(lease, 'dimensions');
+  const hasLimits = record(lease) && Object.hasOwn(lease, 'limits');
+  const dimensions = hasDimensions ? lease.dimensions : lease?.limits;
+  return {
+    dimensions,
+    conflict: hasDimensions && hasLimits && !isDeepStrictEqual(lease.dimensions, lease.limits),
+  };
+}
+
+function validTaskShape(value) {
+  return record(value)
+    && Object.keys(value).every((key) => ['scopeSize', 'acceptanceSize', 'risk', 'complexity'].includes(key))
+    && (value.scopeSize === undefined || Number.isSafeInteger(value.scopeSize) && value.scopeSize >= 0)
+    && (value.acceptanceSize === undefined || Number.isSafeInteger(value.acceptanceSize) && value.acceptanceSize >= 0)
+    && (value.risk === undefined || value.risk === null || ['low', 'medium', 'high'].includes(value.risk))
+    && (value.complexity === undefined || normalizeTaskComplexity(value.complexity) !== null);
+}
+
+export function validateResourceLease(lease) {
+  const dimensionsAlias = resourceLeaseDimensions(lease);
+  const dimensions = dimensionsAlias.dimensions;
+  const complexity = lease?.taskComplexity ?? lease?.complexity;
+  const allowedKeys = ['schemaVersion', 'taskComplexity', 'complexity', 'dimensions', 'limits', 'taskShape', 'leaseId', 'source'];
+  const dimensionKeys = record(dimensions) ? Object.keys(dimensions) : [];
+  return [
+    check('resource-lease-record', record(lease), lease ?? null, 'object'),
+    check('resource-lease-fields', record(lease) && Object.keys(lease).every((key) => allowedKeys.includes(key)), record(lease) ? Object.keys(lease) : null, allowedKeys),
+    check('resource-lease-schema', lease?.schemaVersion === RESOURCE_LEASE_SCHEMA_V2, lease?.schemaVersion ?? null, RESOURCE_LEASE_SCHEMA_V2),
+    check('resource-lease-complexity', normalizeTaskComplexity(complexity) !== null, complexity ?? null, 'low|medium|high'),
+    check('resource-lease-dimensions', record(dimensions) && !dimensionsAlias.conflict
+      && dimensionKeys.every((key) => RESOURCE_DIMENSIONS.includes(key))
+      && dimensionKeys.length > 0
+      && dimensionKeys.every((key) => safePositiveInteger(dimensions[key])), dimensions ?? null, 'at least one explicit non-call resource limit'),
+    check('resource-lease-task-shape', lease?.taskShape === undefined || validTaskShape(lease.taskShape), lease?.taskShape ?? null, 'task-shaped lease metadata'),
+  ];
+}
+
+function effectiveResourceLease(contract) {
+  return record(contract) && Object.hasOwn(contract, 'resourceLease') ? contract.resourceLease : null;
+}
+
+function validV2OwnerPolicy(value) {
+  return record(value)
+    && Object.keys(value).length === 2
+    && value.persistent === true
+    && safePositiveInteger(value.maxTurns)
+    && value.maxTurns <= 3;
+}
+
 function pathInScope(path, scope) {
   const normalized = normalizePath(path);
   return scope.some((entry) => normalized === entry || normalized.startsWith(`${entry.replace(/\/$/, '')}/`));
@@ -73,10 +195,13 @@ export function validateContract(contract) {
   const solCommands = contract?.verification?.sol;
   const route = contract?.route;
   const ownerPolicy = contract?.ownerPolicy;
+  const isV1 = contract?.schemaVersion === CONTRACT_SCHEMA;
+  const isV2 = contract?.schemaVersion === CONTRACT_SCHEMA_V2;
+  const resourceLease = effectiveResourceLease(contract);
   const terminalPolicyAlias = aliasedField(contract, 'terminalPolicy', 'sparkPolicy');
   const effectiveTerminalPolicy = terminalPolicyAlias.value;
   return [
-    check('contract-schema', contract?.schemaVersion === CONTRACT_SCHEMA, contract?.schemaVersion, CONTRACT_SCHEMA),
+    check('contract-schema', isV1 || isV2, contract?.schemaVersion, [CONTRACT_SCHEMA, CONTRACT_SCHEMA_V2]),
     check('contract-id', typeof contract?.contractId === 'string' && /^[a-z0-9][a-z0-9-]{7,63}$/u.test(contract.contractId), contract?.contractId ?? null, '8..64 lowercase letters, digits, or hyphens'),
     check('route', ['R1', 'R2'].includes(route), route, 'R1|R2'),
     check('objective', nonEmptyString(contract?.objective, 4000), contract?.objective ?? null, 'non-empty <= 4000 chars'),
@@ -91,7 +216,8 @@ export function validateContract(contract) {
     check('preflight-schema', contract?.preflight?.schemaVersion === 'HELIOLUNE_NATIVE_PREFLIGHT_V1', contract?.preflight?.schemaVersion ?? null, 'HELIOLUNE_NATIVE_PREFLIGHT_V1'),
     check('preflight-pass', contract?.preflight?.pass === true, contract?.preflight?.pass ?? null, true),
     check('preflight-version', nonEmptyString(contract?.preflight?.version, 200), contract?.preflight?.version ?? null, 'non-empty version'),
-    check('owner-policy', exactRecord(ownerPolicy, OWNER_SESSION_LIMITS), ownerPolicy ?? null, OWNER_SESSION_LIMITS),
+    check('owner-policy', isV1 ? exactRecord(ownerPolicy, OWNER_SESSION_LIMITS) : isV2 && validV2OwnerPolicy(ownerPolicy), ownerPolicy ?? null, isV1 ? OWNER_SESSION_LIMITS : { persistent: true, maxTurns: 3 }),
+    check('resource-lease', !isV2 || validateResourceLease(resourceLease).every((entry) => entry.pass), resourceLease ?? null, isV2 ? RESOURCE_LEASE_SCHEMA_V2 : null),
     check('terminal-policy-alias', !terminalPolicyAlias.conflict, terminalPolicyAlias.fields, 'neutral and legacy terminal policies must agree'),
     check('terminal-policy', route === 'R1' ? effectiveTerminalPolicy === 'forbidden' : route === 'R2' && exactRecord(effectiveTerminalPolicy, {
       persistent: true,
@@ -152,6 +278,73 @@ function validAgentPath(value) {
   return typeof value === 'string' && /^\/root\/[a-z0-9_/-]+$/u.test(value) && !value.split('/').includes('..');
 }
 
+function qualityAcceptanceStatus(value) {
+  if (!record(value)) return null;
+  if (['passed', 'failed'].includes(value.status)) return value.status;
+  if (typeof value.passed === 'boolean') return value.passed ? 'passed' : 'failed';
+  return null;
+}
+
+function validQualityAcceptance(value) {
+  const status = qualityAcceptanceStatus(value);
+  return status !== null
+    && (nonEmptyString(value.summary, 2000)
+      || stringArray(value.evidence, { min: 1, max: 32 })
+      || checkRecords(value.checks));
+}
+
+function resourceComplianceStatus(value) {
+  if (!record(value)) return null;
+  if (['compliant', 'exceeded', 'unmeasured'].includes(value.status)) return value.status;
+  if (typeof value.compliant === 'boolean') return value.compliant ? 'compliant' : 'exceeded';
+  return null;
+}
+
+function observedResourceValue(observed, keys) {
+  if (!record(observed)) return undefined;
+  for (const key of keys) {
+    if (Object.hasOwn(observed, key)) return observed[key];
+  }
+  return undefined;
+}
+
+function normalizedResourceObservation(value) {
+  const observed = record(value?.observed) ? value.observed : record(value?.usage) ? value.usage : null;
+  return {
+    turns: observedResourceValue(observed, ['turns', 'turnCount']),
+    toolCalls: observedResourceValue(observed, ['toolCalls', 'toolCallCount']),
+    editCalls: observedResourceValue(observed, ['editCalls', 'editCallCount']),
+    toolOutputBytes: observedResourceValue(observed, ['toolOutputBytes', 'maxToolOutputBytes']),
+    totalToolOutputBytes: observedResourceValue(observed, ['totalToolOutputBytes']),
+    totalTokens: observedResourceValue(observed, ['totalTokens']),
+    reasoningTokens: observedResourceValue(observed, ['reasoningTokens']),
+    outputTokens: observedResourceValue(observed, ['outputTokens']),
+    cachedInputTokens: observedResourceValue(observed, ['cachedInputTokens']),
+    inputTokens: observedResourceValue(observed, ['inputTokens']),
+  };
+}
+
+function validResourceCompliance(value) {
+  const status = resourceComplianceStatus(value);
+  const observed = normalizedResourceObservation(value);
+  const observedValues = RESOURCE_DIMENSIONS.map((key) => observed[key]).filter((entry) => entry !== undefined);
+  return status !== null
+    && (status === 'unmeasured' || (record(value.observed) || record(value.usage))
+      && observedValues.length > 0
+      && observedValues.every((entry) => Number.isSafeInteger(entry) && entry >= 0));
+}
+
+function resourceLeaseComparison(lease, observation) {
+  const dimensions = resourceLeaseDimensions(lease).dimensions;
+  if (!record(dimensions)) return { comparable: false, within: false };
+  const pairs = RESOURCE_DIMENSIONS
+    .filter((key) => observation[key] !== undefined && dimensions[key] !== undefined);
+  return {
+    comparable: pairs.length > 0,
+    within: pairs.length > 0 && pairs.every((key) => observation[key] <= dimensions[key]),
+  };
+}
+
 export function validateResult(result, contract = null) {
   const statuses = ['completed', 'blocked', 'objection'];
   const terminalUsedAlias = aliasedField(result, 'terminalUsed', 'sparkUsed');
@@ -161,6 +354,8 @@ export function validateResult(result, contract = null) {
   const effectiveTerminalAgentPath = terminalAgentPathAlias.value;
   const effectiveTerminalEvidence = terminalEvidenceAlias.value;
   const route = contract?.route ?? (effectiveTerminalUsed === true ? 'R2' : 'R1');
+  const isV2 = contract?.schemaVersion === CONTRACT_SCHEMA_V2;
+  const expectedResultSchema = isV2 ? RESULT_SCHEMA_V2 : RESULT_SCHEMA;
   const maxTurns = contract?.ownerPolicy?.maxTurns ?? OWNER_SESSION_LIMITS.maxTurns;
   const checksValid = Array.isArray(result?.checks)
     && result.checks.length >= 1
@@ -170,7 +365,7 @@ export function validateResult(result, contract = null) {
       && nonEmptyString(entry?.summary, 2000));
   const objectionValid = result?.status === 'objection' ? validObjection(result?.objection) : result?.objection === null;
   return [
-    check('result-schema', result?.schemaVersion === RESULT_SCHEMA, result?.schemaVersion, RESULT_SCHEMA),
+    check('result-schema', result?.schemaVersion === expectedResultSchema, result?.schemaVersion, expectedResultSchema),
     check('result-status', statuses.includes(result?.status), result?.status ?? null, statuses.join('|')),
     check('owner-turn', Number.isSafeInteger(result?.ownerTurn) && result.ownerTurn >= 1 && result.ownerTurn <= maxTurns, result?.ownerTurn ?? null, `1..${maxTurns}`),
     check('owner-session-complete', typeof result?.ownerSessionComplete === 'boolean', result?.ownerSessionComplete ?? null, 'boolean'),
@@ -192,6 +387,8 @@ export function validateResult(result, contract = null) {
       effectiveTerminalEvidence ?? null,
       route === 'R1' ? [] : `1..${TERMINAL_LIMITS.maxRequests} verified exchanges`,
     ),
+    check('quality-acceptance', !isV2 || validQualityAcceptance(result?.qualityAcceptance), result?.qualityAcceptance ?? null, isV2 ? 'passed|failed report' : null),
+    check('resource-compliance', !isV2 || validResourceCompliance(result?.resourceCompliance), result?.resourceCompliance ?? null, isV2 ? 'compliant|exceeded|unmeasured report' : null),
     check('protocol-violations', stringArray(result?.protocolViolations, { min: 0, max: 16 }), result?.protocolViolations ?? null, '0..16 strings'),
   ];
 }
@@ -206,6 +403,32 @@ function normalizedCommands(records) {
   return Array.isArray(records) ? records.map((entry) => entry.command).sort() : [];
 }
 
+export function qualityAcceptanceChecks(contract, result) {
+  if (contract?.schemaVersion !== CONTRACT_SCHEMA_V2) return [];
+  const status = qualityAcceptanceStatus(result?.qualityAcceptance);
+  const checksPassed = Array.isArray(result?.checks) && result.checks.every((entry) => entry.status === 'passed');
+  return [
+    check('quality-acceptance-shape', validQualityAcceptance(result?.qualityAcceptance), result?.qualityAcceptance ?? null, 'qualityAcceptance report'),
+    check('quality-acceptance-status', status === 'passed', status, 'passed'),
+    check('quality-acceptance-consistent', status === null || status === (checksPassed ? 'passed' : 'failed'), status, checksPassed ? 'passed' : 'failed'),
+  ];
+}
+
+export function resourceComplianceChecks(contract, result) {
+  if (contract?.schemaVersion !== CONTRACT_SCHEMA_V2) return [];
+  const status = resourceComplianceStatus(result?.resourceCompliance);
+  const observation = normalizedResourceObservation(result?.resourceCompliance);
+  const lease = effectiveResourceLease(contract);
+  const leaseValid = validateResourceLease(lease).every((entry) => entry.pass);
+  const comparison = resourceLeaseComparison(lease, observation);
+  return [
+    check('resource-compliance-shape', validResourceCompliance(result?.resourceCompliance), result?.resourceCompliance ?? null, 'resourceCompliance report'),
+    check('resource-compliance-status', status === 'compliant', status, 'compliant'),
+    check('resource-compliance-lease', leaseValid, lease ?? null, RESOURCE_LEASE_SCHEMA_V2),
+    check('resource-compliance-within-lease', status === 'unmeasured' || (status === 'compliant' && comparison.comparable && comparison.within) || (status === 'exceeded' && comparison.comparable && !comparison.within), { status, observation, comparison }, 'truthful lease observation'),
+  ];
+}
+
 export function acceptanceChecks(contract, result, actualPaths, solChecks) {
   const contractChecks = validateContract(contract);
   const resultChecks = validateResult(result, contract);
@@ -214,9 +437,13 @@ export function acceptanceChecks(contract, result, actualPaths, solChecks) {
   const actual = Array.isArray(actualPaths) ? [...new Set(actualPaths.map(normalizePath))].sort() : [];
   const expectedOwnerCommands = [...(contract?.verification?.owner ?? [])].sort();
   const expectedSolCommands = [...(contract?.verification?.sol ?? [])].sort();
+  const qualityV2Checks = contract?.schemaVersion === CONTRACT_SCHEMA_V2
+    ? qualityAcceptanceChecks(contract, result)
+    : [];
   return [
     ...contractChecks,
     ...resultChecks,
+    ...qualityV2Checks,
     check('status-completed', result?.status === 'completed', result?.status ?? null, 'completed'),
     check('owner-session-final', result?.ownerSessionComplete === true, result?.ownerSessionComplete ?? null, true),
     check('all-checks-passed', Array.isArray(result?.checks) && result.checks.every((entry) => entry.status === 'passed'), result?.checks?.map((entry) => entry.status) ?? null, 'all passed'),
@@ -262,10 +489,17 @@ function main() {
     : result
       ? [...validateContract(contract), ...validateResult(result)]
       : validateContract(contract);
+  const v2Acceptance = accept && contract?.schemaVersion === CONTRACT_SCHEMA_V2;
+  const resourceChecks = v2Acceptance ? resourceComplianceChecks(contract, result) : [];
   const output = {
     schemaVersion: 'HELIOLUNE_NATIVE_OWNER_GATE_V1',
     mode: followup ? 'validate-followup' : accept ? 'accept' : result ? 'validate-result' : 'validate-contract',
     pass: checks.every((entry) => entry.pass),
+    ...(v2Acceptance ? {
+      qualityPass: checks.every((entry) => entry.pass),
+      resourcePass: resourceChecks.every((entry) => entry.pass),
+      resourceChecks,
+    } : {}),
     checks,
   };
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);

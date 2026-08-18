@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-import { OWNER_SESSION_LIMITS, acceptanceChecks, validateContract, validateFollowup, validateResult } from '../plugins/heliolune/scripts/native-owner-gate.mjs';
+import {
+  CONTRACT_SCHEMA_V2,
+  OWNER_SESSION_LIMITS,
+  RESOURCE_LEASE_SCHEMA_V2,
+  RESULT_SCHEMA_V2,
+  acceptanceChecks,
+  deriveResourceLease,
+  qualityAcceptanceChecks,
+  resourceComplianceChecks,
+  validateContract,
+  validateFollowup,
+  validateResult,
+} from '../plugins/heliolune/scripts/native-owner-gate.mjs';
 
 const contract = {
   schemaVersion: 'HELIOLUNE_OWNER_CONTRACT_V1',
@@ -48,6 +60,30 @@ const result = {
 };
 
 const solChecks = [{ command: 'node --test tests/*.test.mjs', status: 'passed', summary: 'all passed' }];
+
+const v2Contract = {
+  ...structuredClone(contract),
+  schemaVersion: CONTRACT_SCHEMA_V2,
+  taskComplexity: 'medium',
+  ownerPolicy: { persistent: true, maxTurns: 3 },
+  resourceLease: {
+    schemaVersion: RESOURCE_LEASE_SCHEMA_V2,
+    taskComplexity: 'medium',
+    taskShape: { scopeSize: 2, acceptanceSize: 2, risk: 'medium' },
+    dimensions: { turns: 2, toolOutputBytes: 24576, totalTokens: 12000 },
+  },
+};
+
+const v2Result = {
+  ...structuredClone(result),
+  schemaVersion: RESULT_SCHEMA_V2,
+  qualityAcceptance: { status: 'passed', evidence: ['focused quality checks passed'] },
+  resourceCompliance: {
+    status: 'compliant',
+    observed: { turns: 1, toolOutputBytes: 1200, totalTokens: 4000 },
+    evidence: ['lease observations recorded after execution'],
+  },
+};
 
 test('R1 owner contract and result validate', () => {
   assert.equal(validateContract(contract).every((entry) => entry.pass), true);
@@ -204,7 +240,7 @@ test('compact release validation and Sol acceptance boundaries are explicit', as
   assert.match(skill, /never reruns `verification\.owner`/i);
   assert.match(skill, /compact HelioTerm evidence/i);
   assert.match(skill, /pure version\/release-note propagation in Sol/i);
-  assert.match(manifest.version, /^0\.8\.2\+codex\.[A-Za-z0-9.-]+$/u);
+  assert.match(manifest.version, /^0\.8\.3\+codex\.[A-Za-z0-9.-]+$/u);
   assert.equal(audit.schemaVersion, 'HELIOLUNE_STABLE_TOKEN_EFFICIENCY_AUDIT_V1');
   assert.equal(audit.validatorAb.reductionBytes, 18473);
   assert.equal(audit.helioterm.savedBytes, 652453);
@@ -269,4 +305,75 @@ test('R2 rejects unverified, verbose, or over-command HelioTerm evidence', () =>
   assert.equal(validateResult(r2Result, r2Contract).every((entry) => entry.pass), false);
   r2Result.terminalEvidence = [{ request: 'T|test|x', response: `OK|${'x'.repeat(256)}`, commands: 1, verified: true }];
   assert.equal(validateResult(r2Result, r2Contract).every((entry) => entry.pass), false);
+});
+
+test('V2 validates a task-shaped lease while retaining V1 historical limits', () => {
+  assert.equal(validateContract(v2Contract).every((entry) => entry.pass), true);
+  assert.equal(Object.hasOwn(v2Contract.ownerPolicy, 'maxToolCalls'), false);
+  assert.equal(Object.hasOwn(v2Contract.ownerPolicy, 'maxEditCalls'), false);
+  assert.equal(deriveResourceLease({ taskComplexity: 'low', scope: ['a'], acceptance: ['b'], risk: 'low' }), null);
+  const low = deriveResourceLease({ taskComplexity: 'low', resourceDimensions: { toolOutputBytes: 1000 } });
+  const high = deriveResourceLease({ taskComplexity: 'high', resourceDimensions: { totalTokens: 20000 } });
+  assert.equal(low.schemaVersion, RESOURCE_LEASE_SCHEMA_V2);
+  assert.equal(high.dimensions.totalTokens > low.dimensions.toolOutputBytes, true);
+  const legacyBudget = structuredClone(v2Contract);
+  legacyBudget.ownerPolicy.maxToolCalls = 36;
+  assert.equal(validateContract(legacyBudget).every((entry) => entry.pass), false);
+});
+
+test('V2 reports quality acceptance independently from resource compliance', () => {
+  assert.equal(validateResult(v2Result, v2Contract).every((entry) => entry.pass), true);
+  assert.equal(qualityAcceptanceChecks(v2Contract, v2Result).every((entry) => entry.pass), true);
+  assert.equal(resourceComplianceChecks(v2Contract, v2Result).every((entry) => entry.pass), true);
+  const exceeded = structuredClone(v2Result);
+  exceeded.resourceCompliance.status = 'exceeded';
+  exceeded.resourceCompliance.observed.toolOutputBytes = 25000;
+  const quality = qualityAcceptanceChecks(v2Contract, exceeded);
+  const resources = resourceComplianceChecks(v2Contract, exceeded);
+  assert.equal(quality.find((entry) => entry.name === 'quality-acceptance-status').pass, true);
+  assert.equal(resources.find((entry) => entry.name === 'resource-compliance-status').pass, false);
+  assert.equal(acceptanceChecks(v2Contract, exceeded, exceeded.changedPaths, solChecks).every((entry) => entry.pass), true);
+});
+
+test('V2 CLI exposes an accepted quality result and an independent resource overrun', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'heliolune-owner-v2-gate-'));
+  try {
+    const exceeded = structuredClone(v2Result);
+    exceeded.resourceCompliance.status = 'exceeded';
+    exceeded.resourceCompliance.observed.toolOutputBytes = 25000;
+    const contractPath = resolve(directory, 'contract.json');
+    const resultPath = resolve(directory, 'result.json');
+    const pathsPath = resolve(directory, 'paths.json');
+    const solChecksPath = resolve(directory, 'sol-checks.json');
+    writeFileSync(contractPath, JSON.stringify(v2Contract));
+    writeFileSync(resultPath, JSON.stringify(exceeded));
+    writeFileSync(pathsPath, JSON.stringify(exceeded.changedPaths));
+    writeFileSync(solChecksPath, JSON.stringify(solChecks));
+    const cli = resolve('plugins/heliolune/scripts/native-owner-gate.mjs');
+    const run = spawnSync(process.execPath, [cli, '--contract', contractPath, '--result', resultPath, '--actual-paths', pathsPath, '--sol-checks', solChecksPath, '--accept'], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    const payload = JSON.parse(run.stdout);
+    assert.equal(payload.pass, true);
+    assert.equal(payload.qualityPass, true);
+    assert.equal(payload.resourcePass, false);
+    assert.equal(payload.resourceChecks.find((entry) => entry.name === 'resource-compliance-status').pass, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('V1 legacy budgets and V2 resource leases are schema-conditional in owner guidance', () => {
+  const role = readFileSync(resolve('plugins/heliolune/agents/luna-owner.toml'), 'utf8');
+  const installedRole = readFileSync(resolve('.codex/agents/luna-owner.toml'), 'utf8');
+  const skill = readFileSync(resolve('plugins/heliolune/skills/heliolune/SKILL.md'), 'utf8');
+  for (const source of [role, installedRole]) {
+    assert.equal(source.includes('For V1 contracts'), true);
+    assert.equal(source.includes("For V2 contracts, use the context pack and targeted anchors but do not inherit V1's fixed call, read, or output caps"), true);
+    assert.equal(source.includes('For V1, use at most two edit calls per turn and six across the reused session'), true);
+    assert.equal(source.includes('For V2 contracts'), true);
+    assert.equal(source.includes('Return exactly one schema-matched owner result JSON object'), true);
+    assert.equal(source.includes('Return exactly one HELIOLUNE_OWNER_RESULT_V1 JSON object'), false);
+  }
+  assert.equal(skill.includes('For V1 contracts'), true);
+  assert.equal(skill.includes("For V2 contracts, use targeted anchors and bounded slices but do not inherit V1's fixed call/read/output caps"), true);
 });

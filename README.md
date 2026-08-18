@@ -8,7 +8,7 @@ Heliolune is a pre-1.0 orchestration project for pairing a capable controller wi
 
 The name combines the imagery of the sun and moon, but the architecture is deliberately model-, provider-, and host-neutral. Sol/Luna on Codex is the first working profile—not the final boundary of the project.
 
-> Current stable release: **`0.8.2`**. Public contracts may still change before 1.0.
+> Current stable release: **`0.8.3`**. Public contracts may still change before 1.0.
 
 The current release identity is the Native V2 `heliolune` plugin. The legacy `luna-pool-orchestrator` plugin remains available at `0.7.0-alpha.2` as a compatibility adapter.
 
@@ -40,7 +40,7 @@ The stronger model stays responsible for decisions where judgment matters. Lower
 - A compact context pack limits first-pass discovery; public schemas bound scope, checks, evidence, residual risk, and objections.
 - Ordinary HelioTerm commands execute directly with `model=0`. A reusable Luna/high terminal leaf is available only for explicitly requested semantic terminal work.
 - Standalone Desktop agent profiles are installed from the plugin and verified against the configured model/effort bindings.
-- Persisted rollout proof verifies the real role, model, effort, Native V2 backend, parent/leaf state, tool budget, and result marker.
+- Persisted rollout proof verifies the real role, model, effort, Native V2 backend, parent/leaf state, resource observations, diagnostic tool-call count, and result marker. V2 uses explicit task-shaped byte/token leases; tool-call count is not a token or cost proxy.
 - Sol independently inspects actual changed paths, runs its reserved checks, and accepts only a clean deterministic gate.
 
 See the alpha.3 notes for [Luna session reuse](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.md), [direct HelioTerm optimization](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.md), and [three-path HelioTerm measurements](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.md).
@@ -127,7 +127,7 @@ The MCP runtime is Node-based. The optional native panel uses the inbox Windows 
 | PowerShell | 7.x |
 | Git | Required by HelioTerm observations |
 | ripgrep (`rg`) | Required by HelioTerm search |
-| Plugin version | `0.8.2` |
+| Plugin version | `0.8.3` |
 
 Linux and macOS may work with a suitable standalone Codex CLI, but are not yet release-tested.
 
@@ -144,7 +144,7 @@ The bootstrap registers the local marketplace in the active Codex profile, insta
 For a direct Git marketplace install, pin the release tag explicitly:
 
 ```powershell
-codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.2
+codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.3
 codex plugin add heliolune@heliolune
 ```
 

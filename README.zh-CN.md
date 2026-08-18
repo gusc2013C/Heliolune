@@ -7,7 +7,7 @@
 
 Heliolune 是一个处于 0.x 阶段的模型编排项目：高能力 controller 负责理解、架构、风险与验收，低成本 worker 完成有明确 scope 的工程任务。当前 Native V2 Codex 插件把一份有界 contract 交给可复用的 Luna/max 工程 owner，普通 terminal I/O 默认走零模型 HelioTerm，并强制由 Sol 独立验收。旧 MCP 适配器继续提供带 detached-worktree 写隔离的 1、2 或 4 路任务 DAG。
 
-> 当前稳定版本：**`0.8.2`**。1.0 之前公共接口仍可能调整。
+> 当前稳定版本：**`0.8.3`**。1.0 之前公共接口仍可能调整。
 >
 > 0.8.0 token-efficiency 发布说明：[English](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.md) · [简体中文](docs/0.8.0-STABLE-TOKEN-EFFICIENCY.zh-CN.md)
 
@@ -39,7 +39,7 @@ Sol 独立检查并最终验收
 - 紧凑 context pack 限制首次发现；公共 schema 对 scope、checks、evidence、残余风险和 objection 设定硬边界。
 - 普通 HelioTerm 命令直接执行并保持 `model=0`；只有显式语义 terminal 工作才允许复用 Luna/high terminal leaf。
 - 插件安装独立 Desktop agent profiles，并校验真实 model/effort 绑定。
-- 持久化 rollout proof 验证真实 role、model、effort、Native V2 backend、父子状态、工具预算和结果 marker。
+- 持久化 rollout proof 验证真实 role、model、effort、Native V2 backend、父子状态、资源观测、诊断性工具调用数和结果 marker。V2 使用任务专属的显式字节/token lease；工具调用数不再作为 token 或成本代理。
 - Sol 独立核对实际修改路径、运行保留检查，并只接受通过确定性 gate 的结果。
 
 Alpha.3 证据见 [Luna 会话复用](docs/0.8.0-ALPHA.3-LUNA-SESSION-REUSE.zh-CN.md)、[HelioTerm direct 优化](docs/0.8.0-ALPHA.3-HELIOTERM-DIRECT-OPT.zh-CN.md)与[三路径测量](docs/0.8.0-ALPHA.3-HELIOTERM-AB3.zh-CN.md)。
@@ -128,7 +128,7 @@ Bootstrap 会在当前 Codex profile 注册本地 marketplace、安装 `heliolun
 直接从 Git marketplace 安装时请显式固定 release tag：
 
 ```powershell
-codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.2
+codex plugin marketplace add gusc2013C/Heliolune --ref v0.8.3
 codex plugin add heliolune@heliolune
 ```
 

@@ -4,6 +4,15 @@ All notable changes to Heliolune are documented here. The project follows Semant
 
 English · [简体中文](CHANGELOG.zh-CN.md)
 
+## [0.8.3] - 2026-08-18
+
+### Task-shaped resource leases
+
+- Add `HELIOLUNE_OWNER_CONTRACT_V2`, `HELIOLUNE_RESOURCE_LEASE_V2`, and `HELIOLUNE_OWNER_RESULT_V2` while preserving historical V1 contract and rollout validation.
+- Remove universal V2 tool-call and edit-call budgets. V2 accepts explicitly supplied byte/token resource limits; persisted tool-call and edit-call counts remain post-call diagnostics and are not token or cost proxies.
+- Report `qualityPass` independently from `resourcePass`, so a truthful resource overrun does not invalidate an otherwise accepted implementation.
+- Scope the legacy five-call discovery, 36-call session, six-edit, and fixed output limits explicitly to V1 owner guidance. Codex Desktop currently exposes no pre-call interception hook, so V2 makes no live-enforcement claim.
+
 ## [0.8.2] - 2026-08-18
 
 ### Dependency preflight

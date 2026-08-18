@@ -65,7 +65,7 @@ function tomlString(source, name) {
   return match?.[1] ?? match?.[2] ?? null;
 }
 
-check('native-version', /^0\.8\.2(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
+check('native-version', /^0\.8\.3(?:\+codex\.[0-9A-Za-z.-]+)?$/u.test(manifest.version ?? ''), manifest.version ?? null);
 check('zero-mcp-manifest', !Object.hasOwn(manifest, 'mcpServers'), 'mcpServers must be absent');
 check('zero-mcp-file', !existsSync(resolve(pluginRoot, '.mcp.json')), '.mcp.json must be absent');
 check('bindings-schema', bindings.schemaVersion === 'HELIOLUNE_MODEL_BINDINGS_V1', bindings.schemaVersion ?? null);
@@ -83,7 +83,27 @@ check(
     && skill.includes('bounded slices instead of full-file reads'),
   'owner discovery reserves one anchor query and at most four bounded reads',
 );
-check('persistent-owner-policy', gate.includes('maxTurns: 3') && gate.includes('maxToolCalls: 36') && gate.includes('maxEditCalls: 6') && skill.includes('Reuse that owner with `followup_task`'), 'one bounded reusable Luna owner session');
+check(
+  'persistent-owner-policy',
+  gate.includes('maxTurns: 3')
+    && gate.includes('maxToolCalls: 36')
+    && gate.includes('maxEditCalls: 6')
+    && gate.includes('HELIOLUNE_OWNER_CONTRACT_V2')
+    && gate.includes('resourceLease')
+    && skill.includes('Reuse that owner with `followup_task`'),
+  'V1 historical policy remains readable and V2 uses a task-shaped lease',
+);
+check(
+  'v2-independent-acceptance',
+  gate.includes('qualityAcceptanceChecks')
+    && gate.includes('resourceComplianceChecks')
+    && gate.includes('HELIOLUNE_OWNER_RESULT_V2')
+    && protocols.includes('HELIOLUNE_OWNER_CONTRACT_V2')
+    && protocols.includes('HELIOLUNE_OWNER_RESULT_V2')
+    && protocols.includes('qualityAcceptance')
+    && protocols.includes('resourceCompliance'),
+  'V2 result schema reports quality acceptance and resource compliance independently',
+);
 const neutralTerminalAliasChecks = [
   "check('terminal-policy-alias', !terminalPolicyAlias.conflict",
   "check('terminal-used-alias', !terminalUsedAlias.conflict",
@@ -158,7 +178,8 @@ const ownerOutputBudgetAnchors = [
   'verification output stays compact',
 ];
 check('owner-output-budget-policy', [skill, protocols].every((source) => ownerOutputBudgetAnchors.every((anchor) => source.includes(anchor))), '12 KiB/160 lines read evidence, 24 KiB tool results, and 192 KiB cumulative output');
-check('role-proof-tool-call-budget', roleProof.includes("['custom_tool_call', 'function_call'].includes(row.payload?.type)") && roleProof.includes("nonNegativeIntegerOption('--expect-max-tool-calls')") && roleProof.includes('toolCallCount'), 'real persisted function/custom calls counted');
+check('role-proof-tool-call-budget', roleProof.includes("['custom_tool_call', 'function_call'].includes(row.payload?.type)") && roleProof.includes("nonNegativeIntegerOption('--expect-max-tool-calls')") && roleProof.includes('toolCallCount') && roleProof.includes('diagnostic observation'), 'real persisted function/custom calls counted as post-call diagnostics');
+check('no-pre-call-resource-claim', roleProof.includes('preCallEnforcement: false') && skill.includes('no\npre-call interception path'), 'resource compliance is observed after calls');
 check('role-proof-tool-output-measurement', roleProof.includes("['custom_tool_call_output', 'function_call_output'].includes(payloadType)") && roleProof.includes("Buffer.byteLength(line, 'utf8')") && roleProof.includes('toolOutputBytes') && roleProof.includes('toolOutputCount'), 'persisted custom/function output envelopes are measured without retaining content');
 for (const [name, flag, field] of [
   ['tool-output', '--expect-max-tool-output-bytes', 'maxToolOutputBytes'],
@@ -203,13 +224,23 @@ for (const [name, binding] of Object.entries(bindings).filter(([name]) => name !
         && role.includes('Use context.anchors in one targeted `rg` call across all readFirst paths')
         && role.includes('Use bounded slices instead of full-file reads')
         && role.includes('readFirst is limited to 1..4 paths')
-      && role.includes('Do not run `rg --files`'),
-      'bounded anchor-first discovery without repository enumeration',
+        && role.includes('Do not run `rg --files`')
+        && role.includes('For V1 contracts')
+        && role.includes('For V2 contracts')
+        && role.includes("do not inherit V1's fixed call, read, or output caps"),
+      'schema-conditional anchor-first discovery without repository enumeration',
     );
     check('owner-tool-output-budget', ownerOutputBudgetAnchors.every((anchor) => role.includes(anchor)), 'bounded read/search evidence and owner tool-output budgets');
     check('owner-session-reuse', role.includes('Remain reusable for at most three turns') && role.includes('HELIOLUNE_OWNER_FOLLOWUP_V1'), 'same-contract implementation, repair, and evidence turns');
     check('owner-persistent-helioterm', role.includes('exactly one configured `heliolune_helioterm`') && role.includes('Reuse that exact child with `followup_task`'), 'one reusable HelioTerm child');
-    check('owner-tool-call-budget', role.includes('at most 36 total tool calls') && role.includes('six across the reused session'), 'owner cumulative tool/edit cap');
+    check(
+      'owner-tool-call-budget',
+      role.includes('For V1, use at most two edit calls per turn and six across the reused session')
+        && role.includes('V1 uses its historical maxToolCalls 36')
+        && role.includes('V2 does not inherit those legacy totals')
+        && role.includes('resourceLease dimensions'),
+      'schema-conditional V1 edit cap and V2 explicit resource lease policy',
+    );
     check('owner-neutral-result', role.includes('terminalUsed, terminalAgentPath, terminalEvidence'), 'neutral result fields');
     check(
       'owner-result-shape',
@@ -231,6 +262,13 @@ for (const [name, binding] of Object.entries(bindings).filter(([name]) => name !
         'No alternate field names or object arrays are allowed',
       ].every((anchor) => role.includes(anchor)),
       'self-contained HELIOLUNE_OWNER_RESULT_V1 field shapes',
+    );
+    check(
+      'owner-v2-result-shape',
+      role.includes('HELIOLUNE_OWNER_RESULT_V2')
+        && role.includes('qualityAcceptance')
+        && role.includes('resourceCompliance'),
+      'conditional HELIOLUNE_OWNER_RESULT_V2 quality/resource fields',
     );
   }
   if (name === 'terminal') {

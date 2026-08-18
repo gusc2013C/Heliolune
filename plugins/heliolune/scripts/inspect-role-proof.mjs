@@ -84,9 +84,19 @@ const turnContextDistinctValues = {
 const everyTurnContext = (predicate) => turnContexts.length > 0 && turnContexts.every(predicate);
 const tokenEvents = rows.filter((row) => row.type === 'event_msg' && row.payload?.type === 'token_count');
 const usage = tokenEvents.at(-1)?.payload?.info?.total_token_usage ?? null;
+// Persisted tool-call count is a post-call diagnostic observation, not a token or cost proxy.
 const toolCallCount = rows.filter((row) => row.type === 'response_item' && ['custom_tool_call', 'function_call'].includes(row.payload?.type)).length;
 const maxToolOutputBytes = toolOutputBytes.length > 0 ? Math.max(...toolOutputBytes) : 0;
 const totalToolOutputBytes = toolOutputBytes.reduce((total, bytes) => total + bytes, 0);
+const resourceObservation = {
+  toolOutputBytes: maxToolOutputBytes,
+  totalToolOutputBytes,
+  totalTokens: usage?.total_tokens ?? null,
+  reasoningTokens: usage?.reasoning_output_tokens ?? null,
+  outputTokens: usage?.output_tokens ?? null,
+  cachedInputTokens: usage?.cached_input_tokens ?? null,
+  inputTokens: usage?.input_tokens ?? null,
+};
 const assistantText = rows
   .filter((row) => row.type === 'response_item' && row.payload?.type === 'message' && row.payload?.role === 'assistant')
   .flatMap((row) => row.payload.content ?? [])
@@ -124,6 +134,8 @@ const actual = {
   turnContextDistinctValues,
   markerSeen: expected.marker ? assistantText.includes(expected.marker) : null,
   toolCallCount,
+  toolCallObservation: { count: toolCallCount, kind: 'diagnostic', preCallEnforcement: false },
+  resourceObservation,
   toolOutputCount: toolOutputBytes.length,
   maxToolOutputBytes,
   totalToolOutputBytes,
